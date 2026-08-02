@@ -1,6 +1,6 @@
-# [Project name]
+# RCX Supervisor View
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+RingCX supervisor monitoring prototype (imported from github.com/vipindas-rc/Cherry-picking), limited to Supervisor view 2 and Supervisor view 3 workflows.
 
 ## Run & Operate
 

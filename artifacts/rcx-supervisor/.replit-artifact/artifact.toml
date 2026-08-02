@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "RCX Supervisor View"
+description = "RingCX supervisor monitoring prototype extracted from the Cherry-picking repo, limited to Supervisor view 2 and Supervisor view 3 workflows: live agent/interaction tables, queue previews, and digital monitoring for contact-center supervisors."
+version = "1.0.0"
+id = "artifacts/rcx-supervisor"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 26206
+
+[services.development]
+run = "pnpm --filter @workspace/rcx-supervisor run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/rcx-supervisor", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/rcx-supervisor/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "26206"
+BASE_PATH = "/"
