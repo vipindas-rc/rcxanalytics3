@@ -911,10 +911,9 @@ export function makeQueueInteractions(): any[] {
       // Queue rows get their own hover actions (AI insights / Transfer /
       // Claim) instead of the supervisor monitoring set.
       isQueueRow: true,
-      // Digital rows sometimes carry a pre-queue IVR/bot transcript worth
-      // previewing; voice rows never do, and not every digital contact used
-      // the bot first.
-      hasPreview: ch.type !== 'VOICE' && i % 3 !== 2,
+      // Every digital row carries a pre-queue IVR/bot transcript worth
+      // previewing; voice rows never do.
+      hasPreview: ch.type !== 'VOICE',
       showViewInsights: true,
       showBargeIn: false,
       showMonitor: false,

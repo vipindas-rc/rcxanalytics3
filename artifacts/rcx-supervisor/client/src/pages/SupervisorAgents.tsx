@@ -457,6 +457,7 @@ export const SupervisorAgents = (): JSX.Element => {
         (p) => {
           p.delete("modal");
           p.delete("agentId");
+          p.delete("engagementId");
         },
         { replace: true },
       );

@@ -75,46 +75,37 @@ const MOCK_AGENTS = [
   "Eva Novak",
 ];
 
-type TransferTab = "queue" | "agent";
+export interface TransferDestination {
+  queues: string[];
+  agents: string[];
+}
 
-function TransferMessageDialog({
+export function TransferMessageDialog({
   onCancel,
   onTransfer,
 }: {
   onCancel: () => void;
-  onTransfer: (summary: string) => void;
+  onTransfer: (summary: string, destination: TransferDestination) => void;
 }) {
-  const [tab, setTab] = useState<TransferTab>("queue");
   const [selectedQueues, setSelectedQueues] = useState<string[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
 
-  const canTransfer =
-    tab === "queue" ? selectedQueues.length > 0 : selectedAgents.length > 0;
+  const canTransfer = selectedQueues.length > 0 || selectedAgents.length > 0;
 
   const handleTransfer = () => {
-    const summary =
-      tab === "queue"
-        ? `Transferred to queue: ${selectedQueues.join(", ")}`
-        : `Transferred to agent: ${selectedAgents.join(", ")}`;
-    onTransfer(summary);
+    const parts: string[] = [];
+    if (selectedQueues.length > 0) {
+      parts.push(`queue: ${selectedQueues.join(", ")}`);
+    }
+    if (selectedAgents.length > 0) {
+      parts.push(`agent: ${selectedAgents.join(", ")}`);
+    }
+    onTransfer(`Transferred to ${parts.join("; ")}`, {
+      queues: selectedQueues,
+      agents: selectedAgents,
+    });
   };
-
-  const tabStyle = (active: boolean): React.CSSProperties => ({
-    position: "relative",
-    display: "flex",
-    alignItems: "center",
-    height: 44,
-    padding: "0 16px",
-    border: "none",
-    background: "transparent",
-    cursor: "pointer",
-    fontFamily: FONT,
-    fontSize: 14,
-    fontWeight: active ? 600 : 400,
-    color: active ? RC_BLUE : "#757575",
-    whiteSpace: "nowrap",
-  });
 
   return (
     <div
@@ -178,107 +169,55 @@ function TransferMessageDialog({
           </button>
         </div>
 
-        {/* Tabs */}
-        <div style={{ display: "flex", borderBottom: "1px solid #e0e0e0" }}>
-          <button
-            type="button"
-            style={tabStyle(tab === "queue")}
-            onClick={() => setTab("queue")}
-            data-testid="tab-transfer-by-queue"
-          >
-            By queue
-            {tab === "queue" && (
-              <span
-                style={{
-                  position: "absolute",
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  height: 2,
-                  background: RC_BLUE,
-                  borderRadius: "2px 2px 0 0",
-                }}
-              />
-            )}
-          </button>
-          <button
-            type="button"
-            style={tabStyle(tab === "agent")}
-            onClick={() => setTab("agent")}
-            data-testid="tab-transfer-by-agent"
-          >
-            By agent
-            {tab === "agent" && (
-              <span
-                style={{
-                  position: "absolute",
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  height: 2,
-                  background: RC_BLUE,
-                  borderRadius: "2px 2px 0 0",
-                }}
-              />
-            )}
-          </button>
-        </div>
-
-        {/* Body */}
+        {/* Body — single stacked form: Queue, Agent, Requeue Skills.
+            zIndex keeps each open menu above the fields below it. */}
         <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 16, minHeight: 200 }}>
-          {tab === "queue" ? (
-            <>
-              {/* Queue multi-select — same Filter/MultiSelect as filter dropdowns.
-                  zIndex keeps its open menu above the Skills field below it. */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, position: "relative", zIndex: 2 }}>
-                <label style={{ fontFamily: FONT, fontSize: 13, color: "#757575" }}>
-                  Queue
-                </label>
-                <div data-testid="dropdown-queue-search">
-                  <SupervisorFilter
-                    placeholder="Select a queue..."
-                    options={MOCK_QUEUES.map((q) => ({ value: q, label: q }))}
-                    values={selectedQueues}
-                    onValuesChange={setSelectedQueues}
-                    ariaLabel="Queue"
-                  />
-                </div>
-              </div>
-
-              {/* Requeue Skills multi-select — uses the same Filter/MultiSelect as filter dropdowns */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, position: "relative", zIndex: 1 }}>
-                <label style={{ fontFamily: FONT, fontSize: 13, color: "#757575" }}>
-                  Requeue Skills
-                </label>
-                <div data-testid="dropdown-requeue-skills">
-                  <SupervisorFilter
-                    placeholder="Select skills..."
-                    options={MOCK_SKILLS.map((s) => ({ value: s, label: s }))}
-                    values={selectedSkills}
-                    onValuesChange={setSelectedSkills}
-                    disabled={selectedQueues.length === 0}
-                    ariaLabel="Requeue Skills"
-                  />
-                </div>
-              </div>
-            </>
-          ) : (
-            /* By agent tab */
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <label style={{ fontFamily: FONT, fontSize: 13, color: "#757575" }}>
-                Agent
-              </label>
-              <div data-testid="dropdown-agent-select">
-                <SupervisorFilter
-                  placeholder="Select an agent..."
-                  options={MOCK_AGENTS.map((a) => ({ value: a, label: a }))}
-                  values={selectedAgents}
-                  onValuesChange={setSelectedAgents}
-                  ariaLabel="Agent"
-                />
-              </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, position: "relative", zIndex: 3 }}>
+            <label style={{ fontFamily: FONT, fontSize: 13, color: "#757575" }}>
+              Queue
+            </label>
+            <div data-testid="dropdown-queue-search">
+              <SupervisorFilter
+                placeholder="Select a queue..."
+                options={MOCK_QUEUES.map((q) => ({ value: q, label: q }))}
+                values={selectedQueues}
+                onValuesChange={setSelectedQueues}
+                ariaLabel="Queue"
+              />
             </div>
-          )}
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, position: "relative", zIndex: 2 }}>
+            <label style={{ fontFamily: FONT, fontSize: 13, color: "#757575" }}>
+              Agent
+            </label>
+            <div data-testid="dropdown-agent-select">
+              <SupervisorFilter
+                placeholder="Select an agent..."
+                options={MOCK_AGENTS.map((a) => ({ value: a, label: a }))}
+                values={selectedAgents}
+                onValuesChange={setSelectedAgents}
+                ariaLabel="Agent"
+              />
+            </div>
+          </div>
+
+          {/* Requeue Skills multi-select — uses the same Filter/MultiSelect as filter dropdowns */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, position: "relative", zIndex: 1 }}>
+            <label style={{ fontFamily: FONT, fontSize: 13, color: "#757575" }}>
+              Requeue Skills
+            </label>
+            <div data-testid="dropdown-requeue-skills">
+              <SupervisorFilter
+                placeholder="Select skills..."
+                options={MOCK_SKILLS.map((s) => ({ value: s, label: s }))}
+                values={selectedSkills}
+                onValuesChange={setSelectedSkills}
+                disabled={selectedQueues.length === 0}
+                ariaLabel="Requeue Skills"
+              />
+            </div>
+          </div>
         </div>
 
         {/* Footer */}

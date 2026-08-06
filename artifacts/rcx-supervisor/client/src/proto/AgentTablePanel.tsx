@@ -55,6 +55,7 @@ export function usePendingInteractionsCount(): number {
 }
 import {
   InteractionPreview,
+  TransferMessageDialog,
   type InteractionPreviewMode,
 } from "./InteractionPreview";
 import {
@@ -529,18 +530,23 @@ export default function AgentTablePanel({
   //   ?modal=reassign      digital reassign modal (needs an open AI Insights ctx)
   //   ?modal=agent-state&agentId=<id>   Update agent state picker
   //   ?modal=rollup&agentId=<id>        24h interactions rollup breakdown
+  //   ?modal=queue-transfer&engagementId=<uii>   Transfer message dialog for a
+  //                                              pending queue row
   // Invalid/stale values (unknown agent, missing context, read-only view)
   // fall back by closing the dialog via history replace.
   // ---------------------------------------------------------------------
   const [modalParam] = useUrlParam("modal");
   const [modalAgentIdParam] = useUrlParam("agentId");
+  const [modalEngagementIdParam] = useUrlParam("engagementId");
   const updateSearch = useUrlSearchUpdater();
   const openModal = useCallback(
-    (id: string, agentId?: string) => {
+    (id: string, agentId?: string, engagementId?: string) => {
       updateSearch((p) => {
         p.set("modal", id);
         if (agentId) p.set("agentId", agentId);
         else p.delete("agentId");
+        if (engagementId) p.set("engagementId", engagementId);
+        else p.delete("engagementId");
       });
     },
     [updateSearch],
@@ -550,6 +556,7 @@ export default function AgentTablePanel({
       updateSearch((p) => {
         p.delete("modal");
         p.delete("agentId");
+        p.delete("engagementId");
       }, options);
     },
     [updateSearch],
@@ -559,6 +566,8 @@ export default function AgentTablePanel({
   const stateModalAgentId =
     modalParam === "agent-state" ? modalAgentIdParam : null;
   const rollupAgentId = modalParam === "rollup" ? modalAgentIdParam : null;
+  const queueTransferEngagementId =
+    modalParam === "queue-transfer" ? modalEngagementIdParam : null;
 
   // The AI Insights panel belongs to the Interactions tab table view: navigating
   // away — to the Agents tab, or into an Interaction preview route — closes it
@@ -581,7 +590,8 @@ export default function AgentTablePanel({
       modalParam === "transfer" ||
       modalParam === "reassign" ||
       modalParam === "agent-state" ||
-      modalParam === "rollup"
+      modalParam === "rollup" ||
+      modalParam === "queue-transfer"
     ) {
       closeModal({ replace: true });
     }
@@ -1097,19 +1107,63 @@ export default function AgentTablePanel({
         );
         return;
       }
-      if (type !== "queueClaim" && type !== "queueTransfer") return;
+      // Transfer opens the same Transfer message dialog as the Interaction
+      // preview (URL-driven), so the supervisor picks a destination first.
+      if (type === "queueTransfer") {
+        if (uii) openModal("queue-transfer", undefined, uii);
+        return;
+      }
+      if (type !== "queueClaim") return;
       const row = removeQueueRow(uii ?? "");
       if (!row) return;
       setInsightCtx((ctx) =>
         ctx?.engagementId === uii ? null : ctx,
       );
       flashRef.current(
-        type === "queueClaim"
-          ? `You claimed the conversation with ${row.contactIdentity}`
-          : `Conversation with ${row.contactIdentity} transferred`,
+        `You claimed the conversation with ${row.contactIdentity}`,
       );
     },
-    [onPreviewOpen, queueRows],
+    [onPreviewOpen, queueRows, openModal],
+  );
+
+  // Queue row backing the open ?modal=queue-transfer dialog. A stale deep
+  // link (row already claimed/transferred) self-heals by closing the dialog.
+  const queueTransferRow = useMemo(
+    () =>
+      queueTransferEngagementId
+        ? (queueRows.find(
+            (r: any) => r.engagementId === queueTransferEngagementId,
+          ) as any) ?? null
+        : null,
+    [queueTransferEngagementId, queueRows],
+  );
+  useEffect(() => {
+    if (queueTransferEngagementId && !queueTransferRow) {
+      closeModal({ replace: true });
+    }
+  }, [queueTransferEngagementId, queueTransferRow, closeModal]);
+
+  // Transfer confirmed from the queue-row dialog: the interaction leaves the
+  // queue, the hop log records each chosen destination, and a toast confirms.
+  const handleQueueTransfer = useCallback(
+    (_summary: string, destination: { queues: string[]; agents: string[] }) => {
+      const uii = queueTransferEngagementId ?? "";
+      closeModal();
+      const row = removeQueueRow(uii);
+      if (!row) return;
+      setInsightCtx((ctx) => (ctx?.engagementId === uii ? null : ctx));
+      destination.queues.forEach((name) =>
+        appendContextHop(uii, { kind: "queue", name }),
+      );
+      destination.agents.forEach((name) =>
+        appendContextHop(uii, { kind: "agent", name }),
+      );
+      const dest = [...destination.queues, ...destination.agents].join(", ");
+      flashRef.current(
+        `Conversation with ${row.contactIdentity} transferred to ${dest}`,
+      );
+    },
+    [queueTransferEngagementId, closeModal],
   );
 
   // Row-level hover actions on an interaction. The legacy "barge-in" trigger
@@ -1671,6 +1725,13 @@ export default function AgentTablePanel({
               }
               flashRef.current(`Conversation reassigned to ${agent.name}`);
             }}
+          />
+        )}
+
+        {queueTransferRow && !readOnly && (
+          <TransferMessageDialog
+            onCancel={() => closeModal()}
+            onTransfer={handleQueueTransfer}
           />
         )}
 

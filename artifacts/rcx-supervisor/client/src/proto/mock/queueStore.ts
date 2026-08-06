@@ -140,9 +140,9 @@ const makeArrival = (): any => {
     // urgent); the rest have none and render the em dash.
     priority: i % 3 === 0 ? (Math.floor(i / 3) % 3) + 1 : null,
     isQueueRow: true,
-    // Digital arrivals sometimes have a pre-queue IVR/bot transcript to
+    // Every digital arrival carries a pre-queue IVR/bot transcript to
     // preview; voice arrivals never do.
-    hasPreview: ch.type !== 'VOICE' && i % 2 === 0,
+    hasPreview: ch.type !== 'VOICE',
     showViewInsights: true,
     showBargeIn: false,
     showMonitor: false,
