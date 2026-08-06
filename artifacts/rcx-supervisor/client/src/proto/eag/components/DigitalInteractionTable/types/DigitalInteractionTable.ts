@@ -30,6 +30,9 @@ export interface IDigitalInteractionTable {
     // so the grid's standard filter empty state is rendered instead of the
     // no-interactions message.
     hasActiveFilters?: boolean;
+    // Reports the row count the grid actually shows after its own filters
+    // (search box, agent/channel/category) so tab labels can mirror it.
+    onFilteredCountChange?: (count: number) => void;
 }
 export type InteractionSearchRowsType = {
     agentId: string;

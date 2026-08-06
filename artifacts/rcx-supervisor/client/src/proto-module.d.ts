@@ -6,7 +6,7 @@ declare module "@proto" {
     selectedStates?: string[];
     selectedChannels?: string[];
     selectedAgentGroups?: string[];
-    agentTypeFilter?: "All" | "Air" | "Human";
+    agentTypeFilter?: string[];
     statusFilter?: "All" | "Active" | "Inactive";
     visibleColumnIds?: string[];
     selectedAgentIds?: string[];
@@ -25,10 +25,17 @@ declare module "@proto" {
     previewMode?: "preview" | "expanded" | "takeover" | null;
     onPreviewOpen?: (engagementId: string) => void;
     onPreviewModeChange?: (mode: "preview" | "expanded" | "takeover") => void;
+    previewTakeOverRoutable?: boolean;
+    onInteractionCountChange?: (count: number) => void;
     onPreviewClose?: () => void;
     readOnly?: boolean;
     showCurrentUser?: boolean;
     interactionsVariant?: "supervisor2" | "supervisor3";
+    // Voice take-over committed — page switches to the Active calls context.
+    onTakeOverCommitted?: (agentId: string) => void;
+    // Floating call window closed — page leaves the Active calls context
+    // if it was showing this agent's taken-over call.
+    onMonitoringWindowClosed?: (agentId: string) => void;
   }
   const AgentTablePanel: ComponentType<ProtoAgentTablePanelProps>;
   export default AgentTablePanel;
@@ -98,4 +105,9 @@ declare module "@proto" {
     label: string;
     testId?: string;
   }>;
+  // Voice take-over: full-page Active calls view for a taken-over call.
+  export interface ActiveCallViewProps {
+    agentId?: string | null;
+  }
+  export const ActiveCallView: ComponentType<ActiveCallViewProps>;
 }

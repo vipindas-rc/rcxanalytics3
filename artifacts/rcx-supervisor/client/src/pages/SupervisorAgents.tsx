@@ -13,6 +13,7 @@ import {
 type InteractionPreviewMode = "preview" | "expanded" | "takeover";
 
 import AgentTablePanel, {
+  ActiveCallView,
   agentColumnMeta,
   interactionColumnMeta,
   supervisor2InteractionColumnMeta,
@@ -32,12 +33,17 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Tooltip,
   TooltipContent,
@@ -59,6 +65,7 @@ import {
   Settings as SettingsIcon,
   ExternalLink,
   Menu as DragHandleIcon,
+  X,
 } from "lucide-react";
 
 // The header/tabs/Filters blue, reused in the table settings dialogs so the
@@ -93,46 +100,6 @@ const CHANNEL_OPTIONS = [
   "Voice",
 ];
 
-// Inline filter-row dropdown matching the Figma design: white field, light-gray
-// border, gray ghost text for the default "All …" value, dark text once a real
-// option is chosen.
-function FilterDropdown({
-  value,
-  onValueChange,
-  allValue = "All",
-  allLabel,
-  options,
-  testId,
-}: {
-  value: string;
-  onValueChange: (value: string) => void;
-  allValue?: string;
-  allLabel: string;
-  options: { value: string; label: string }[];
-  testId: string;
-}): JSX.Element {
-  const isAll = value === allValue;
-  return (
-    <Select value={value} onValueChange={onValueChange}>
-      <SelectTrigger
-        className={`h-10 w-[300px] shrink-0 rounded border-[#e0e0e0] bg-white px-3 font-main-text text-[14px] ${
-          isAll ? "text-[#a1a1a1]" : "text-[#212121]"
-        }`}
-        data-testid={testId}
-      >
-        <SelectValue placeholder={allLabel} />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={allValue}>{allLabel}</SelectItem>
-        {options.map((o) => (
-          <SelectItem key={o.value} value={o.value}>
-            {o.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Interactions-tab filters: URL-driven (deep-linkable / refresh-safe) and
@@ -457,11 +424,16 @@ export const SupervisorAgents = (): JSX.Element => {
   // Live pending-interaction count for the "Interactions (n)" sub-tab label —
   // queued (Pending) rows plus Reserved rows (assigned, not yet picked up).
   const pendingInteractionsCount = usePendingInteractionsCount();
-  const [agentTypeFilter, setAgentTypeFilter] = useState<"All" | "Air" | "Human">(
-    "All",
+  // Total interactions currently shown in the table (filters + search
+  // applied), reported by the table itself; falls back to the pending count
+  // until the first report arrives.
+  const [interactionsCount, setInteractionsCount] = useState<number | null>(
+    null,
   );
-  const [channelFilter, setChannelFilter] = useState<string>("All");
-  const [stateFilter, setStateFilter] = useState<string>("All");
+  // Agents-tab filters are multi-select arrays — empty array means "All".
+  const [agentTypeFilter, setAgentTypeFilter] = useState<string[]>([]);
+  const [channelFilter, setChannelFilter] = useState<string[]>([]);
+  const [stateFilter, setStateFilter] = useState<string[]>([]);
 
   // The filter row is closed by default; the "Filters" button toggles it open.
   // URL-driven (deep-linkable / refresh-safe): ?filters=open, omitted when
@@ -574,31 +546,6 @@ export const SupervisorAgents = (): JSX.Element => {
       isCherryPickingView &&
       new URLSearchParams(search).get("nav") === "queue");
 
-  const handleTopTabChange = useCallback(
-    (value: string) => {
-      // Only the Supervisor/My team and Queue tabs are functional in this
-      // prototype; the other top tabs are decorative.
-      if (value !== "Queue" && value !== "Supervisor") return;
-      updateSearch((params) => {
-        if (value === "Queue") params.set("nav", "queue");
-        else params.delete("nav");
-      });
-    },
-    [updateSearch],
-  );
-
-  // Take over is a Supervisor-view capability: a takeover deep link opened in
-  // Agent view renders as the read-only preview (the URL is normalized by an
-  // effect below) — the take-over UI must never mount in Agent view.
-  const previewMode: InteractionPreviewMode | null =
-    parsedPreviewMode === "takeover" && !isSupervisorView
-      ? "preview"
-      : parsedPreviewMode;
-  const previewEngagementId =
-    previewRouteMatched && previewMode
-      ? (previewParams?.engagementId ?? null)
-      : null;
-
   // Keeps the view selection when navigating between table and preview URLs
   // (Agent view is the clean-URL default, so only Supervisor view is carried).
   const withView = useCallback(
@@ -612,10 +559,71 @@ export const SupervisorAgents = (): JSX.Element => {
     [rawViewParam, isCherryPickingView],
   );
 
+  // URL-addressable Active calls view (deep-linkable / refresh-safe): after a
+  // voice take-over commits, the page routes to /active-call/:agentId and the
+  // top tab bar switches from "Supervisor" to "Active calls".
+  const [activeCallMatched, activeCallParams] = useRoute(
+    "/active-call/:agentId",
+  );
+  const activeCallAgentId = activeCallMatched
+    ? (activeCallParams?.agentId ?? null)
+    : null;
+
+  const handleTakeOverCommitted = useCallback(
+    (agentId: string) => navigate(withView(`/active-call/${agentId}`)),
+    [navigate, withView],
+  );
+
+  // Closing the taken-over call window ends the Active calls context — the
+  // top tab bar returns to Supervisor automatically.
+  const handleMonitoringWindowClosed = useCallback(
+    (agentId: string) => {
+      if (activeCallMatched && agentId === activeCallAgentId) {
+        navigate(withView("/"));
+      }
+    },
+    [activeCallMatched, activeCallAgentId, navigate, withView],
+  );
+
+  const handleTopTabChange = useCallback(
+    (value: string) => {
+      // Leaving the Active calls context returns to the Supervisor table.
+      if (value === "Supervisor" && activeCallMatched) {
+        navigate(withView("/"));
+        return;
+      }
+      // Only the Supervisor/My team, Queue, and Active calls tabs are
+      // functional in this prototype; the other top tabs are decorative.
+      if (value !== "Queue" && value !== "Supervisor") return;
+      updateSearch((params) => {
+        if (value === "Queue") params.set("nav", "queue");
+        else params.delete("nav");
+      });
+    },
+    [updateSearch, navigate, activeCallMatched, withView],
+  );
+
+  // Take over is a Supervisor-capability: available in the classic Supervisor
+  // view and the Supervisor 2/3 views. A takeover deep link opened in a
+  // non-supervisor view renders as the read-only preview (the URL is
+  // normalized by an effect below) — the take-over UI must never mount there.
+  const canTakeOver = isSupervisorView || isSupervisor2Like;
+  const previewMode: InteractionPreviewMode | null =
+    parsedPreviewMode === "takeover" && !canTakeOver
+      ? "preview"
+      : parsedPreviewMode;
+  const previewEngagementId =
+    previewRouteMatched && previewMode
+      ? (previewParams?.engagementId ?? null)
+      : null;
+
+
   // Unknown mode in the URL -> restore the plain table URL.
   useEffect(() => {
     if (previewRouteMatched && !previewMode) navigate(withView("/"));
   }, [previewRouteMatched, previewMode, navigate, withView]);
+
+
 
   // A preview deep link always belongs to the Interactions tab (preview URLs
   // never carry ?tab=agents, so the URL-derived tab is already Interactions).
@@ -796,7 +804,7 @@ export const SupervisorAgents = (): JSX.Element => {
   // treats it as preview, so this only cleans up the address bar).
   useEffect(() => {
     if (
-      !isSupervisorView &&
+      !canTakeOver &&
       parsedPreviewMode === "takeover" &&
       previewEngagementId
     ) {
@@ -804,7 +812,7 @@ export const SupervisorAgents = (): JSX.Element => {
         replace: true,
       });
     }
-  }, [isSupervisorView, parsedPreviewMode, previewEngagementId, navigate]);
+  }, [canTakeOver, parsedPreviewMode, previewEngagementId, navigate]);
 
   // Floating view switcher: Agent view (default) or Supervisor view.
   // Menu open state is transient chrome (not URL state).
@@ -876,23 +884,32 @@ export const SupervisorAgents = (): JSX.Element => {
     [setActiveTab],
   );
 
-  // The State filter offers exactly the states present in the table for the
-  // selected agent type (human states for Human, AirPro states for AirPro).
-  const stateOptionsForType = agentStateOptions[agentTypeFilter] ?? [];
+  // State options constrained by the selected agent types. Empty selection shows
+  // the union of all states. Selecting one type shows only that type's states.
+  const stateOptionsForType = useMemo(() => {
+    if (agentTypeFilter.length === 0) return agentStateOptions.All;
+    return Array.from(
+      new Set(
+        agentTypeFilter.flatMap(
+          (t) => agentStateOptions[t as "Air" | "Human"] ?? [],
+        ),
+      ),
+    );
+  }, [agentTypeFilter]);
 
-  // Agent-type filter (shared by both tabs). Changing it also clamps the Agents
-  // tab State selection to a value valid for the new type.
-  const handleAgentTypeChange = useCallback(
-    (value: string) => {
-      const next = value as "All" | "Air" | "Human";
-      setAgentTypeFilter(next);
-      const valid = agentStateOptions[next] ?? [];
-      if (stateFilter !== "All" && !valid.includes(stateFilter)) {
-        setStateFilter("All");
-      }
-    },
-    [stateFilter],
-  );
+  // Agent-type filter (shared by both tabs). Changing it drops any state
+  // selections that are no longer valid for the new type set.
+  const handleAgentTypeChange = useCallback((values: string[]) => {
+    setAgentTypeFilter(values);
+    if (values.length > 0) {
+      const validStates = new Set(
+        values.flatMap((t) => agentStateOptions[t as "Air" | "Human"] ?? []),
+      );
+      setStateFilter((prev) => prev.filter((s) => validStates.has(s)));
+    }
+    // If no types selected all states are valid — keep existing state selections.
+  }, []);
+
 
   // Table settings dialog is URL-addressable (?modal=table-settings), sharing
   // the modal key with the panel's action dialogs so only one can be open.
@@ -1028,12 +1045,8 @@ export const SupervisorAgents = (): JSX.Element => {
   // come from the URL-driven cascade. Shared props (channels, agent type) are
   // resolved per active tab.
   const iv = interactionFilters.values;
-  const selectedStates = stateFilter !== "All" ? [stateFilter] : [];
-  const selectedChannels = isInteractions
-    ? iv.channel
-    : channelFilter !== "All"
-      ? [channelFilter]
-      : [];
+  const selectedStates = stateFilter;
+  const selectedChannels = isInteractions ? iv.channel : channelFilter;
   const selectedCategories = iv.category;
   const selectedAgentIds = iv.agent;
   const selectedQueues = iv.queue;
@@ -1045,14 +1058,11 @@ export const SupervisorAgents = (): JSX.Element => {
     ? [iv.agentType, iv.agent, iv.channel, iv.category, iv.queue, iv.state].filter(
         (v) => v.length > 0,
       ).length + (breachedSlaOnly ? 1 : 0)
-    : [channelFilter, agentTypeFilter, stateFilter].filter((v) => v !== "All")
+    : [channelFilter, agentTypeFilter, stateFilter].filter((v) => v.length > 0)
         .length;
   // Both agent types picked = no narrowing (same as none picked).
-  const effectiveAgentTypeFilter = isInteractions
-    ? iv.agentType.length === 1
-      ? (iv.agentType[0] as "Air" | "Human")
-      : "All"
-    : agentTypeFilter;
+  // The panel takes the raw multi-select array; empty = no narrowing.
+  const effectiveAgentTypeFilter = isInteractions ? iv.agentType : agentTypeFilter;
   // Order matters: columns render in the saved drag order, Agent column first.
   const visibleColumnIds = colOrder.filter(
     (id) => id === "fullName" || visibleCols[id],
@@ -1070,7 +1080,10 @@ export const SupervisorAgents = (): JSX.Element => {
 
   return (
     <main className="flex h-screen w-full flex-col overflow-hidden bg-white">
-      <header className="flex h-14 w-full shrink-0 items-center border-b border-[#0000001f] bg-white">
+      <header
+        data-name="App bar"
+        className="flex h-14 w-full shrink-0 items-center border-b border-[#0000001f] bg-white"
+      >
         <div className="relative flex h-full w-full items-center bg-[url('/figmaAssets/appbar-bg.svg')] bg-cover bg-center px-4 pl-5">
           <div className="flex items-center gap-4">
             <button type="button" className="relative">
@@ -1181,7 +1194,10 @@ export const SupervisorAgents = (): JSX.Element => {
         </div>
       </header>
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-20 shrink-0 flex-col justify-between border-r border-neutral-200 bg-navb-02 py-4">
+        <aside
+          data-name="Side nav"
+          className="flex w-20 shrink-0 flex-col justify-between border-r border-neutral-200 bg-navb-02 py-4"
+        >
           <nav className="flex flex-col">
             {sidePrimaryNav.map((item) => (
               <button
@@ -1262,7 +1278,13 @@ export const SupervisorAgents = (): JSX.Element => {
               </Button>
             </div>
             <Tabs
-              value={isQueueTab ? "Queue" : "Supervisor"}
+              value={
+                activeCallMatched
+                  ? "Active calls"
+                  : isQueueTab
+                    ? "Queue"
+                    : "Supervisor"
+              }
               onValueChange={handleTopTabChange}
               className="w-full"
             >
@@ -1298,7 +1320,7 @@ export const SupervisorAgents = (): JSX.Element => {
             />
           ) : (
           <>
-          {previewMode === "takeover" ? (
+          {activeCallMatched ? null : previewMode === "takeover" ? (
             // Embedded take-over: the Supervisor header/filters give way to a
             // back row, and the taken-over conversation fills the area below.
             <div
@@ -1317,7 +1339,10 @@ export const SupervisorAgents = (): JSX.Element => {
             </div>
           ) : (
           <>
-          <div className="relative flex shrink-0 items-center border-b border-[#0000001a] px-5 py-3">
+          <div
+            data-name="Supervisor toolbar"
+            className="relative flex shrink-0 items-center border-b border-[#0000001a] px-5 py-3"
+          >
             <h2 className="shrink-0 font-subtitle-mini text-[15px] font-semibold leading-[var(--subtitle-mini-line-height)] text-[#121212]">
               {viewLabel}
             </h2>
@@ -1338,7 +1363,7 @@ export const SupervisorAgents = (): JSX.Element => {
                       data-testid={`tab-supervisor-${tab.toLowerCase()}`}
                     >
                       {tab === "Interactions"
-                        ? `Interactions (${pendingInteractionsCount})`
+                        ? `Interactions (${interactionsCount ?? pendingInteractionsCount})`
                         : tab}
                     </TabsTrigger>
                   ))}
@@ -1385,31 +1410,31 @@ export const SupervisorAgents = (): JSX.Element => {
               }`}
               data-testid="filter-row"
             >
-              {/* Agents tab: exactly 3 dropdowns — Channel, Agent type, State.
-                  The State options are conditional on the selected Agent type. */}
+              {/* Agents tab: Channel, Agent type, State (State options constrained
+                  by the selected Agent types). */}
               {!isInteractions && (
                 <>
-                  <FilterDropdown
-                    value={channelFilter}
-                    onValueChange={setChannelFilter}
-                    allLabel="All channels"
+                  <SupervisorFilter
+                    values={channelFilter}
+                    onValuesChange={setChannelFilter}
+                    placeholder="All channels"
                     options={CHANNEL_OPTIONS.map((c) => ({
                       value: c,
                       label: c,
                     }))}
                     testId="select-channel"
                   />
-                  <FilterDropdown
-                    value={agentTypeFilter}
-                    onValueChange={handleAgentTypeChange}
-                    allLabel="All agent types"
+                  <SupervisorFilter
+                    values={agentTypeFilter}
+                    onValuesChange={handleAgentTypeChange}
+                    placeholder="All agent types"
                     options={AGENT_TYPE_OPTIONS}
                     testId="select-agent-type"
                   />
-                  <FilterDropdown
-                    value={stateFilter}
-                    onValueChange={setStateFilter}
-                    allLabel="All states"
+                  <SupervisorFilter
+                    values={stateFilter}
+                    onValuesChange={setStateFilter}
+                    placeholder="All states"
                     options={stateOptionsForType.map((s) => ({
                       value: s,
                       label: s,
@@ -1502,7 +1527,24 @@ export const SupervisorAgents = (): JSX.Element => {
           )}
           </>
           )}
-          <div className="min-h-0 flex-1 overflow-hidden">
+          {activeCallMatched ? (
+            // Active calls view for the taken-over voice call. The supervisor
+            // table below stays mounted (zero-height) so the floating take-over
+            // dialer window and monitoring session survive the tab switch.
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <ActiveCallView agentId={activeCallAgentId} />
+            </div>
+          ) : null}
+          <div
+            data-name={
+              isInteractions ? "Interaction table" : "Agent table"
+            }
+            className={
+              activeCallMatched
+                ? "h-0 overflow-hidden"
+                : "min-h-0 flex-1 overflow-hidden"
+            }
+          >
             <AgentTablePanel
               readOnly={
                 isView2PendingTab
@@ -1542,7 +1584,11 @@ export const SupervisorAgents = (): JSX.Element => {
                   ? (queuePreviewEngagementId ? queuePreviewMode : previewMode)
                   : previewMode
               }
+              onInteractionCountChange={setInteractionsCount}
               onPreviewOpen={isView2PendingTab ? openQueuePreview : openPreview}
+              previewTakeOverRoutable={
+                !isView2PendingTab && !queuePreviewEngagementId
+              }
               onPreviewModeChange={
                 isView2PendingTab ? changeQueuePreviewMode : changePreviewMode
               }
@@ -1551,6 +1597,8 @@ export const SupervisorAgents = (): JSX.Element => {
                   ? closeQueuePreview
                   : closePreview
               }
+              onTakeOverCommitted={handleTakeOverCommitted}
+              onMonitoringWindowClosed={handleMonitoringWindowClosed}
             />
           </div>
           </>

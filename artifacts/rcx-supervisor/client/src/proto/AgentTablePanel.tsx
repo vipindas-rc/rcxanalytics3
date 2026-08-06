@@ -13,7 +13,7 @@ import { SupervisorAgentList } from "./eag/containers/SupervisorAgentList/Superv
 import { DigitalInteractionTable } from "./eag/components/DigitalInteractionTable/DigitalInteractionTable";
 import AiInsightsPanel from "./eag/components/AiInsightsPanel/AiInsightsPanel";
 import { Dialer } from "./dialer/Dialer";
-import { MonitoringDialpad } from "./dialer/MonitoringDialpad";
+import { MonitoringCallWindow } from "./dialer/MonitoringCallWindow";
 import { ReassignConversationModal } from "./ReassignConversationModal";
 import { InteractionRollupModal } from "./eag/containers/SupervisorAgentList/components/InteractionRollupModal";
 import {
@@ -38,6 +38,7 @@ import {
   useQueueRows,
   useQueuePendingCount,
   removeQueueRow,
+  requeueRow,
 } from "./mock/queueStore";
 import { useUrlParam, useUrlSearchUpdater } from "@/hooks/useUrlState";
 
@@ -60,6 +61,11 @@ import {
   SupervisorListHoverMenu,
   InformationHoverMenu,
 } from "./eag/containers/SupervisorAgentList/SupervisorAgentList.styled";
+import {
+  appendContextHop,
+  registerActiveCallContext,
+  useContextHops,
+} from "./contextHopStore";
 
 // Time in queue SLA breach threshold — matches the red band in the row
 // renderer (red past 10 minutes).
@@ -298,11 +304,17 @@ export function usePendingFilterRows(): InteractionFilterRow[] {
 
 interface AgentTablePanelProps {
   activeTab?: "Agents" | "Interactions" | "Queue";
+  // Live count of interaction rows the table currently shows (all pre-filters
+  // plus the grid's own search), for the "Interactions (n)" tab label.
+  onInteractionCountChange?: (count: number) => void;
+  // False when the hosting route can't navigate to /interactions/:id/takeover
+  // (e.g. a /queue/:id/:mode deep link) — hides the preview's Take over action.
+  previewTakeOverRoutable?: boolean;
   searchValue?: string;
   selectedStates?: string[];
   selectedChannels?: string[];
   selectedAgentGroups?: string[];
-  agentTypeFilter?: "All" | "Air" | "Human";
+  agentTypeFilter?: string[];
   statusFilter?: "All" | "Active" | "Inactive";
   visibleColumnIds?: string[];
   selectedAgentIds?: string[];
@@ -335,15 +347,23 @@ interface AgentTablePanelProps {
   // Time in queue / Previous agent columns. Supervisor view 3 behaves the
   // same but drops the Agent type / Confidence / Sentiment columns.
   interactionsVariant?: "supervisor2" | "supervisor3";
+  // Fired when a voice take-over commits so the page can switch to the
+  // Active calls context for that agent's call.
+  onTakeOverCommitted?: (agentId: string) => void;
+  // Fired when the floating call window closes so the page can leave the
+  // Active calls context if it was showing this agent's taken-over call.
+  onMonitoringWindowClosed?: (agentId: string) => void;
 }
 
 export default function AgentTablePanel({
   activeTab = "Agents",
+  previewTakeOverRoutable = true,
+  onInteractionCountChange,
   searchValue = "",
   selectedStates = [],
   selectedChannels = [],
   selectedAgentGroups = [],
-  agentTypeFilter = "All",
+  agentTypeFilter = [] as string[],
   statusFilter = "All",
   visibleColumnIds,
   selectedAgentIds = [],
@@ -363,6 +383,8 @@ export default function AgentTablePanel({
   readOnly = false,
   showCurrentUser = false,
   interactionsVariant,
+  onTakeOverCommitted,
+  onMonitoringWindowClosed,
 }: AgentTablePanelProps) {
   // Supervisor view 3 shares all of view 2's Interactions behavior (pending
   // row merging, hover actions, preview) — only the column set differs.
@@ -435,6 +457,41 @@ export default function AgentTablePanel({
     }, 2500);
     return () => window.clearInterval(id);
   }, [activeTab]);
+  // Live interaction timers, gated by conversation state so the three time
+  // columns behave like real clocks that agree with each other:
+  //   - Time in queue keeps running for the interaction's whole life.
+  //   - Total waiting time runs only while the customer is waiting
+  //     (Pending/Reserved) and freezes once an agent session is active.
+  //   - Interaction (agent handling time) runs only while Active.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setInteractions((prev) =>
+        prev.map((r: any) => {
+          const state = r.conversationState;
+          const active = state === "ACTIVE";
+          const waiting = state === "PENDING" || state === "RESERVED";
+          if (!active && !waiting) return r;
+          return {
+            ...r,
+            timeInQueueMs:
+              typeof r.timeInQueueMs === "number"
+                ? r.timeInQueueMs + 1000
+                : r.timeInQueueMs,
+            waitTimeMs:
+              waiting && typeof r.waitTimeMs === "number"
+                ? r.waitTimeMs + 1000
+                : r.waitTimeMs,
+            agentDurationMs:
+              active && typeof r.agentDurationMs === "number"
+                ? r.agentDurationMs + 1000
+                : r.agentDurationMs,
+          };
+        }),
+      );
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
   const [monitoredId, setMonitoredId] = useState<string | null>(null);
   // Engagement id of the voice interaction currently being monitored (from the
   // Interactions tab), used only to highlight that specific row — the dialpad
@@ -459,6 +516,11 @@ export default function AgentTablePanel({
   // Take over is immediate and permanent for the prototype — there is no
   // hand-back, so this only ever transitions from null to an engagement id.
   const [bargedId, setBargedId] = useState<string | null>(null);
+  // Runtime hop-log additions per engagement for the Context tab live in the
+  // module-level contextHopStore: take over appends "You", transfers append
+  // "Queue - {name}" / "Agent - {name}". The store is shared with the Active
+  // calls screen (mounted outside this panel), so the hop log survives the
+  // page's switch to the Active calls context after a voice take-over.
 
   // ---------------------------------------------------------------------
   // URL-driven action dialogs (deep-linkable / refresh-safe): all four share
@@ -566,11 +628,15 @@ export default function AgentTablePanel({
     () =>
       agents
         .filter((a: any) => {
-          if (agentTypeFilter !== "All" && a.agentType !== agentTypeFilter) {
+          if (
+            agentTypeFilter.length > 0 &&
+            !agentTypeFilter.includes(a.agentType)
+          ) {
             return false;
           }
           if (
-            agentTypeFilter === "Air" &&
+            agentTypeFilter.includes("Air") &&
+            !agentTypeFilter.includes("Human") &&
             statusFilter !== "All" &&
             a.status !== statusFilter
           ) {
@@ -626,7 +692,10 @@ export default function AgentTablePanel({
     () =>
       interactions
         .filter((it: any) => {
-          if (agentTypeFilter !== "All" && it.agentType !== agentTypeFilter) {
+          if (
+            agentTypeFilter.length > 0 &&
+            !agentTypeFilter.includes(it.agentType)
+          ) {
             return false;
           }
           // Queue / State are Interactions-tab filters applied here as row
@@ -657,6 +726,14 @@ export default function AgentTablePanel({
             showMonitor: false,
             monitorDisabledTooltip: "You can only monitor voice calls",
           };
+        })
+        // AirPro rows rank above human-agent rows by default so supervisors
+        // see AI interactions first. The table's column-header sort takes over
+        // once the user clicks a column header.
+        .sort((a: any, b: any) => {
+          const aAir = a.agentType === "Air" ? 0 : 1;
+          const bAir = b.agentType === "Air" ? 0 : 1;
+          return aAir - bAir;
         }),
     [
       interactions,
@@ -678,7 +755,7 @@ export default function AgentTablePanel({
         // Pending rows funnel through the same Interactions filters as the
         // assigned rows. They are unassigned, so any agent-type selection
         // (Air/Human) excludes them by definition.
-        if (agentTypeFilter !== "All") return false;
+        if (agentTypeFilter.length > 0) return false;
         // Queue rows carry their queue name in productName.
         if (
           selectedQueues.length > 0 &&
@@ -798,6 +875,11 @@ export default function AgentTablePanel({
     setMonitoredEngagementId(null);
   }, [agents]);
 
+  useEffect(() => {
+    if (activeTab === "Interactions") return; // grid reports its own count
+    onInteractionCountChange?.(supervisor2Interactions.length);
+  }, [activeTab, supervisor2Interactions, onInteractionCountChange]);
+
   const monitoredAgentRow = useMemo(
     () =>
       monitoredId
@@ -805,6 +887,28 @@ export default function AgentTablePanel({
         : null,
     [agents, monitoredId],
   );
+
+  // Context tab data for the voice monitoring window. Keyed off the monitored
+  // engagement (or a stable per-agent voice id when monitoring started from
+  // the Agents tab) so hop timers and chips stay stable while the window is
+  // open and runtime hops (take over / transfer) accumulate per engagement.
+  const monitoredContextEngagementId = monitoredAgentRow
+    ? monitoredEngagementId ?? `eng-${monitoredAgentRow.agentId}-voice`
+    : null;
+  const monitoredContextData = useMemo(
+    () =>
+      monitoredAgentRow && monitoredContextEngagementId
+        ? makeInteractionPreview({
+            engagementId: monitoredContextEngagementId,
+            fullName: monitoredAgentRow.fullName,
+            agentType: monitoredAgentRow.agentType,
+            sourceType: "VOICE",
+            sourceName: "Voice",
+          })
+        : null,
+    [monitoredAgentRow, monitoredContextEngagementId],
+  );
+  const monitoredContextHops = useContextHops(monitoredContextEngagementId);
 
   const onLogOut = useCallback(
     (agentId: string) => {
@@ -968,6 +1072,31 @@ export default function AgentTablePanel({
         if (uii) onPreviewOpen?.(uii);
         return;
       }
+      // 3-dot menu actions on pending rows.
+      if (type === "queueIgnore") {
+        const row = removeQueueRow(uii ?? "");
+        if (!row) return;
+        setInsightCtx((ctx) => (ctx?.engagementId === uii ? null : ctx));
+        flashRef.current(
+          `Conversation with ${row.contactIdentity} ignored`,
+        );
+        return;
+      }
+      if (type === "queueRequeue") {
+        const row = requeueRow(uii ?? "");
+        if (!row) return;
+        flashRef.current(
+          `Call from ${row.contactIdentity} moved to the back of the queue`,
+        );
+        return;
+      }
+      if (type === "queueRecategorize") {
+        const row = queueRows.find((r: any) => r.engagementId === uii);
+        flashRef.current(
+          `Conversation with ${row?.contactIdentity ?? "customer"} sent for recategorization`,
+        );
+        return;
+      }
       if (type !== "queueClaim" && type !== "queueTransfer") return;
       const row = removeQueueRow(uii ?? "");
       if (!row) return;
@@ -980,7 +1109,7 @@ export default function AgentTablePanel({
           : `Conversation with ${row.contactIdentity} transferred`,
       );
     },
-    [onPreviewOpen],
+    [onPreviewOpen, queueRows],
   );
 
   // Row-level hover actions on an interaction. The legacy "barge-in" trigger
@@ -1011,7 +1140,7 @@ export default function AgentTablePanel({
           agentType: row?.agentType,
         });
         setBargedId(uii ?? "");
-        flashRef.current(`You've taken over from ${row?.fullName ?? "Agent"}`);
+        flashRef.current(`You've claimed the conversation from ${row?.fullName ?? "Agent"}`);
         return;
       }
 
@@ -1078,7 +1207,10 @@ export default function AgentTablePanel({
       if (
         type === "queuePreview" ||
         type === "queueClaim" ||
-        type === "queueTransfer"
+        type === "queueTransfer" ||
+        type === "queueIgnore" ||
+        type === "queueRequeue" ||
+        type === "queueRecategorize"
       ) {
         queueActionCallback(agentId, type, uii);
         return;
@@ -1118,7 +1250,8 @@ export default function AgentTablePanel({
   const handleTakeOver = useCallback(() => {
     if (!insightCtx || readOnly) return;
     setBargedId(insightCtx.engagementId);
-    flashRef.current(`You've taken over from ${insightCtx.agentName}`);
+    appendContextHop(insightCtx.engagementId, { kind: "you" });
+    flashRef.current(`You've claimed the conversation from ${insightCtx.agentName}`);
   }, [insightCtx, readOnly]);
 
   // The rollup modal renders centered, so only the agent id needs to travel
@@ -1233,6 +1366,9 @@ export default function AgentTablePanel({
         : null,
     [previewRow],
   );
+  const previewContextHops = useContextHops(
+    previewData?.engagementId ?? null,
+  );
 
   // Take over availability tracks the AI agent's lifecycle: a draining agent
   // (Pending Inactive) can't accept a take-over hand-off.
@@ -1253,8 +1389,11 @@ export default function AgentTablePanel({
     if (!previewRow || readOnly) return;
     if (bargedId !== previewRow.engagementId) {
       setBargedId(previewRow.engagementId);
+      appendContextHop(previewRow.engagementId, { kind: "you" });
       flashRef.current(
-        `You've taken over from ${previewRow.fullName ?? "Agent"}`,
+        previewRow.isQueueRow
+          ? "You've claimed this conversation"
+          : `You've claimed the conversation from ${previewRow.fullName ?? "Agent"}`,
       );
     }
     onPreviewModeChange?.("takeover");
@@ -1270,6 +1409,7 @@ export default function AgentTablePanel({
             <InteractionPreview
               mode="takeover"
               data={previewData}
+              contextHops={previewContextHops}
               takeOverDisabled={previewAgentPendingInactive}
               onClose={() => onPreviewClose?.()}
               onEnlarge={() => onPreviewModeChange?.("expanded")}
@@ -1302,7 +1442,7 @@ export default function AgentTablePanel({
               columns={visibleInteractionCols as any}
               digitalTaskList={supervisor2Interactions as any}
               hasActiveFilters={
-                agentTypeFilter !== "All" ||
+                agentTypeFilter.length > 0 ||
                 selectedQueues.length > 0 ||
                 selectedInteractionStates.length > 0 ||
                 breachedSlaOnly
@@ -1322,6 +1462,7 @@ export default function AgentTablePanel({
               selectedChannels={selectedChannels}
               selectedCategories={selectedCategories}
               searchValue={searchValue}
+              onFilteredCountChange={onInteractionCountChange}
               highlightAgentId={highlightAgentId}
               highlightNonce={highlightNonce}
               selectedEngagementId={insightCtx?.engagementId ?? null}
@@ -1334,7 +1475,7 @@ export default function AgentTablePanel({
             <SupervisorAgentList
               agentList={displayAgents as any}
               hasActiveFilters={
-                agentTypeFilter !== "All" ||
+                agentTypeFilter.length > 0 ||
                 statusFilter !== "All" ||
                 selectedAgentGroups.length > 0
               }
@@ -1374,6 +1515,7 @@ export default function AgentTablePanel({
               }
               isMonitoring={insightIsMonitoring}
               variant={insightCtx.isQueue ? "queue" : undefined}
+              isAiAgent={insightCtx.agentType === "Air"}
               onClose={() => setInsightCtx(null)}
             />
           )}
@@ -1383,18 +1525,61 @@ export default function AgentTablePanel({
           <InteractionPreview
             mode={previewMode}
             data={previewData}
-            hideTakeOver={Boolean(previewRow.isQueueRow)}
+            hideTakeOver={activeTab === "Queue" || !previewTakeOverRoutable}
+            contextHops={previewContextHops}
             takeOverDisabled={readOnly || previewAgentPendingInactive}
             takeOverDisabledTooltip={
               readOnly
-                ? "Switch to Supervisor view to take over."
+                ? "Switch to Supervisor view to claim this interaction."
                 : previewAgentPendingInactive
-                  ? "You can't take over right now. This AirPro agent is pending inactive."
+                  ? "You can't claim this interaction right now. This AirPro agent is pending inactive."
                   : undefined
             }
             onClose={() => onPreviewClose?.()}
             onEnlarge={() => onPreviewModeChange?.("expanded")}
+            onRestore={() => onPreviewModeChange?.("preview")}
             onTakeOver={handlePreviewTakeOver}
+            overflowActions={
+              previewRow.conversationState === "PENDING"
+                ? [
+                    previewRow.isVoiceInteraction
+                      ? {
+                          id: "requeue",
+                          label: "Requeue",
+                          onSelect: () => {
+                            queueActionCallback(
+                              previewRow.agentId,
+                              "queueRequeue",
+                              previewRow.engagementId,
+                            );
+                          },
+                        }
+                      : {
+                          id: "recategorize",
+                          label: "Recategorize",
+                          onSelect: () => {
+                            queueActionCallback(
+                              previewRow.agentId,
+                              "queueRecategorize",
+                              previewRow.engagementId,
+                            );
+                          },
+                        },
+                    {
+                      id: "ignore",
+                      label: "Ignore",
+                      onSelect: () => {
+                        queueActionCallback(
+                          previewRow.agentId,
+                          "queueIgnore",
+                          previewRow.engagementId,
+                        );
+                        onPreviewClose?.();
+                      },
+                    },
+                  ]
+                : undefined
+            }
           />
         )}
 
@@ -1427,7 +1612,15 @@ export default function AgentTablePanel({
                     t.description ? `${t.title} — ${t.description}` : t.title,
                   )
                 }
-                onTransferComplete={() => closeModal()}
+                onTransferComplete={(target) => {
+                  closeModal();
+                  if (insightCtx) {
+                    appendContextHop(insightCtx.engagementId, {
+                      kind: "queue",
+                      name: target,
+                    });
+                  }
+                }}
                 onCallEnd={() => closeModal()}
               />
             </div>
@@ -1435,12 +1628,32 @@ export default function AgentTablePanel({
         )}
 
         {monitoredAgentRow && (
-          <MonitoringDialpad
+          <MonitoringCallWindow
             key={monitoredAgentRow.agentId}
             agentName={monitoredAgentRow.fullName}
             agentType={monitoredAgentRow.agentType === "Air" ? "Air" : "Human"}
             onClose={stopMonitoring}
+            onTakenOverCallEnded={() =>
+              onMonitoringWindowClosed?.(monitoredAgentRow.agentId)
+            }
             onToast={(m) => flashRef.current(m)}
+            contextData={monitoredContextData}
+            contextHops={monitoredContextHops}
+            onContextHop={(event) => {
+              if (monitoredContextEngagementId) {
+                appendContextHop(monitoredContextEngagementId, event);
+              }
+            }}
+            onTakeOverCommitted={() => {
+              if (monitoredContextEngagementId) {
+                registerActiveCallContext(monitoredAgentRow.agentId, {
+                  engagementId: monitoredContextEngagementId,
+                  fullName: monitoredAgentRow.fullName,
+                  agentType: monitoredAgentRow.agentType,
+                });
+              }
+              onTakeOverCommitted?.(monitoredAgentRow.agentId);
+            }}
           />
         )}
 
@@ -1450,6 +1663,12 @@ export default function AgentTablePanel({
             onCancel={() => closeModal()}
             onSave={(agent) => {
               closeModal();
+              if (insightCtx) {
+                appendContextHop(insightCtx.engagementId, {
+                  kind: "agent",
+                  name: agent.name,
+                });
+              }
               flashRef.current(`Conversation reassigned to ${agent.name}`);
             }}
           />
@@ -1531,3 +1750,6 @@ export default function AgentTablePanel({
     </RcThemeProvider>
   );
 }
+
+export { ActiveCallView } from "./ActiveCallView";
+export type { ActiveCallViewProps } from "./ActiveCallView";

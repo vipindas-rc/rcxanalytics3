@@ -1,5 +1,5 @@
 import type { FC } from 'react';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 
 import {
     clearPhoneNumberFromSymbols,
@@ -78,6 +78,7 @@ export const DigitalInteractionTable: FC<IDigitalInteractionTable> = ({
     highlightNonce,
     selectedEngagementId,
     hasActiveFilters = false,
+    onFilteredCountChange,
 }) => {
     const { digitalAgentEnabled } = AgentSvc;
     const isAIFeaturesEnabled =
@@ -153,6 +154,58 @@ export const DigitalInteractionTable: FC<IDigitalInteractionTable> = ({
             columns,
         ]
     );
+    // Visible-row count after every filter the grid itself applies (agent /
+    // channel / category pre-filters plus the search box), reported upward so
+    // the "Interactions (n)" tab label can track exactly what the table shows.
+    const filteredCount = useMemo(() => {
+        let filteredRows = searchFiltration<
+            RenderRowGroupData<InteractionData, InteractionSearchRowsType>
+        >(dataWithCategoryNames as any, interactionAgentNameCol, selectedIds);
+        filteredRows = searchFiltration<
+            RenderRowGroupData<InteractionData, InteractionSearchRowsType>
+        >(filteredRows, interactionChannelNameCol, selectedChannels);
+        const hasCategoriesColumn = columns.some(
+            (col) => col.id === 'categories'
+        );
+        if (hasCategoriesColumn) {
+            filteredRows = searchFiltration<
+                RenderRowGroupData<InteractionData, InteractionSearchRowsType>
+            >(filteredRows, interactionCategoryCol, selectedCategories);
+        }
+        if (searchValue) {
+            const searchIndexes = hasCategoriesColumn
+                ? interactionSearchColIndexes
+                : interactionSearchColIndexes.filter(
+                      (index) => index[0] !== 'categoryNames'
+                  );
+            const searchedRows = searchFiltration<
+                RenderRowGroupData<InteractionData, InteractionSearchRowsType>
+            >(filteredRows, searchIndexes, searchValue);
+            const clearedSearchValue =
+                clearPhoneNumberFromSymbols(searchValue);
+            clearedSearchValue &&
+                searchedRows.push(
+                    ...searchFiltration(
+                        filteredRows,
+                        [['contactIdentityE164']],
+                        clearedSearchValue
+                    )
+                );
+            return uniqBy(searchedRows, 'engagementId').length;
+        }
+        return filteredRows.length;
+    }, [
+        dataWithCategoryNames,
+        selectedIds,
+        selectedChannels,
+        selectedCategories,
+        searchValue,
+        columns,
+    ]);
+    useEffect(() => {
+        onFilteredCountChange?.(filteredCount);
+    }, [filteredCount, onFilteredCountChange]);
+
     const renderEmptyFilterResult = useCallback(() => {
         return (
             <EmptyWrapper>

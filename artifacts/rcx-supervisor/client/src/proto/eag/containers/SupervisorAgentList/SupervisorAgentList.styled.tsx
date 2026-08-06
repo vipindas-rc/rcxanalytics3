@@ -218,6 +218,24 @@ export const StyledSupervisorAgentList = styled<any>(GridList)`
                 pointer-events: auto;
             }
         }
+
+        /* Keep the row's hover treatment while its 3-dot flyout is open —
+           the portal-ed menu sits outside the row, so :hover clears once the
+           pointer moves into it. */
+        &:has([data-menu-open='true']) {
+            ${SupervisorRowWrapper} {
+                background: ${({ theme }) => theme.colors.gray[50]};
+
+                ${StyledAgentNameCellWrapper} {
+                    background: ${({ theme }) => theme.colors.gray[50]};
+                }
+            }
+
+            ${SupervisorListHoverMenu} {
+                opacity: 1;
+                pointer-events: auto;
+            }
+        }
     }
 
     span.grid-list-link {

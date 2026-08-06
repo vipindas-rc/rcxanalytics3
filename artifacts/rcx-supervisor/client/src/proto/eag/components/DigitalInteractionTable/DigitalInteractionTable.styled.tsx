@@ -96,6 +96,20 @@ export const StyledDigitalInteractionTable = styled<any>(GridList)`
                 pointer-events: auto;
             }
         }
+
+        /* Keep the row's hover treatment while its 3-dot flyout is open
+           (the portal-ed menu lives outside the row, so :hover alone would
+           clear the moment the pointer enters it). */
+        &:has([data-menu-open='true']) {
+            ${SupervisorRowWrapper}:not(.disabled) {
+                background: ${({ theme }) => theme.colors.gray[50]};
+            }
+
+            ${SupervisorListHoverMenu} {
+                opacity: 1;
+                pointer-events: auto;
+            }
+        }
     }
 
     span.grid-list-link {

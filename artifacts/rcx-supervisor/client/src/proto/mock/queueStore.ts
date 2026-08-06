@@ -44,6 +44,25 @@ export const removeQueueRow = (engagementId: string): any | null => {
   return row;
 };
 
+/**
+ * Send a waiting call back to the end of the queue: its waiting clocks reset
+ * and the row re-sorts to the bottom (default order is longest wait first).
+ */
+export const requeueRow = (engagementId: string): any | null => {
+  const row = rows.find((r) => r.engagementId === engagementId) ?? null;
+  if (row) {
+    rows = rows
+      .map((r) =>
+        r.engagementId === engagementId
+          ? { ...r, timeInQueueMs: 0, waitTimeMs: 0 }
+          : r,
+      )
+      .sort((a, b) => b.timeInQueueMs - a.timeInQueueMs);
+    emit();
+  }
+  return row;
+};
+
 // --- Arrival generator -------------------------------------------------------
 const ARRIVAL_CUSTOMERS = [
   'Katrina Michaels',
@@ -133,16 +152,37 @@ const makeArrival = (): any => {
 
 // --- Simulation ---------------------------------------------------------------
 let simulationStarted = false;
+// Timer beat: the waiting clocks advance every second (matching the 1s
+// timers on assigned interactions), while arrivals/departures churn on a
+// slower beat so the queue doesn't thrash.
+export const TIMER_TICK_MS = 1000;
+// Churn beat: every CHURN_EVERY_TICKS timer beats, an arrival or departure
+// happens (same 6s rhythm as before).
+const CHURN_EVERY_TICKS = 6;
 let tick = 0;
+let churnBeat = 0;
 
 export const startQueueSimulation = (): void => {
   if (simulationStarted) return;
   simulationStarted = true;
   window.setInterval(() => {
     tick += 1;
+    // Waiting clocks keep running: while a customer is still waiting
+    // (queue rows are all Pending), both Total waiting time and Time in
+    // queue count up each second, so rows cross SLA bands live.
+    rows = rows.map((r) => ({
+      ...r,
+      timeInQueueMs: r.timeInQueueMs + TIMER_TICK_MS,
+      waitTimeMs: r.waitTimeMs + TIMER_TICK_MS,
+    }));
+    if (tick % CHURN_EVERY_TICKS !== 0) {
+      emit();
+      return;
+    }
+    churnBeat += 1;
     // Uneven rhythm (2 arrivals for every departure) so the counter visibly
     // drifts instead of ping-ponging around one value.
-    if (tick % 3 !== 0) {
+    if (churnBeat % 3 !== 0) {
       // A new customer joins the queue (cap so it can't grow unbounded).
       // Keep the default order by time in queue (longest first) so the
       // red SLA breaches sit on top, then the orange ones, then the rest.
@@ -160,5 +200,5 @@ export const startQueueSimulation = (): void => {
       rows = rows.filter((r) => r !== shortest);
     }
     emit();
-  }, 6000);
+  }, TIMER_TICK_MS);
 };

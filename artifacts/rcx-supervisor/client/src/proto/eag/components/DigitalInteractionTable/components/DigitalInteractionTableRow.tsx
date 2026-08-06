@@ -1,6 +1,8 @@
 import type { FC } from 'react';
 import { Fragment, useMemo, useState } from 'react';
 
+import { Tooltip, More } from '@ringcx/ui';
+
 import { CategoriesCell } from './CategoriesCell';
 import { ScoreIndicator } from './ScoreIndicator';
 import type { AIFeature } from '../../../common/services/transport/aiFeatures';
@@ -8,6 +10,10 @@ import { INTERACTION_SOURCES } from '../../../constants/app';
 import { INTERACTION_CELL } from '../../../constants/testIds';
 import { getSourceType } from '../../../containers/Chat/TypeIcon';
 import InformationMenu from '../../../containers/SupervisorAgentList/components/Menus/InformationMenu';
+import {
+    StyledIconButton,
+    StyledMenu,
+} from '../../../containers/SupervisorAgentList/components/Menus/Menus.styled';
 import { SourceTypeIcon } from '../../../containers/SupervisorAgentList/components/SourceTypeIcon';
 import { SUPERVISOR_INTERACTION_COLUMN_ID } from '../../../containers/SupervisorAgentList/constants';
 import {
@@ -32,6 +38,78 @@ import {
     _getSupervisorAssistHoveredMenu,
     getDigitalInteractionHoveredItems,
 } from '../utils/DigitalInteractionRowRenderUtil';
+
+// 3-dot menu on pending (queue) rows: Ignore for every channel, plus
+// Recategorize (digital) or Requeue (voice). Same core More icon + flyout
+// menu design as the Agents tab.
+const QueueMoreMenu: FC<{
+    engagementId: string;
+    agentId: string;
+    isVoice: boolean;
+    onAction: (agentId: string, type: string, uii: string) => void;
+}> = ({ engagementId, agentId, isVoice, onAction }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    // Requeue / Recategorize leads; Ignore (the destructive-ish choice) last.
+    const options = useMemo(
+        () => [
+            isVoice
+                ? {
+                      id: `requeue-${engagementId}`,
+                      title: 'Requeue',
+                      action: () =>
+                          onAction(agentId, 'queueRequeue', engagementId),
+                      style: { color: 'var(--primary-text-color)' },
+                  }
+                : {
+                      id: `recategorize-${engagementId}`,
+                      title: 'Recategorize',
+                      action: () =>
+                          onAction(agentId, 'queueRecategorize', engagementId),
+                      style: { color: 'var(--primary-text-color)' },
+                  },
+            {
+                id: `ignore-${engagementId}`,
+                title: 'Ignore',
+                action: () => onAction(agentId, 'queueIgnore', engagementId),
+                style: { color: 'var(--primary-text-color)' },
+            },
+        ],
+        [agentId, engagementId, isVoice, onAction]
+    );
+    const toggleComponent = (
+        <Tooltip title='More' placement='left'>
+            <StyledIconButton
+                {...{
+                    disableRipple: true,
+                    size: 'medium',
+                    'aria-label': 'More',
+                    onClick: () => setIsOpen(true),
+                    tabindex: '-1',
+                }}
+                data-testid={`button-queue-more-${engagementId}`}
+            >
+                <More />
+            </StyledIconButton>
+        </Tooltip>
+    );
+    return (
+        // data-menu-open lets the row CSS pin its hover state (background +
+        // action buttons) while the flyout is open, matching the Agents tab.
+        <span data-menu-open={isOpen ? 'true' : undefined}>
+            <StyledMenu
+                {...{
+                    options,
+                    toggleComponent,
+                    isOpen,
+                    onClose: () => setIsOpen(false),
+                    // Portal to body so the flyout stacks above other rows.
+                    disablePortal: false,
+                    disableAutoFocusItem: true,
+                }}
+            />
+        </span>
+    );
+};
 
 export const DigitalInteractionTableRow: FC<{
     columns: any;
@@ -594,6 +672,12 @@ export const DigitalInteractionTableRow: FC<{
                         >
                             Claim
                         </button>
+                        <QueueMoreMenu
+                            engagementId={engagementId}
+                            agentId={agentId}
+                            isVoice={isVoiceInteraction}
+                            onAction={monitorAgentCallback as any}
+                        />
                     </StyledSupervisorCellWrapper>
                 </SupervisorListHoverMenu>
             ) : (

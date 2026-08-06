@@ -24,6 +24,8 @@ function Router() {
         path="/queue/:engagementId/:mode"
         component={SupervisorAgents}
       />
+      {/* Voice take-over: Active calls view for the taken-over call. */}
+      <Route path="/active-call/:agentId" component={SupervisorAgents} />
       {/* Fallback to 404 */}
       <Route component={NotFound} />
     </Switch>

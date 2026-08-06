@@ -125,6 +125,10 @@ export const MoreMenu = forwardRef<
         }, [ref, showLogout, toolTip]);
 
         return (
+            // data-menu-open lets the row CSS pin its hover state while the
+            // flyout is open (the portal-ed menu is outside the row, so plain
+            // :hover would clear as soon as the pointer enters it).
+            <span data-menu-open={isOpen ? 'true' : undefined}>
             <StyledMenu
                 {...{
                     options,
@@ -137,6 +141,7 @@ export const MoreMenu = forwardRef<
                     disableAutoFocusItem: true,
                 }}
             />
+            </span>
         );
     }
 );
