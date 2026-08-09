@@ -696,14 +696,14 @@ export function makeInteractions(_agents?: unknown): any[] {
       // renders both columns for every row): time in queue = interaction time
       // + interaction waiting time for the current segment; total waiting time
       // adds any pre-segment wait from earlier transfers/requeues.
-      // Up to ~12 min so a deterministic handful of assigned rows land past
-      // the 10-minute SLA and the Breached SLA toggle has matches. (Assigned
-      // rows render the value plain — the red/orange SLA colors only apply
-      // while a row is still Pending.)
-      const interactionWaitMs = ((t * 37) % 9) * 90 * 1000;
+      // Coefficients tuned so only a small deterministic handful (~2) of
+      // assigned rows land past the 10-minute SLA — combined with the
+      // pending queue rows the table shows roughly 5-6 SLA breaches total,
+      // and the Breached SLA toggle still has matches.
+      const interactionWaitMs = ((t * 37) % 9) * 50 * 1000;
       base.timeInQueueMs =
         (Number(tmpl.agentDurationMs) || 0) + interactionWaitMs;
-      base.waitTimeMs = base.timeInQueueMs + ((t * 61) % 7) * 90 * 1000;
+      base.waitTimeMs = base.timeInQueueMs + ((t * 61) % 7) * 25 * 1000;
 
       rows.push(base);
     });
@@ -849,7 +849,9 @@ const QUEUE_SUBJECTS = [
 // cover all three SLA bands (red >600s, orange 300-600s, plain <300s).
 const QUEUE_INTERACTION_SEC = [140, 20, 260, 60, 180, 30, 320, 90, 200];
 const QUEUE_SEGMENT_WAIT_SEC = [510, 25, 420, 100, 300, 45, 340, 240, 150];
-const QUEUE_PRIOR_WAIT_SEC = [90, 15, 200, 40, 60, 10, 120, 30, 500];
+// Prior-wait seeds stretch two rows past the Total-waiting-time bands
+// (orange >10 min, red >15, dark red >25) so every band is represented.
+const QUEUE_PRIOR_WAIT_SEC = [90, 15, 940, 40, 60, 10, 120, 30, 650];
 
 // Agents who previously claimed a conversation and put it back in queue.
 const PREVIOUS_AGENTS = [

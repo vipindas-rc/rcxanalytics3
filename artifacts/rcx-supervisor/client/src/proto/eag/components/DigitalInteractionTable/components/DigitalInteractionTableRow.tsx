@@ -393,12 +393,13 @@ export const DigitalInteractionTableRow: FC<{
                     if (
                         column.id === SUPERVISOR_INTERACTION_COLUMN_ID.WAIT_TIME
                     ) {
-                        // Total waiting time: the customer's overall wait —
-                        // same SLA color thresholds as Time in queue (red
-                        // past 10 minutes, orange between 5 and 10). Unlike
-                        // Time in queue, the colors stay in every state —
-                        // the total wait is a customer-experience number, so
-                        // it keeps flagging long waits after assignment.
+                        // Total waiting time: the customer's overall wait.
+                        // Own SLA bands (longer than Time in queue's):
+                        // orange past 10 minutes, red past 15.
+                        // Unlike Time in queue, the colors stay in every
+                        // state — the total wait is a customer-experience
+                        // number, so it keeps flagging long waits after
+                        // assignment.
                         return (
                             <StyledSupervisorCellWrapper
                                 data-aid={INTERACTION_CELL}
@@ -408,9 +409,9 @@ export const DigitalInteractionTableRow: FC<{
                                 {typeof waitTimeMs === 'number' ? (
                                     <span
                                         style={
-                                            waitTimeMs > 10 * 60 * 1000
+                                            waitTimeMs > 15 * 60 * 1000
                                                 ? { color: '#d32f2f', fontWeight: 500 }
-                                                : waitTimeMs > 5 * 60 * 1000
+                                                : waitTimeMs > 10 * 60 * 1000
                                                   ? { color: '#b26205', fontWeight: 500 }
                                                   : undefined
                                         }

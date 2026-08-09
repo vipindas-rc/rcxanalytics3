@@ -123,7 +123,7 @@ export const StyledSupervisorAgentList = styled<any>(GridList)`
         display: grid;
         padding: 0 100px 0 0;
         gap: 28px;
-        font-size: 13px;
+        font-size: ${({ theme }) => theme.font.size.base};
 
         grid-template-columns: ${({ columns }) =>
             columns.reduce(
@@ -179,7 +179,6 @@ export const StyledSupervisorAgentList = styled<any>(GridList)`
             min-height: 38px;
             max-height: 64px;
             padding: 9px 0;
-            font-size: 13px;
 
             &:first-child {
                 background: ${({ theme }) => theme.colors.gray[0]};
@@ -288,7 +287,14 @@ export const EmptyResult = styled.div`
 export const ShowIcon = styled.div`
     display: flex;
     align-self: center;
+    align-items: center;
     gap: 5px;
+
+    > .image {
+        display: flex;
+        align-items: center;
+        line-height: normal;
+    }
 `;
 interface SupervisorStateColorProps {
     stateColor: string;

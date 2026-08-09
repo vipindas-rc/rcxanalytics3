@@ -5,6 +5,8 @@ interface ITypeIcon {
     inColor: string | undefined;
 }
 export const StyledTypeIcon = styled.div<ITypeIcon>`
+    display: inline-flex;
+    align-items: center;
     color: ${({ inColor, theme }) =>
         inColor ? inColor : theme.colors.gray[700]};
     ${focusVisibleStyles}
