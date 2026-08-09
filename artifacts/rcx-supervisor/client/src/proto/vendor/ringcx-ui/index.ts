@@ -39,6 +39,10 @@ export { KEYBOARD_KEYS } from './constants/keyboard';
 // enumerate them. Both modules are tiny and MUI-free.
 export { TagColor } from './components/Tag/types';
 export { TagColorScheme } from './components/Tag/constants';
+// Styled primitives re-exported so shared Tag variants (e.g. the filled pill
+// in the component library) inherit the core Tag shape/typography directly
+// from Tag.styled.ts instead of duplicating its metrics.
+export { TagBorder, TagText } from './components/Tag/Tag.styled';
 export { DotColor } from './components/Dot/types';
 export type { ITagProps } from './components/Tag/types';
 export type { IDotProps, DotColorKeys } from './components/Dot/types';

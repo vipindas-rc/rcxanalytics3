@@ -44,6 +44,23 @@ declare module '@ringcx/ui' {
     onClick?: () => void;
   }>;
 
+  // Styled primitives from Tag.styled.ts (see the slim barrel) so shared
+  // variants can inherit the core Tag shape/typography without duplication.
+  export const TagBorder: ComponentType<{
+    color: TagColor;
+    bordered?: boolean;
+    disabled?: boolean;
+    eclipsable?: boolean;
+    className?: string;
+    children?: ReactNode;
+    'data-testid'?: string;
+  }>;
+
+  export const TagText: ComponentType<{
+    className?: string;
+    children?: ReactNode;
+  }>;
+
   export const Chip: ComponentType<{
     title: string;
     variant?: 'contained' | 'outlined';

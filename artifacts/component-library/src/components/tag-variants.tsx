@@ -1,5 +1,12 @@
-import { useTheme } from 'styled-components';
-import { TagColor, TagColorScheme, TagComponent, theme as coreTheme } from '@ringcx/ui';
+import styled, { ThemeProvider, useTheme } from 'styled-components';
+import {
+  TagBorder,
+  TagColor,
+  TagColorScheme,
+  TagComponent,
+  TagText,
+  theme as coreTheme,
+} from '@ringcx/ui';
 
 /* Shared Tag variants.
  *
@@ -7,7 +14,9 @@ import { TagColor, TagColorScheme, TagComponent, theme as coreTheme } from '@rin
  * - tinted   — core Tag default (soft background, colored text)
  * - bordered — core Tag with the bordered prop
  * - filled   — solid pill using the core palette's text color as background,
- *              matching the core Tag shape and typography exactly
+ *              built from the core Tag's own styled primitives (TagBorder +
+ *              TagText) so its shape and typography track Tag.styled.ts
+ *              automatically instead of duplicating metrics here.
  *
  * Severity always renders filled and maps to core colors: High = Red,
  * Medium = Orange, Low = Grey. All colors, fonts, and metrics come from the
@@ -17,18 +26,29 @@ import { TagColor, TagColorScheme, TagComponent, theme as coreTheme } from '@rin
 
 export type TagVariant = 'tinted' | 'bordered' | 'filled';
 
-// Matches vendored Tag.styled.ts: 2px radius, 12px/16px core-theme font 500,
-// 0.4px letter spacing, 2px 4px text padding, nowrap with hidden overflow.
-const TAG_SHAPE_CLASSES =
-  'inline-flex max-w-full items-center overflow-hidden whitespace-nowrap rounded-[2px] px-1 py-0.5 text-[12px] font-medium leading-4 tracking-[0.4px]';
+// Filled pill = the core Tag frame with the palette's text color promoted to
+// the background. Everything else (radius, padding, font metrics, overflow)
+// is inherited from TagBorder/TagText in the vendored Tag.styled.ts.
+const FilledTagRoot = styled(TagBorder)`
+  && {
+    color: #ffffff;
+    background-color: ${({ color }: { color: TagColor }) =>
+      TagColorScheme[color].text};
+    overflow: hidden;
+  }
 
-// Read the font stack from the active styled-components theme (the same one
-// the core Tag resolves), falling back to the core theme when rendered
-// outside a ThemeProvider.
-function useTagFontFamily(): string {
+  /* A solid pill has no border, including the core hover border. */
+  &&::before {
+    display: none;
+  }
+`;
+
+// The core styled components read the font family (and only crash without a
+// theme), so guarantee one: reuse the active styled-components theme when
+// present, otherwise fall back to the core theme.
+function useEnsuredTheme() {
   const activeTheme = useTheme() as { font?: { family?: string } } | undefined;
-  const fallback = (coreTheme as { font: { family: string } }).font.family;
-  return activeTheme?.font?.family ?? fallback;
+  return activeTheme?.font?.family ? undefined : coreTheme;
 }
 
 export function TagVariantComponent({
@@ -42,19 +62,17 @@ export function TagVariantComponent({
   variant?: TagVariant;
   'data-testid'?: string;
 }) {
-  const tagFontFamily = useTagFontFamily();
+  const fallbackTheme = useEnsuredTheme();
   if (variant === 'filled') {
-    return (
-      <span
-        className={`${TAG_SHAPE_CLASSES} text-white`}
-        style={{
-          backgroundColor: TagColorScheme[color].text,
-          fontFamily: tagFontFamily,
-        }}
-        data-testid={testId}
-      >
-        {text}
-      </span>
+    const filled = (
+      <FilledTagRoot color={color} data-testid={testId}>
+        <TagText>{text}</TagText>
+      </FilledTagRoot>
+    );
+    return fallbackTheme ? (
+      <ThemeProvider theme={fallbackTheme}>{filled}</ThemeProvider>
+    ) : (
+      filled
     );
   }
   // Core TagComponent doesn't forward arbitrary DOM attributes, so anchor
