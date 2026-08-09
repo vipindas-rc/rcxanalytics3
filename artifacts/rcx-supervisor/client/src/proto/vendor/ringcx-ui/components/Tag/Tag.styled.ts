@@ -54,6 +54,7 @@ export const TagBorder = styled.div<
     border-radius: 2px;
     position: relative;
     border: none;
+    cursor: default;
 
     ${({ eclipsable }) =>
         eclipsable &&

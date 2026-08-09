@@ -29,6 +29,11 @@ declare module '@ringcx/ui' {
     Grey = '#ABABAB',
   }
 
+  export const TagColorScheme: Record<
+    TagColor,
+    { background: string; text: string; border: string }
+  >;
+
   export const TagComponent: ComponentType<{
     color: TagColor;
     text: string;

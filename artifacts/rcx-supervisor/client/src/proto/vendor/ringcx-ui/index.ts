@@ -38,6 +38,7 @@ export { KEYBOARD_KEYS } from './constants/keyboard';
 // Tag/Dot color enums are runtime values (not just types) so the showcase can
 // enumerate them. Both modules are tiny and MUI-free.
 export { TagColor } from './components/Tag/types';
+export { TagColorScheme } from './components/Tag/constants';
 export { DotColor } from './components/Dot/types';
 export type { ITagProps } from './components/Tag/types';
 export type { IDotProps, DotColorKeys } from './components/Dot/types';
