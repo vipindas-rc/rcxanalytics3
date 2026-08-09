@@ -200,6 +200,11 @@ export function ComponentLibraryShowcase({
                   <TagComponent color={TagColor.Orange} text="Medium" />
                   <TagComponent color={TagColor.Grey} text="Low" />
                 </Row>
+                <Row label="Bordered (core Tag) equivalent">
+                  <TagComponent color={TagColor.Red} text="High" bordered />
+                  <TagComponent color={TagColor.Orange} text="Medium" bordered />
+                  <TagComponent color={TagColor.Grey} text="Low" bordered />
+                </Row>
               </Section>
             </div>
           </div>
