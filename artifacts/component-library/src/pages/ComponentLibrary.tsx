@@ -216,7 +216,10 @@ export function ComponentLibraryShowcase({
                     <span
                       key={label}
                       className="inline-flex items-center rounded-[2px] px-1 py-0.5 text-[12px] font-medium leading-4 tracking-[0.4px] text-white"
-                      style={{ backgroundColor: bg }}
+                      style={{
+                        backgroundColor: bg,
+                        fontFamily: "'Roboto', Helvetica, Arial, sans-serif",
+                      }}
                       data-testid={`pill-severity-inverted-${label.toLowerCase()}`}
                     >
                       {label}
