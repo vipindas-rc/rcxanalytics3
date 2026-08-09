@@ -1,4 +1,5 @@
-import { TagColor, TagColorScheme, TagComponent } from '@ringcx/ui';
+import { useTheme } from 'styled-components';
+import { TagColor, TagColorScheme, TagComponent, theme as coreTheme } from '@ringcx/ui';
 
 /* Shared Tag variants.
  *
@@ -16,11 +17,19 @@ import { TagColor, TagColorScheme, TagComponent } from '@ringcx/ui';
 
 export type TagVariant = 'tinted' | 'bordered' | 'filled';
 
-// Matches vendored Tag.styled.ts: 2px radius, 12px/16px Roboto 500,
+// Matches vendored Tag.styled.ts: 2px radius, 12px/16px core-theme font 500,
 // 0.4px letter spacing, 2px 4px text padding, nowrap with hidden overflow.
 const TAG_SHAPE_CLASSES =
   'inline-flex max-w-full items-center overflow-hidden whitespace-nowrap rounded-[2px] px-1 py-0.5 text-[12px] font-medium leading-4 tracking-[0.4px]';
-const TAG_FONT_FAMILY = "'Roboto', Helvetica, Arial, sans-serif";
+
+// Read the font stack from the active styled-components theme (the same one
+// the core Tag resolves), falling back to the core theme when rendered
+// outside a ThemeProvider.
+function useTagFontFamily(): string {
+  const activeTheme = useTheme() as { font?: { family?: string } } | undefined;
+  const fallback = (coreTheme as { font: { family: string } }).font.family;
+  return activeTheme?.font?.family ?? fallback;
+}
 
 export function TagVariantComponent({
   color,
@@ -33,13 +42,14 @@ export function TagVariantComponent({
   variant?: TagVariant;
   'data-testid'?: string;
 }) {
+  const tagFontFamily = useTagFontFamily();
   if (variant === 'filled') {
     return (
       <span
         className={`${TAG_SHAPE_CLASSES} text-white`}
         style={{
           backgroundColor: TagColorScheme[color].text,
-          fontFamily: TAG_FONT_FAMILY,
+          fontFamily: tagFontFamily,
         }}
         data-testid={testId}
       >
