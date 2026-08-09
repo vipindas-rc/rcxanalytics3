@@ -96,7 +96,7 @@ export function ComponentLibraryShowcase({
             </h1>
             <p className="mb-6 max-w-[720px] text-[13px] leading-5 text-[#5b5b5b]">
               The Tag component from the RingCX UI core library, rendered live
-              from the vendored source, with tinted, bordered, and inverted
+              from the vendored source, with tinted, bordered, and filled
               variants plus the severity scale built on the core palette.
             </p>
 
@@ -104,7 +104,7 @@ export function ComponentLibraryShowcase({
               <Section
                 title="Tag"
                 importPath='import { TagComponent, TagColor } from "@ringcx/ui"'
-                description="A rounded, tinted label for categorical values, such as states, dispositions, and skills. Each color pairs a soft background with a matching text color. Use Tag when the value belongs to a small, fixed set and color adds meaning. The inverted variant and severity scale are shared variants that reuse the core palette, shape, and typography — severity maps High to red, Medium to orange, and Low to grey."
+                description="A rounded, tinted label for categorical values, such as states, dispositions, and skills. Each color pairs a soft background with a matching text color. Use Tag when the value belongs to a small, fixed set and color adds meaning. The filled variant reuses the core palette, shape, and typography with a solid background. Severity always renders filled: High is red, Medium is orange, and Low is grey."
                 propHighlights={[
                   'color: TagColor',
                   'text: string',
@@ -113,21 +113,27 @@ export function ComponentLibraryShowcase({
                   'onClick?',
                   'disabled?',
                   'shouldShowAlertIcon?',
-                  "variant?: 'tinted' | 'bordered' | 'inverted'",
+                  "TagVariantComponent (local): variant?: 'tinted' | 'bordered' | 'filled'",
                 ]}
               >
                 <Row label="All colors">
                   {TAG_COLORS.map((color) => (
-                    <TagComponent key={color} color={color} text={color} />
+                    <TagVariantComponent
+                      key={color}
+                      color={color}
+                      text={color}
+                      data-testid={`tag-tinted-${color.toLowerCase()}`}
+                    />
                   ))}
                 </Row>
                 <Row label="Bordered">
                   {TAG_COLORS.map((color) => (
-                    <TagComponent
+                    <TagVariantComponent
                       key={color}
                       color={color}
                       text={color}
-                      bordered
+                      variant="bordered"
+                      data-testid={`tag-bordered-${color.toLowerCase()}`}
                     />
                   ))}
                 </Row>
@@ -170,31 +176,21 @@ export function ComponentLibraryShowcase({
                     onClose={noop}
                   />
                 </Row>
-                <Row label="Inverted">
+                <Row label="Filled">
                   {TAG_COLORS.map((color) => (
                     <TagVariantComponent
                       key={color}
                       color={color}
                       text={color}
-                      variant="inverted"
-                      data-testid={`tag-inverted-${color.toLowerCase()}`}
+                      variant="filled"
+                      data-testid={`tag-filled-${color.toLowerCase()}`}
                     />
                   ))}
                 </Row>
-                <Row label="Severity — tinted">
+                <Row label="Severity">
                   <SeverityTag severity="High" />
                   <SeverityTag severity="Medium" />
                   <SeverityTag severity="Low" />
-                </Row>
-                <Row label="Severity — bordered">
-                  <SeverityTag severity="High" variant="bordered" />
-                  <SeverityTag severity="Medium" variant="bordered" />
-                  <SeverityTag severity="Low" variant="bordered" />
-                </Row>
-                <Row label="Severity — inverted">
-                  <SeverityTag severity="High" variant="inverted" />
-                  <SeverityTag severity="Medium" variant="inverted" />
-                  <SeverityTag severity="Low" variant="inverted" />
                 </Row>
               </Section>
             </div>
