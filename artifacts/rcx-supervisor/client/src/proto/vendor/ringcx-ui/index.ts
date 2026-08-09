@@ -35,8 +35,21 @@ export { TagComponent } from './components/Tag';
 export { default as Spinner } from './components/Spinner';
 export { default as Checkbox } from './components/Checkbox';
 export { KEYBOARD_KEYS } from './constants/keyboard';
-export type { TagColor } from './components/Tag/types';
-export type { DotColor } from './components/Dot/types';
+// Tag/Dot color enums are runtime values (not just types) so the showcase can
+// enumerate them. Both modules are tiny and MUI-free.
+export { TagColor } from './components/Tag/types';
+export { DotColor } from './components/Dot/types';
+export type { ITagProps } from './components/Tag/types';
+export type { IDotProps, DotColorKeys } from './components/Dot/types';
+
+// --- Chip / Badge / Dot (narrow re-exports from their specific modules only;
+// the full-library barrel stays untouched to avoid the dev-mode eager-load
+// circular crash) ---
+export { default as Chip } from './components/Chip';
+export type { IChipProps, ChipSize } from './components/Chip/types/ChipProps';
+export { default as Badge } from './components/Badge';
+export type { IBadgeProps } from './components/Badge/types/Badge';
+export { Dot } from './components/Dot';
 
 // --- helpers / utils (small, MUI-free modules: export * to cover the full set) ---
 export { SortType } from './helpers/sorting/types';

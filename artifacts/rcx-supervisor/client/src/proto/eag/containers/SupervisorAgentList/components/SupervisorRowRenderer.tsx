@@ -1,7 +1,7 @@
 import type { FC, MouseEvent, KeyboardEvent } from 'react';
 import { Fragment, useCallback, useMemo } from 'react';
 
-import { isActivationKey, TextEclipse } from '@ringcx/ui';
+import { isActivationKey, TagColor, TagComponent, TextEclipse } from '@ringcx/ui';
 import { t } from 'i18next';
 
 import { ActiveInteractions } from './ActiveInteractions';
@@ -16,7 +16,6 @@ import {
 } from '../../../helpers/utils';
 import { SUPERVISOR_AGENT_COLUMN_ID } from '../constants';
 import {
-    AgentTypeTag,
     StyledAgentNameCellWrapper,
     StyledGridListLink,
     StyledSupervisorCellWrapper,
@@ -149,11 +148,14 @@ const SupervisorRowRenderer: FC<ISupervisorAgentListRow> = ({
                 return getAgentStateWithColor(agentState, agentBaseState);
             case SUPERVISOR_AGENT_COLUMN_ID.AGENT_TYPE:
                 return (
-                    <AgentTypeTag
-                        variant={agentType === 'Air' ? 'air' : 'human'}
-                    >
-                        {agentType === 'Air' ? 'AirPro' : 'Human'}
-                    </AgentTypeTag>
+                    <TagComponent
+                        color={
+                            agentType === 'Air'
+                                ? TagColor.Orange
+                                : TagColor.Grey
+                        }
+                        text={agentType === 'Air' ? 'AirPro' : 'Human'}
+                    />
                 );
             case SUPERVISOR_AGENT_COLUMN_ID.STATE_DURATION:
                 return filterTime(

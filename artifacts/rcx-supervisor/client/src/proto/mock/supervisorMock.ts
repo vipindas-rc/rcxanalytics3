@@ -785,8 +785,9 @@ export const supervisor2InteractionColumns: ISupervisorTableCol[] =
     return [{ ...c }];
   });
 
-// --- Supervisor view 3 Interactions columns: view 2's set minus Agent type,
-// Confidence, and Sentiment — a leaner monitoring surface. Everything else
+// --- Supervisor view 3 Interactions columns: view 2's set minus Confidence
+// and Sentiment — a leaner monitoring surface. Agent type moves directly
+// after the Agent column (mirrors the Agents tab pairing); everything else
 // (order, labels, widths) carries over unchanged.
 export const supervisor3InteractionColumns: ISupervisorTableCol[] =
   supervisor2InteractionColumns
@@ -794,7 +795,16 @@ export const supervisor3InteractionColumns: ISupervisorTableCol[] =
       (c) =>
         !['agentType', 'confidenceScore', 'sentimentScore'].includes(c.id),
     )
-    .map((c) => ({ ...c }));
+    .flatMap((c) =>
+      c.id === 'fullName'
+        ? [
+            { ...c },
+            ...interactionColumns
+              .filter((col) => col.id === 'agentType')
+              .map((col) => ({ ...col })),
+          ]
+        : [{ ...c }],
+    );
 
 const QUEUE_CUSTOMERS = [
   'Maya Alvarez',

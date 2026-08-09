@@ -1,7 +1,7 @@
 import type { FC } from 'react';
 import { Fragment, useMemo, useState } from 'react';
 
-import { Tooltip, More } from '@ringcx/ui';
+import { Tooltip, More, TagColor, TagComponent } from '@ringcx/ui';
 
 import { CategoriesCell } from './CategoriesCell';
 import { ScoreIndicator } from './ScoreIndicator';
@@ -17,8 +17,6 @@ import {
 import { SourceTypeIcon } from '../../../containers/SupervisorAgentList/components/SourceTypeIcon';
 import { SUPERVISOR_INTERACTION_COLUMN_ID } from '../../../containers/SupervisorAgentList/constants';
 import {
-    AgentTypeTag,
-    ConversationStateTag,
     SupervisorListHoverMenu,
     SupervisorRowWrapper,
     InformationHoverMenu,
@@ -38,6 +36,21 @@ import {
     _getSupervisorAssistHoveredMenu,
     getDigitalInteractionHoveredItems,
 } from '../utils/DigitalInteractionRowRenderUtil';
+
+// Conversation lifecycle state -> core Tag color (bordered variant), matching
+// the legacy badge palette: Pending orange, Reserved blue, Active green.
+const conversationStateTagColor = (state: string): TagColor => {
+    switch (state) {
+        case 'PENDING':
+            return TagColor.Orange;
+        case 'RESERVED':
+            return TagColor.Blue;
+        case 'ACTIVE':
+            return TagColor.Green;
+        default:
+            return TagColor.Grey;
+    }
+};
 
 // 3-dot menu on pending (queue) rows: Ignore for every channel, plus
 // Recategorize (digital) or Requeue (voice). Same core More icon + flyout
@@ -360,17 +373,18 @@ export const DigitalInteractionTableRow: FC<{
                                 {/* Queue rows have no handling agent yet ->
                                     the agent-type cell stays blank. */}
                                 {agentType ? (
-                                    <AgentTypeTag
-                                        variant={
+                                    <TagComponent
+                                        color={
                                             agentType === 'Air'
-                                                ? 'air'
-                                                : 'human'
+                                                ? TagColor.Orange
+                                                : TagColor.Grey
                                         }
-                                    >
-                                        {agentType === 'Air'
-                                            ? 'AirPro'
-                                            : 'Human'}
-                                    </AgentTypeTag>
+                                        text={
+                                            agentType === 'Air'
+                                                ? 'AirPro'
+                                                : 'Human'
+                                        }
+                                    />
                                 ) : null}
                             </StyledSupervisorCellWrapper>
                         );
@@ -461,12 +475,17 @@ export const DigitalInteractionTableRow: FC<{
                                 role='gridcell'
                             >
                                 {conversationStateLabel ? (
-                                    <ConversationStateTag
-                                        $state={String(conversationState ?? '')}
+                                    <span
                                         data-testid={`badge-state-${engagementId}`}
                                     >
-                                        {conversationStateLabel}
-                                    </ConversationStateTag>
+                                        <TagComponent
+                                            color={conversationStateTagColor(
+                                                String(conversationState ?? '')
+                                            )}
+                                            text={conversationStateLabel}
+                                            bordered
+                                        />
+                                    </span>
                                 ) : (
                                     '-'
                                 )}

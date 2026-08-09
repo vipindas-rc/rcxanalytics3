@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/component-library/"
+title = "RCX Component Library"
+description = "A standalone component-library viewer for the vendored RingCX UI core library. Shows Tag, Chip, Badge, and Dot rendered live from the real source, plus a Severity pill usage recipe, one page per component with shareable deep links. For designers comparing labeling components."
+version = "1.0.0"
+id = "artifacts/component-library"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/component-library/" ]
+localPort = 23145
+
+[services.development]
+run = "pnpm --filter @workspace/component-library run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/component-library", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/component-library/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23145"
+BASE_PATH = "/component-library/"

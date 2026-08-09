@@ -1812,5 +1812,8 @@ export default function AgentTablePanel({
   );
 }
 
+// Tag-family component library showcase page (Tag, Chip, Badge, Dot rendered
+// live from the vendored @ringcx/ui source). Lives in the proto tree because
+// it imports @ringcx/ui directly, which tsc excludes.
 export { ActiveCallView } from "./ActiveCallView";
 export type { ActiveCallViewProps } from "./ActiveCallView";
