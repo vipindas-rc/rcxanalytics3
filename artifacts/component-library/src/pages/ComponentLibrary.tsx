@@ -205,6 +205,24 @@ export function ComponentLibraryShowcase({
                   <TagComponent color={TagColor.Orange} text="Medium" bordered />
                   <TagComponent color={TagColor.Grey} text="Low" bordered />
                 </Row>
+                <Row label="Inverted (ringcx/ui colors)">
+                  {(
+                    [
+                      ['High', '#C40C05'],
+                      ['Medium', '#D3720E'],
+                      ['Low', '#757575'],
+                    ] as const
+                  ).map(([label, bg]) => (
+                    <span
+                      key={label}
+                      className="inline-flex h-6 items-center rounded-full px-3 text-[13px] font-semibold text-white"
+                      style={{ backgroundColor: bg }}
+                      data-testid={`pill-severity-inverted-${label.toLowerCase()}`}
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </Row>
               </Section>
             </div>
           </div>
