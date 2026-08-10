@@ -935,11 +935,114 @@ export function ContextTabContent({
 // rows plus the scrolling history feed. Exported so voice surfaces (the
 // monitoring call window) can render the exact same contact info layout as
 // the digital interaction preview.
-export function ContactInfoSections({ data }: { data: InteractionPreviewData }) {
+export function ContactInfoSections({
+  data,
+  onRecategorize,
+  onEndMessage,
+}: {
+  data: InteractionPreviewData;
+  onRecategorize?: () => void;
+  onEndMessage?: () => void;
+}) {
+  // Active messages: the Interaction section's 3-dot menu hosts the
+  // Recategorize thread / End message actions.
+  const [interactionMenuOpen, setInteractionMenuOpen] = useState(false);
+  const hasInteractionMenu = Boolean(onRecategorize || onEndMessage);
+  const interactionMenu =
+    hasInteractionMenu && interactionMenuOpen ? (
+      <div
+        role="menu"
+        style={{
+          position: "absolute",
+          top: 28,
+          right: 0,
+          zIndex: 40,
+          minWidth: 190,
+          background: "#fff",
+          border: "1px solid #e0e0e0",
+          borderRadius: 6,
+          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+          padding: 4,
+          display: "flex",
+          flexDirection: "column",
+        }}
+        data-testid="menu-interaction-actions"
+      >
+        {onRecategorize ? (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setInteractionMenuOpen(false);
+              onRecategorize();
+            }}
+            style={{
+              border: "none",
+              background: "transparent",
+              textAlign: "left",
+              padding: "8px 10px",
+              borderRadius: 4,
+              fontSize: 13,
+              fontFamily: FONT,
+              color: "#121212",
+              cursor: "pointer",
+            }}
+            onMouseEnter={(e) =>
+              ((e.currentTarget as HTMLButtonElement).style.background =
+                "#f5f5f5")
+            }
+            onMouseLeave={(e) =>
+              ((e.currentTarget as HTMLButtonElement).style.background =
+                "transparent")
+            }
+            data-testid="menuitem-recategorize"
+          >
+            Recategorize thread
+          </button>
+        ) : null}
+        {onEndMessage ? (
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setInteractionMenuOpen(false);
+              onEndMessage();
+            }}
+            style={{
+              border: "none",
+              background: "transparent",
+              textAlign: "left",
+              padding: "8px 10px",
+              borderRadius: 4,
+              fontSize: 13,
+              fontFamily: FONT,
+              color: "#c40c05",
+              cursor: "pointer",
+            }}
+            onMouseEnter={(e) =>
+              ((e.currentTarget as HTMLButtonElement).style.background =
+                "#fdeae5")
+            }
+            onMouseLeave={(e) =>
+              ((e.currentTarget as HTMLButtonElement).style.background =
+                "transparent")
+            }
+            data-testid="menuitem-end-message"
+          >
+            End message
+          </button>
+        ) : null}
+      </div>
+    ) : null;
   const sectionRow = (
     title: string,
     subtitle: string,
-    opts: { menu?: boolean; chevron: "down" | "up" },
+    opts: {
+      menu?: boolean;
+      chevron: "down" | "up";
+      onMenuToggle?: () => void;
+      menuContent?: React.ReactNode;
+    },
     testId: string,
   ) => (
     <div
@@ -968,10 +1071,41 @@ export function ContactInfoSections({ data }: { data: InteractionPreviewData }) 
         </span>
         <span style={{ fontSize: 12, color: "#72757a" }}>{subtitle}</span>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          position: "relative",
+        }}
+      >
         {opts.menu ? (
-          <MoreVertical size={18} strokeWidth={1.8} color="#616161" />
+          opts.onMenuToggle ? (
+            <button
+              type="button"
+              onClick={opts.onMenuToggle}
+              aria-label="Interaction actions"
+              aria-haspopup="menu"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 24,
+                height: 24,
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                padding: 0,
+              }}
+              data-testid="button-interaction-menu"
+            >
+              <MoreVertical size={18} strokeWidth={1.8} color="#616161" />
+            </button>
+          ) : (
+            <MoreVertical size={18} strokeWidth={1.8} color="#616161" />
+          )
         ) : null}
+        {opts.menuContent ?? null}
         {opts.chevron === "down" ? (
           <ChevronDown size={18} strokeWidth={1.8} color="#616161" />
         ) : (
@@ -986,7 +1120,14 @@ export function ContactInfoSections({ data }: { data: InteractionPreviewData }) 
       {sectionRow(
         "Interaction",
         `Queue: ${data.queueName}`,
-        { menu: true, chevron: "down" },
+        {
+          menu: true,
+          chevron: "down",
+          onMenuToggle: hasInteractionMenu
+            ? () => setInteractionMenuOpen((v) => !v)
+            : undefined,
+          menuContent: interactionMenu,
+        },
         "section-interaction",
       )}
       {sectionRow(
@@ -1026,6 +1167,8 @@ function ContactInfoPane({
   trailing,
   contextHops = [],
   headerHeight = 48,
+  onRecategorize,
+  onEndMessage,
 }: {
   data: InteractionPreviewData;
   // Header action rendered top-right (the close X per Figma, or a collapse
@@ -1035,6 +1178,8 @@ function ContactInfoPane({
   // Tab-row height; the windowed preview passes the preview header's height
   // so the tab underline aligns with the header's bottom edge.
   headerHeight?: number;
+  onRecategorize?: () => void;
+  onEndMessage?: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<ContactInfoTab>("contact");
 
@@ -1138,7 +1283,13 @@ function ContactInfoPane({
       </div>
 
       {/* Contact info tab content */}
-      {activeTab === "contact" && <ContactInfoSections data={data} />}
+      {activeTab === "contact" && (
+        <ContactInfoSections
+          data={data}
+          onRecategorize={onRecategorize}
+          onEndMessage={onEndMessage}
+        />
+      )}
 
       {/* Notes tab content — mirrors the AI Insights panel's Notes tab styling */}
       {activeTab === "notes" && (
@@ -1263,6 +1414,15 @@ export interface InteractionPreviewProps {
    * Transfer/Claim — e.g. Requeue/Recategorize first, Ignore last.
    */
   overflowActions?: { id: string; label: string; onSelect: () => void }[];
+  // Active messages tab (take-over only): opens the Recategorize thread
+  // dialog for this conversation's category tags.
+  onRecategorize?: () => void;
+  // Active messages tab (take-over only): starts the End message flow
+  // (disposition dialog).
+  onEndMessage?: () => void;
+  // Incrementing signal: each change > 0 opens the transfer dialog (the
+  // sidebar card's → control routes here).
+  transferSignal?: number;
 }
 
 export function InteractionPreview({
@@ -1277,6 +1437,9 @@ export function InteractionPreview({
   onRestore,
   onTakeOver,
   overflowActions,
+  onRecategorize,
+  onEndMessage,
+  transferSignal = 0,
 }: InteractionPreviewProps) {
   const isFullPage = mode !== "preview";
   const isTakeover = mode === "takeover";
@@ -1296,6 +1459,10 @@ export function InteractionPreview({
   const [feed, setFeed] = useState<PreviewMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [transferOpen, setTransferOpen] = useState(false);
+  // Sidebar card's → control asks the take-over view to open transfer.
+  useEffect(() => {
+    if (transferSignal > 0) setTransferOpen(true);
+  }, [transferSignal]);
   // Index into data.liveScript for the next simulated arrival.
   const liveIdxRef = useRef(0);
   const takeoverMarkedRef = useRef(false);
@@ -1955,6 +2122,8 @@ export function InteractionPreview({
           // view has no header, so its tab row matches the 64px subject row
           // (the collapse icon lines up with the message icon at its end).
           headerHeight={isTakeover ? 64 : 73}
+          onRecategorize={onRecategorize}
+          onEndMessage={isTakeover ? onEndMessage : undefined}
         />
       ) : null}
     </div>

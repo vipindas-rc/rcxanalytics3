@@ -1,0 +1,99 @@
+# RingCX Agent Local Mock Design
+
+Date: 2026-08-10
+
+## Objective
+
+Create a responsive, locally runnable HTML/CSS/JavaScript reconstruction of the full RingCentral Agent page demonstrated through Record & Replay. The mock includes the RingCentral navigation shell and the embedded RingCX Agent workspace. It is a local visual and interaction prototype only and must not contact RingCentral services or modify real customer, message, or agent data.
+
+The primary visual reference is the captured 1036 x 998 viewport at device-pixel ratio 2. The secondary responsive reference is 1440 x 900 at device-pixel ratio 2.
+
+## Fidelity Standard
+
+The implementation will use the exact observed Lato 400 and 700 font files and any reusable original assets available from the rendered page. Missing proprietary icons will be recreated as inline SVGs based on the visible reference. The implementation will match observed layout, typography, colors, spacing, borders, radii, shadows, controls, and responsive behavior as closely as the evidence permits.
+
+The mock will not use a screenshot as a background or replace the interface with a single image. All demonstrated controls will be real, semantic HTML elements.
+
+A literal 100 percent match will be claimed only if screenshot comparisons at both target viewports support that conclusion. Otherwise, remaining differences will be disclosed.
+
+## Architecture
+
+The deliverable is a dependency-free static application:
+
+- `index.html`: semantic application shell and component mount points.
+- `styles.css`: local font declarations, design tokens, layout, component states, responsive rules, and motion preferences.
+- `app.js`: deterministic state machine, rendering, event handling, dialog focus management, and validation.
+- `assets/`: local fonts and icons used by the mock.
+
+The app runs through a simple local static server. It has no backend and makes no external network requests.
+
+## Component Structure
+
+The interface is divided into focused regions:
+
+1. RingCentral top bar with account label, navigation controls, search, agent availability, keypad, and new-actions control.
+2. Left application navigation with Video, Phone, Agent, Fax, Contacts, More, Settings, and Help.
+3. Agent workspace header with title, Help, Session info, and the recorded Agent tabs.
+4. Active-message list with its empty, incoming, and accepted states.
+5. Conversation workspace with thread header, action controls, filters, and message cards.
+6. Optional customer/details panel with expand and collapse behavior.
+7. Categorization dialog with removable and searchable category chips.
+8. End-message and submit-disposition dialogs.
+9. Local-only confirmation toast.
+
+At wider sizes, the accepted-message view uses message-list, conversation, and details regions. At the 1036-pixel reference width, secondary regions shrink while preserving the observed navigation and readable conversation area.
+
+## State Model and Workflow
+
+The mock uses a deterministic in-memory state model. The supported workflow is:
+
+1. Load the Active messages empty state.
+2. Trigger a predefined incoming email demonstration.
+3. Accept the message and open the recorded thread with anonymized representative data.
+4. Expand or collapse the details panel.
+5. Open Recategorise thread.
+6. Add or remove the demonstrated English and Russian categories and save them locally.
+7. End the message.
+8. Select the required `test` disposition.
+9. Enter optional notes and submit.
+10. Return to the empty Active messages state and show a local confirmation toast.
+
+Cancel and Escape close dialogs without committing their draft state. Submitting without a required disposition leaves the dialog open and shows an inline validation message. Unsupported navigation controls remain visually accurate but do not simulate unrecorded RingCentral products.
+
+## Mock Data and Privacy
+
+All data is embedded locally. Names, email addresses, identifiers, tokens, and other private values observed in the recording are not reproduced. The prototype uses clearly fictional representative data while preserving the visual shape and formatting of the demonstrated content.
+
+## Accessibility
+
+The implementation uses landmarks, headings, buttons, tabs, labelled fields, status announcements, and native form semantics. Dialogs trap focus, restore focus to their trigger, close with Escape, and expose validation errors. Visible focus states and reduced-motion behavior are included. WCAG 2.2 Level AA is the target where it does not contradict the reference presentation.
+
+## Verification
+
+Verification includes:
+
+1. Capture reference screenshots for safely reproducible live states.
+2. Run the local mock at 1036 x 998 and 1440 x 900 with DPR 2.
+3. Capture corresponding local screenshots.
+4. Generate overlay and pixel-difference comparisons.
+5. Iterate on dimensions, spacing, typography, colors, borders, shadows, icons, and wrapping.
+6. Automate the complete recorded workflow and verify every state transition.
+7. Check keyboard access, dialog focus, labelling, and validation behavior.
+8. Confirm the application makes no external requests.
+9. Report executed checks, measurable visual results, and residual differences.
+
+## Deliverables
+
+- A locally runnable static mock in the workspace output directory.
+- Local font and icon assets required by the implementation.
+- Browser verification covering the two approved viewports.
+- Reference/local/difference images that do not expose sensitive data.
+- A concise run guide and fidelity report.
+
+## Out of Scope
+
+- Real RingCentral authentication or API access.
+- Sending, accepting, transferring, ending, or categorizing real interactions.
+- Full implementations of unrecorded RingCentral navigation destinations.
+- Persistence across browser reloads.
+- Claiming cross-browser pixel identity beyond the explicitly tested environment.

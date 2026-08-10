@@ -2,41 +2,75 @@ declare module "@proto" {
   import type { ComponentType } from "react";
   export interface ProtoAgentTablePanelProps {
     activeTab?: "Agents" | "Interactions" | "Queue";
+
     searchValue?: string;
+
     selectedStates?: string[];
+
     selectedChannels?: string[];
+
     selectedAgentGroups?: string[];
+
     agentTypeFilter?: string[];
+
     statusFilter?: "All" | "Active" | "Inactive";
+
     visibleColumnIds?: string[];
+
     selectedAgentIds?: string[];
+
     selectedCategories?: string[];
+
     selectedQueues?: string[];
+
     selectedInteractionStates?: string[];
+
     visibleInteractionColumnIds?: string[];
     // Interactions-tab "Breached SLA" toggle: only rows whose Time in queue
     // is past the 10-minute SLA remain.
+
     breachedSlaOnly?: boolean;
+
     onActiveInteractionsClick?: (agentId: string) => void;
+
     highlightAgentId?: string | null;
+
     highlightNonce?: number;
     // Digital "Interaction preview" (URL-driven by the page).
+
     previewEngagementId?: string | null;
+
     previewMode?: "preview" | "expanded" | "takeover" | null;
+
     onPreviewOpen?: (engagementId: string) => void;
+
     onPreviewModeChange?: (mode: "preview" | "expanded" | "takeover") => void;
+
     previewTakeOverRoutable?: boolean;
+
     onInteractionCountChange?: (count: number) => void;
+
     onPreviewClose?: () => void;
+
     readOnly?: boolean;
+
     showCurrentUser?: boolean;
+
     interactionsVariant?: "supervisor2" | "supervisor3";
     // Voice take-over committed — page switches to the Active calls context.
+
     onTakeOverCommitted?: (agentId: string) => void;
+
     onVoicePreviewAccepted?: () => void;
     // Floating call window closed — page leaves the Active calls context
     // if it was showing this agent's taken-over call.
+
     onMonitoringWindowClosed?: (agentId: string) => void;
+
+    onDigitalTakeOverCommitted?: (engagementId: string) => void;
+    activeMessagesMode?: boolean;
+    // Floating call window closed — page leaves the Active calls context
+    // if it was showing this agent's taken-over call.
   }
   const AgentTablePanel: ComponentType<ProtoAgentTablePanelProps>;
   export default AgentTablePanel;
@@ -111,4 +145,15 @@ declare module "@proto" {
     agentId?: string | null;
   }
   export const ActiveCallView: ComponentType<ActiveCallViewProps>;
+
+  export const ActiveMessagesSidebar: ComponentType<{
+    rows: unknown[];
+    selectedId: string | null;
+    onSelect: (engagementId: string) => void;
+  }>;
+
+  // Claimed-digital store (drives the "Active messages (n)" tab count).
+  export function registerClaimedDigital(engagementId: string): void;
+  export function removeClaimedDigital(engagementId: string): void;
+  export function useClaimedDigitalIds(): string[];
 }

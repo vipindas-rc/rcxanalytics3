@@ -26,6 +26,13 @@ function Router() {
       />
       {/* Voice take-over: Active calls view for the taken-over call. */}
       <Route path="/active-call/:agentId" component={SupervisorAgents} />
+      {/* Digital take-over: Active messages tab, with (or without) a claimed
+          conversation. */}
+      <Route path="/active-messages" component={SupervisorAgents} />
+      <Route
+        path="/active-messages/:engagementId"
+        component={SupervisorAgents}
+      />
       {/* Fallback to 404 */}
       <Route component={NotFound} />
     </Switch>

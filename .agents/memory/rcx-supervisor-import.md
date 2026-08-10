@@ -13,5 +13,8 @@ description: Sharp edges of the rcx-supervisor artifact imported from the Cherry
 
 **Why:** future edits that "clean up" the tsconfig pin, rename the check script, or re-enable takeover for view 2/3 would break the build or change source-faithful behavior.
 
+
+## Exposing proto code to the page
+The `@proto` alias resolves to `proto/AgentTablePanel.tsx` (vite.config.ts) and the proto tree is excluded from tsc — anything the page imports must be BOTH re-exported from AgentTablePanel.tsx and hand-declared in `client/src/proto-module.d.ts`, or `pnpm run check` fails with "no exported member".
 ## URL modal whitelist
 New `?modal=` dialog ids silently self-close unless added to the `MODAL_IDS` whitelist in `client/src/hooks/useUrlState.ts` — a cleanup effect strips unknown ids as stale. Add the id there AND to the readOnly close-list in AgentTablePanel before debugging "dialog won't open" from a deep link.

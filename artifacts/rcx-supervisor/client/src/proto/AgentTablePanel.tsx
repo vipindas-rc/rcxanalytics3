@@ -73,6 +73,31 @@ import {
   registerActiveCallContext,
   useContextHops,
 } from "./contextHopStore";
+import { CATEGORIES_MAP } from "./eag/helpers/injector";
+import {
+  CONVERSATION_CATEGORIES,
+  getClaimedQueueRow,
+  registerClaimedDigital,
+  registerClaimedQueueRow,
+  removeClaimedDigital,
+  setConversationCategories,
+  useCategoryOverrides,
+  useClaimedDigitalIds,
+} from "./claimedDigitalStore";
+import { ActiveMessagesSidebar } from "./ActiveMessagesSidebar";
+import {
+  EndMessageDialog,
+  RecategorizeDialog,
+} from "./ActiveMessagesDialogs";
+
+// Claimed-digital store, re-exported so the page's "Active messages" top tab
+// (count + tab content) shares the same source of truth through @proto.
+export {
+  registerClaimedDigital,
+  removeClaimedDigital,
+  useClaimedDigitalIds,
+} from "./claimedDigitalStore";
+export { ActiveMessagesSidebar } from "./ActiveMessagesSidebar";
 
 // Time in queue SLA breach threshold — matches the red band in the row
 // renderer (red past 10 minutes).
@@ -360,6 +385,12 @@ interface AgentTablePanelProps {
   // Fired when an incoming voice preview call is answered (the active call is
   // already registered in the store) so the page can route to Active calls.
   onVoicePreviewAccepted?: () => void;
+  // Fired when a digital take-over (Claim) commits so the page can switch to
+  // the Active messages context for that conversation.
+  onDigitalTakeOverCommitted?: (engagementId: string) => void;
+  // True when this panel renders as the Active messages tab content — shows
+  // the claimed-conversation list beside the take-over view.
+  activeMessagesMode?: boolean;
   // Fired when the floating call window closes so the page can leave the
   // Active calls context if it was showing this agent's taken-over call.
   onMonitoringWindowClosed?: (agentId: string) => void;
@@ -395,6 +426,8 @@ export default function AgentTablePanel({
   interactionsVariant,
   onTakeOverCommitted,
   onVoicePreviewAccepted,
+  onDigitalTakeOverCommitted,
+  activeMessagesMode,
   onMonitoringWindowClosed,
 }: AgentTablePanelProps) {
   // Supervisor view 3 shares all of view 2's Interactions behavior (pending
@@ -527,6 +560,26 @@ export default function AgentTablePanel({
   // Take over is immediate and permanent for the prototype — there is no
   // hand-back, so this only ever transitions from null to an engagement id.
   const [bargedId, setBargedId] = useState<string | null>(null);
+  // Active messages dialogs (Recategorize thread / End message).
+  // Recategorize is URL-driven (deep-linkable / refresh-safe) via
+  // ?categorize=…: "1" targets the open preview/take-over conversation, any
+  // other value is the engagementId of a table row (hover 3-dot menu).
+  const [categorizeParam, setCategorizeParam] = useUrlParam("categorize");
+  const recategorizeOpen = categorizeParam === "1";
+  const recategorizeRowId =
+    categorizeParam && categorizeParam !== "1" ? categorizeParam : null;
+  const setRecategorizeOpen = useCallback(
+    (open: boolean) => setCategorizeParam(open ? "1" : null),
+    [setCategorizeParam],
+  );
+  const setRecategorizeRowId = useCallback(
+    (id: string | null) => setCategorizeParam(id),
+    [setCategorizeParam],
+  );
+  const [endMessageOpen, setEndMessageOpen] = useState(false);
+  // Incrementing signal that asks the open take-over view to show its
+  // transfer dialog (sidebar card → arrow).
+  const [transferSignal, setTransferSignal] = useState(0);
   // Runtime hop-log additions per engagement for the Context tab live in the
   // module-level contextHopStore: take over appends "You", transfers append
   // "Queue - {name}" / "Agent - {name}". The store is shared with the Active
@@ -1114,10 +1167,7 @@ export default function AgentTablePanel({
         return;
       }
       if (type === "queueRecategorize") {
-        const row = queueRows.find((r: any) => r.engagementId === uii);
-        flashRef.current(
-          `Conversation with ${row?.contactIdentity ?? "customer"} sent for recategorization`,
-        );
+        if (uii) setRecategorizeRowId(uii);
         return;
       }
       // Transfer: voice rows open the phone-call modal with the Transfer
@@ -1159,8 +1209,23 @@ export default function AgentTablePanel({
       flashRef.current(
         `You claimed the conversation with ${row.contactIdentity}`,
       );
+      // Digital queue claim: the conversation moves to the Active messages
+      // tab. The removed row is kept so the take-over view can render it.
+      // Voice queue claims keep their existing behavior.
+      if (!(row as any).isVoiceInteraction) {
+        registerClaimedQueueRow(row as any);
+        registerClaimedDigital(row.engagementId);
+        appendContextHop(row.engagementId, { kind: "you" });
+        onDigitalTakeOverCommitted?.(row.engagementId);
+      }
     },
-    [onPreviewOpen, queueRows, openModal, onVoicePreviewAccepted],
+    [
+      onPreviewOpen,
+      queueRows,
+      openModal,
+      onVoicePreviewAccepted,
+      onDigitalTakeOverCommitted,
+    ],
   );
 
   // Queue row backing the open ?modal=queue-transfer dialog. A stale deep
@@ -1263,7 +1328,19 @@ export default function AgentTablePanel({
       ) as any;
 
       if (type === "bargeIn") {
-        // Take over is immediate — no confirmation modal. Open the AI
+        // Digital claim: the conversation moves to the Active messages tab
+        // (register + route) instead of opening the AI Insights panel here.
+        if (row && !row.isVoiceInteraction && uii) {
+          setBargedId(uii);
+          appendContextHop(uii, { kind: "you" });
+          registerClaimedDigital(uii);
+          flashRef.current(
+            `You've claimed the conversation from ${row.fullName ?? "Agent"}`,
+          );
+          onDigitalTakeOverCommitted?.(uii);
+          return;
+        }
+        // Voice take over is immediate — no confirmation modal. Open the AI
         // Insights panel onto this interaction and mark it taken over.
         setInsightCtx({
           agentName: row?.fullName ?? "Agent",
@@ -1398,7 +1475,15 @@ export default function AgentTablePanel({
     setBargedId(insightCtx.engagementId);
     appendContextHop(insightCtx.engagementId, { kind: "you" });
     flashRef.current(`You've claimed the conversation from ${insightCtx.agentName}`);
-  }, [insightCtx, readOnly]);
+    // Digital claim from the AI Insights panel: close the panel and move the
+    // conversation to the Active messages tab. Voice keeps its existing flow
+    // (the monitoring window drives the Active calls hand-off).
+    if (!insightCtx.isVoice) {
+      registerClaimedDigital(insightCtx.engagementId);
+      setInsightCtx(null);
+      onDigitalTakeOverCommitted?.(insightCtx.engagementId);
+    }
+  }, [insightCtx, readOnly, onDigitalTakeOverCommitted]);
 
   // The rollup modal renders centered, so only the agent id needs to travel
   // through the URL (?modal=rollup&agentId=...).
@@ -1495,23 +1580,61 @@ export default function AgentTablePanel({
         queueRows.find(
           (r: any) =>
             r.engagementId === previewEngagementId && r.hasPreview,
-        )) as any)
+        ) ??
+        // Claimed queue rows leave the queue store — the claimed copy backs
+        // the Active messages take-over view.
+        getClaimedQueueRow(previewEngagementId)) as any)
     : null;
+
+  // Claimed digital conversations backing the Active messages list panel.
+  const claimedDigitalIds = useClaimedDigitalIds();
+  const claimedRows = useMemo(
+    () =>
+      (claimedDigitalIds
+        .map(
+          (id) =>
+            interactions.find((r: any) => r.engagementId === id) ??
+            queueRows.find((r: any) => r.engagementId === id) ??
+            getClaimedQueueRow(id),
+        )
+        .filter(Boolean) as any[]).map((row: any) => ({
+        // The card's second line must match the thread header's subject
+        // used across the system (the preview subject), not the raw
+        // table threadTitle.
+        ...row,
+        threadTitle: (row.isQueueRow
+          ? makeQueuePreview(row)
+          : makeInteractionPreview(row)
+        ).subject,
+      })),
+    [claimedDigitalIds, interactions, queueRows],
+  );
 
   // Deep link points at an engagement that doesn't exist -> restore the table URL.
   useEffect(() => {
     if (previewEngagementId && !previewRow) onPreviewClose?.();
   }, [previewEngagementId, previewRow, onPreviewClose]);
 
-  const previewData = useMemo(
-    () =>
-      previewRow
-        ? previewRow.isQueueRow
-          ? makeQueuePreview(previewRow)
-          : makeInteractionPreview(previewRow)
-        : null,
-    [previewRow],
-  );
+  // Recategorize dialog rewrites a claimed conversation's tags; overrides
+  // live in the claimed-digital store so they survive remounts.
+  const categoryOverrides = useCategoryOverrides();
+  const previewData = useMemo(() => {
+    if (!previewRow) return null;
+    const base = previewRow.isQueueRow
+      ? makeQueuePreview(previewRow)
+      : makeInteractionPreview(previewRow);
+    const override = categoryOverrides[previewRow.engagementId];
+    return override
+      ? {
+          ...base,
+          tags: override.map((c) => ({
+            label: c.label,
+            bg: c.bg,
+            color: c.color,
+          })),
+        }
+      : base;
+  }, [previewRow, categoryOverrides]);
   const previewContextHops = useContextHops(
     previewData?.engagementId ?? null,
   );
@@ -1563,37 +1686,153 @@ export default function AgentTablePanel({
   // and switch the preview to the embedded take-over view.
   const handlePreviewTakeOver = useCallback(() => {
     if (!previewRow || readOnly) return;
-    if (bargedId !== previewRow.engagementId) {
-      setBargedId(previewRow.engagementId);
-      appendContextHop(previewRow.engagementId, { kind: "you" });
+    const id = previewRow.engagementId;
+    if (bargedId !== id) {
+      setBargedId(id);
+      appendContextHop(id, { kind: "you" });
       flashRef.current(
         previewRow.isQueueRow
           ? "You've claimed this conversation"
           : `You've claimed the conversation from ${previewRow.fullName ?? "Agent"}`,
       );
     }
-    onPreviewModeChange?.("takeover");
-  }, [previewRow, bargedId, onPreviewModeChange, readOnly]);
+    // Claiming a pending (queue) row pulls it out of the queue — same as the
+    // row-level Claim action — and keeps a copy for the take-over view.
+    if (previewRow.isQueueRow) {
+      const removed = removeQueueRow(id);
+      registerClaimedQueueRow((removed ?? previewRow) as any);
+    }
+    // Claimed digital conversations feed the "Active messages (n)" top tab.
+    registerClaimedDigital(id);
+    // Every digital claim lands on the Active messages tab, no matter which
+    // surface it started from (preview popup, queue preview, expanded view).
+    if (!previewRow.isVoiceInteraction && onDigitalTakeOverCommitted) {
+      onDigitalTakeOverCommitted(id);
+    } else {
+      onPreviewModeChange?.("takeover");
+    }
+  }, [
+    previewRow,
+    bargedId,
+    onPreviewModeChange,
+    onDigitalTakeOverCommitted,
+    readOnly,
+  ]);
 
   return (
     <RcThemeProvider>
       <ThemeProvider theme={theme as any}>
         <PanelScope $readOnly={readOnly}>
-          {previewRow &&
-          previewData &&
-          previewMode === "takeover" &&
-          !previewRow.isVoiceInteraction ? (
-            // Take-over renders embedded in place of the table (the page shows
-            // a "← Supervisor" back row above this panel).
-            <InteractionPreview
-              mode="takeover"
-              data={previewData}
-              contextHops={previewContextHops}
-              takeOverDisabled={previewAgentPendingInactive}
-              onClose={() => onPreviewClose?.()}
-              onEnlarge={() => onPreviewModeChange?.("expanded")}
-              onTakeOver={handlePreviewTakeOver}
+          {previewRow && recategorizeOpen ? (
+            <RecategorizeDialog
+              current={previewData?.tags ?? []}
+              onCancel={() => setRecategorizeOpen(false)}
+              onSave={(categories) => {
+                setConversationCategories(previewRow.engagementId, categories);
+                setRecategorizeOpen(false);
+                flashRef.current("Categories updated");
+              }}
             />
+          ) : recategorizeRowId ? (
+            <RecategorizeDialog
+              current={(() => {
+                const override = categoryOverrides[recategorizeRowId];
+                if (override) return override;
+                const row =
+                  (interactions as any[]).find(
+                    (r) => r.engagementId === recategorizeRowId,
+                  ) ??
+                  (queueRows as any[]).find(
+                    (r) => r.engagementId === recategorizeRowId,
+                  );
+                if (!row) return [];
+                // Prefill with the row's Categories column values (ids →
+                // CATEGORIES_MAP names), so the dialog matches the table.
+                const ids = String(row.categoryIds ?? "")
+                  .split(",")
+                  .map((s: string) => s.trim())
+                  .filter(Boolean);
+                const names = ids
+                  .map((id: string) => CATEGORIES_MAP[id]?.name)
+                  .filter(Boolean) as string[];
+                // Mirror the table's Categories column exactly — a row
+                // without categories starts the dialog empty.
+                return CONVERSATION_CATEGORIES.filter((c) =>
+                  names.includes(c.label),
+                );
+              })()}
+              onCancel={() => setRecategorizeRowId(null)}
+              onSave={(categories) => {
+                setConversationCategories(recategorizeRowId, categories);
+                setRecategorizeRowId(null);
+                flashRef.current("Categories updated");
+              }}
+            />
+          ) : null}
+          {activeMessagesMode && previewRow && endMessageOpen ? (
+            <EndMessageDialog
+              onCancel={() => setEndMessageOpen(false)}
+              onSubmit={() => {
+                const id = previewRow.engagementId;
+                setEndMessageOpen(false);
+                removeClaimedDigital(id);
+                flashRef.current("Message ended and disposition submitted");
+                onPreviewClose?.();
+              }}
+            />
+          ) : null}
+          {previewRow && previewData && previewMode === "takeover" ? (
+            // Take-over renders embedded in place of the table. On the Active
+            // messages tab it also gets the claimed-conversation list on the
+            // left (mirrors the RingCX agent UI's digital-queue panel).
+            <div className="flex h-full min-h-0 flex-1">
+              {activeMessagesMode ? (
+                <ActiveMessagesSidebar
+                  rows={claimedRows}
+                  selectedId={previewRow.engagementId}
+                  onSelect={(id) => onDigitalTakeOverCommitted?.(id)}
+                  onTransfer={(id) => {
+                    if (id !== previewRow.engagementId) {
+                      onDigitalTakeOverCommitted?.(id);
+                    }
+                    setTransferSignal((v) => v + 1);
+                  }}
+                  onDone={(id) => {
+                    if (id !== previewRow.engagementId) {
+                      onDigitalTakeOverCommitted?.(id);
+                    }
+                    setEndMessageOpen(true);
+                  }}
+                />
+              ) : null}
+              <div className="flex min-w-0 flex-1 flex-col">
+                {activeMessagesMode ? (
+                  <div className="shrink-0 border-b border-[#0000001a] bg-white px-4 py-3">
+                    <span className="font-['Roboto',sans-serif] text-[14px] text-[#121212]">
+                      Messages
+                    </span>
+                  </div>
+                ) : null}
+                <div className="min-h-0 flex-1">
+                  <InteractionPreview
+                  mode="takeover"
+                  data={previewData}
+                  contextHops={previewContextHops}
+                  takeOverDisabled={previewAgentPendingInactive}
+                  onClose={() => onPreviewClose?.()}
+                  onEnlarge={() => onPreviewModeChange?.("expanded")}
+                  onTakeOver={handlePreviewTakeOver}
+                  onRecategorize={() => setRecategorizeOpen(true)}
+                  onEndMessage={
+                    activeMessagesMode
+                      ? () => setEndMessageOpen(true)
+                      : undefined
+                  }
+                  transferSignal={activeMessagesMode ? transferSignal : 0}
+                />
+                </div>
+              </div>
+            </div>
           ) : activeTab === "Queue" ? (
             // Queue tab: the same Interactions table, restricted to pending
             // (Waiting) rows. Agent-side cells render blank — no agent has
@@ -1773,7 +2012,14 @@ export default function AgentTablePanel({
           <InteractionPreview
             mode={previewMode}
             data={previewData}
-            hideTakeOver={activeTab === "Queue" || !previewTakeOverRoutable}
+            hideTakeOver={
+              // With a digital-claim route available, Claim behaves the same
+              // from every preview surface (Queue tab and pending previews
+              // included); without one, keep the legacy hide rules.
+              onDigitalTakeOverCommitted
+                ? false
+                : activeTab === "Queue" || !previewTakeOverRoutable
+            }
             contextHops={previewContextHops}
             takeOverDisabled={readOnly || previewAgentPendingInactive}
             takeOverDisabledTooltip={
@@ -1787,6 +2033,11 @@ export default function AgentTablePanel({
             onEnlarge={() => onPreviewModeChange?.("expanded")}
             onRestore={() => onPreviewModeChange?.("preview")}
             onTakeOver={handlePreviewTakeOver}
+            onRecategorize={
+              previewRow.isVoiceInteraction
+                ? undefined
+                : () => setRecategorizeOpen(true)
+            }
             overflowActions={
               previewRow.conversationState === "PENDING"
                 ? [

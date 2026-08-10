@@ -32,6 +32,10 @@ import AgentTablePanel, {
   SupervisorFilter,
   SupervisorFilterToggle,
   SupervisorCheckbox,
+  ActiveMessagesSidebar,
+  registerClaimedDigital,
+  removeClaimedDigital,
+  useClaimedDigitalIds,
 } from "@proto";
 import type { InteractionFilterRow } from "@proto";
 import { Button } from "@/components/ui/button";
@@ -64,7 +68,6 @@ import {
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  ArrowLeft,
   Check,
   Eye,
   Search as SearchIcon,
@@ -378,6 +381,7 @@ function QueuePanel({
   onPreviewModeChange,
   onPreviewClose,
   onVoicePreviewAccepted,
+  onDigitalTakeOverCommitted,
 }: {
   searchQuery: string;
   onSearch: (value: string) => void;
@@ -387,6 +391,7 @@ function QueuePanel({
   onPreviewModeChange: (mode: InteractionPreviewMode) => void;
   onPreviewClose: () => void;
   onVoicePreviewAccepted?: () => void;
+  onDigitalTakeOverCommitted: (engagementId: string) => void;
 }): JSX.Element {
   return (
     <>
@@ -419,6 +424,7 @@ function QueuePanel({
           onPreviewModeChange={onPreviewModeChange}
           onPreviewClose={onPreviewClose}
           onVoicePreviewAccepted={onVoicePreviewAccepted}
+          onDigitalTakeOverCommitted={onDigitalTakeOverCommitted}
         />
       </div>
     </>
@@ -604,6 +610,38 @@ export const SupervisorAgents = (): JSX.Element => {
     }
   }, [activeCallMatched, activeCallAgentId, navigate, withView]);
 
+  // Digital take-over (Claim) commits land on the Active messages tab —
+  // mirrors how voice take-overs land on Active calls.
+  const handleDigitalTakeOverCommitted = useCallback(
+    (engagementId: string) =>
+      navigate(withView(`/active-messages/${engagementId}`)),
+    [navigate, withView],
+  );
+
+  // URL-addressable Active messages tab (deep-linkable / refresh-safe): after
+  // a digital take-over (Claim) commits, the page routes to
+  // /active-messages/:engagementId and the top tab bar switches to "Active
+  // messages". /active-messages without a conversation shows the empty state.
+  const [activeMessagesRootMatched] = useRoute("/active-messages");
+  const [activeMessageConvMatched, activeMessageParams] = useRoute(
+    "/active-messages/:engagementId",
+  );
+  const activeMessagesMatched =
+    activeMessagesRootMatched || activeMessageConvMatched;
+  const activeMessageEngagementId = activeMessageConvMatched
+    ? (activeMessageParams?.engagementId ?? null)
+    : null;
+
+  // Claimed digital conversations (drives the "Active messages (n)" count and
+  // where the tab lands when clicked). A deep-linked conversation re-registers
+  // itself so refreshes keep the count and tab content consistent.
+  const claimedDigitalIds = useClaimedDigitalIds();
+  useEffect(() => {
+    if (activeMessageEngagementId) {
+      registerClaimedDigital(activeMessageEngagementId);
+    }
+  }, [activeMessageEngagementId]);
+
   // Closing the taken-over call window ends the Active calls context — the
   // top tab bar returns to Supervisor automatically.
   const handleMonitoringWindowClosed = useCallback(
@@ -617,20 +655,37 @@ export const SupervisorAgents = (): JSX.Element => {
 
   const handleTopTabChange = useCallback(
     (value: string) => {
-      // Leaving the Active calls context returns to the Supervisor table.
-      if (value === "Supervisor" && activeCallMatched) {
+      // Active messages returns to the claimed conversation (most recent
+      // claim first); with none claimed it shows the empty state.
+      if (value === "Active messages") {
+        const latest = claimedDigitalIds[claimedDigitalIds.length - 1];
+        navigate(
+          withView(latest ? `/active-messages/${latest}` : "/active-messages"),
+        );
+        return;
+      }
+      // Leaving the Active calls / Active messages context returns to the
+      // Supervisor table.
+      if (value === "Supervisor" && (activeCallMatched || activeMessagesMatched)) {
         navigate(withView("/"));
         return;
       }
-      // Only the Supervisor/My team, Queue, and Active calls tabs are
-      // functional in this prototype; the other top tabs are decorative.
+      // Only the Supervisor/My team, Queue, Active calls, and Active messages
+      // tabs are functional in this prototype; the others are decorative.
       if (value !== "Queue" && value !== "Supervisor") return;
       updateSearch((params) => {
         if (value === "Queue") params.set("nav", "queue");
         else params.delete("nav");
       });
     },
-    [updateSearch, navigate, activeCallMatched, withView],
+    [
+      updateSearch,
+      navigate,
+      activeCallMatched,
+      activeMessagesMatched,
+      claimedDigitalIds,
+      withView,
+    ],
   );
 
   // Take over is a Supervisor-capability: available in the classic Supervisor
@@ -638,21 +693,48 @@ export const SupervisorAgents = (): JSX.Element => {
   // non-supervisor view renders as the read-only preview (the URL is
   // normalized by an effect below) — the take-over UI must never mount there.
   const canTakeOver = isSupervisorView || isSupervisor2Like;
-  const previewMode: InteractionPreviewMode | null =
-    parsedPreviewMode === "takeover" && !canTakeOver
+  // The Active messages tab renders the claimed conversation as an embedded
+  // take-over (no popup) — model it as a takeover preview on that route.
+  const previewMode: InteractionPreviewMode | null = activeMessagesMatched
+    ? activeMessageEngagementId
+      ? "takeover"
+      : null
+    : parsedPreviewMode === "takeover" && !canTakeOver
       ? "preview"
       : parsedPreviewMode;
-  const previewEngagementId =
-    previewRouteMatched && previewMode
+  const previewEngagementId = activeMessagesMatched
+    ? activeMessageEngagementId
+    : previewRouteMatched && previewMode
       ? (previewParams?.engagementId ?? null)
       : null;
+
+  // Legacy digital take-over deep links (/interactions/:id/takeover) live on
+  // the Active messages tab now — normalize them to its canonical URL.
+  useEffect(() => {
+    if (
+      previewRouteMatched &&
+      parsedPreviewMode === "takeover" &&
+      canTakeOver &&
+      previewEngagementId
+    ) {
+      navigate(withView(`/active-messages/${previewEngagementId}`), {
+        replace: true,
+      });
+    }
+  }, [
+    previewRouteMatched,
+    parsedPreviewMode,
+    canTakeOver,
+    previewEngagementId,
+    navigate,
+    withView,
+  ]);
 
 
   // Unknown mode in the URL -> restore the plain table URL.
   useEffect(() => {
     if (previewRouteMatched && !previewMode) navigate(withView("/"));
   }, [previewRouteMatched, previewMode, navigate, withView]);
-
 
 
   // A preview deep link always belongs to the Interactions tab (preview URLs
@@ -777,9 +859,16 @@ export const SupervisorAgents = (): JSX.Element => {
   );
   const changePreviewMode = useCallback(
     (mode: InteractionPreviewMode) => {
-      if (previewEngagementId) {
-        navigate(withView(`/interactions/${previewEngagementId}/${mode}`));
-      }
+      if (!previewEngagementId) return;
+      // A committed digital take-over (Claim) lives on the Active messages
+      // tab; the listening modes stay on the popup routes.
+      navigate(
+        withView(
+          mode === "takeover"
+            ? `/active-messages/${previewEngagementId}`
+            : `/interactions/${previewEngagementId}/${mode}`,
+        ),
+      );
     },
     [previewEngagementId, navigate, withView],
   );
@@ -787,6 +876,25 @@ export const SupervisorAgents = (): JSX.Element => {
     () => navigate(withView("/")),
     [navigate, withView],
   );
+  // Closing the claimed conversation releases it (the count drops) and
+  // returns to the Supervisor tab.
+  const closeActiveMessage = useCallback(() => {
+    if (activeMessageEngagementId) {
+      removeClaimedDigital(activeMessageEngagementId);
+    }
+    // Stay on the Active messages tab: fall back to the most recent other
+    // claimed conversation, or the tab's empty state.
+    const remaining = claimedDigitalIds.filter(
+      (id) => id !== activeMessageEngagementId,
+    );
+    navigate(
+      withView(
+        remaining.length
+          ? `/active-messages/${remaining[remaining.length - 1]}`
+          : "/active-messages",
+      ),
+    );
+  }, [activeMessageEngagementId, claimedDigitalIds, navigate, withView]);
 
   // Queue preview navigation: opening a queue row's IVR-transcript preview
   // moves to /queue/:id/preview; closing returns to the Queue tab URL.
@@ -1413,9 +1521,11 @@ export const SupervisorAgents = (): JSX.Element => {
               value={
                 activeCallMatched
                   ? "Active calls"
-                  : isQueueTab
-                    ? "Queue"
-                    : "Supervisor"
+                  : activeMessagesMatched
+                    ? "Active messages"
+                    : isQueueTab
+                      ? "Queue"
+                      : "Supervisor"
               }
               onValueChange={handleTopTabChange}
               className="w-full"
@@ -1434,7 +1544,10 @@ export const SupervisorAgents = (): JSX.Element => {
                       ? viewLabel
                       : tab === "Queue"
                         ? `Queue (${queuePendingCount})`
-                        : tab}
+                        : tab === "Active messages" &&
+                            claimedDigitalIds.length > 0
+                          ? `Active messages (${claimedDigitalIds.length})`
+                          : tab}
                   </TabsTrigger>
                 ))}
               </TabsList>
@@ -1450,27 +1563,16 @@ export const SupervisorAgents = (): JSX.Element => {
               onPreviewModeChange={changeQueuePreviewMode}
               onPreviewClose={closeQueuePreview}
               onVoicePreviewAccepted={handleVoicePreviewAccepted}
+              onDigitalTakeOverCommitted={handleDigitalTakeOverCommitted}
             />
           ) : (
           <>
-          {activeCallMatched ? null : previewMode === "takeover" ? (
-            // Embedded take-over: the Supervisor header/filters give way to a
-            // back row, and the taken-over conversation fills the area below.
-            <div
-              className="flex shrink-0 items-center border-b border-[#0000001a] px-4 py-2.5"
-              data-testid="row-takeover-back"
-            >
-              <button
-                type="button"
-                onClick={closePreview}
-                className="flex items-center gap-2 font-['Roboto',sans-serif] text-[15px] font-medium tracking-[0.15px] text-[#066fac] transition-opacity hover:opacity-80 focus-visible:underline focus-visible:outline-none"
-                data-testid="button-back-supervisor"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Supervisor
-              </button>
-            </div>
-          ) : (
+          {activeCallMatched ||
+          activeMessagesMatched ||
+          previewMode === "takeover" ? null : (
+            // The Active messages tab (and the momentary legacy-takeover
+            // redirect frame) render without the Supervisor toolbar/filters:
+            // the claimed conversation is the tab's content.
           <>
           <div
             data-name="Supervisor toolbar"
@@ -1668,12 +1770,46 @@ export const SupervisorAgents = (): JSX.Element => {
               <ActiveCallView agentId={activeCallAgentId} />
             </div>
           ) : null}
+          {activeMessagesMatched && !activeMessageEngagementId ? (
+            // Active messages with nothing claimed: the conversation list
+            // (which also hosts the incoming-message card) plus an empty
+            // state. The table stays mounted (zero-height) below, same as
+            // the Active calls tab.
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              <ActiveMessagesSidebar
+                rows={[]}
+                selectedId={null}
+                onSelect={(id) =>
+                  navigate(withView(`/active-messages/${id}`))
+                }
+              />
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <div className="shrink-0 border-b border-[#0000001a] bg-white px-4 py-3">
+                  <span className="font-['Roboto',sans-serif] text-[14px] text-[#121212]">
+                    Messages
+                  </span>
+                </div>
+                <div
+                  className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 overflow-hidden px-6 text-center"
+                  data-testid="empty-active-messages"
+                >
+                <span className="font-['Roboto',sans-serif] text-[16px] font-medium text-[#121212]">
+                  No active messages
+                </span>
+                <span className="font-['Roboto',sans-serif] text-[14px] tracking-[0.25px] text-[#666666]">
+                  When you claim a conversation, it appears here.
+                </span>
+                </div>
+              </div>
+            </div>
+          ) : null}
           <div
             data-name={
               isInteractions ? "Interaction table" : "Agent table"
             }
             className={
-              activeCallMatched
+              activeCallMatched ||
+              (activeMessagesMatched && !activeMessageEngagementId)
                 ? "h-0 overflow-hidden"
                 : "min-h-0 flex-1 overflow-hidden"
             }
@@ -1726,12 +1862,16 @@ export const SupervisorAgents = (): JSX.Element => {
                 isView2PendingTab ? changeQueuePreviewMode : changePreviewMode
               }
               onPreviewClose={
-                isView2PendingTab || queuePreviewEngagementId
-                  ? closeQueuePreview
-                  : closePreview
+                activeMessagesMatched
+                  ? closeActiveMessage
+                  : isView2PendingTab || queuePreviewEngagementId
+                    ? closeQueuePreview
+                    : closePreview
               }
               onTakeOverCommitted={handleTakeOverCommitted}
               onVoicePreviewAccepted={handleVoicePreviewAccepted}
+              onDigitalTakeOverCommitted={handleDigitalTakeOverCommitted}
+              activeMessagesMode={activeMessagesMatched}
               onMonitoringWindowClosed={handleMonitoringWindowClosed}
             />
           </div>
