@@ -892,7 +892,12 @@ export function makeQueueInteractions(): any[] {
       // Confidence/sentiment are handling-time signals — always null in queue.
       confidenceScore: null,
       sentimentScore: null,
-      contactIdentity: customerName,
+      // Voice callers are identified by their incoming number (no contact
+      // record yet while waiting in queue); digital rows keep the name.
+      contactIdentity:
+        ch.type === 'VOICE'
+          ? `+1 (415) 555-01${String((i % 90) + 10)}`
+          : customerName,
       threadTitle: QUEUE_SUBJECTS[i % QUEUE_SUBJECTS.length],
       pendingDispositionMs: null,
       isVoiceInteraction: ch.type === 'VOICE',
@@ -925,7 +930,9 @@ export function makeQueueInteractions(): any[] {
       isQueueRow: true,
       // Every digital row carries a pre-queue IVR/bot transcript worth
       // previewing; voice rows never do.
-      hasPreview: ch.type !== 'VOICE',
+      // Every queued conversation can be previewed: digital rows open the
+      // Interaction preview; voice rows open the preview-call window.
+      hasPreview: true,
       showViewInsights: true,
       showBargeIn: false,
       showMonitor: false,

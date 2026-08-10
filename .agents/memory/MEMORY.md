@@ -2,3 +2,4 @@
 
 - [rcx-supervisor import quirks](rcx-supervisor-import.md) — imported artifact with own Express+Vite server, React 18 pin, `check` script, excluded proto tree; view 2/3 pruning + takeover gating notes.
 - [Upstream ports via synthetic merge base](upstream-port-merge.md) — sibling GitHub repo has unrelated history; graft local tree onto the matching upstream commit and merge.
+- [Figma design access](figma-access.md) — no Figma connector; use FIGMA_ACCESS_TOKEN with the REST images API to export frames (share links need login).

@@ -1,3 +1,5 @@
+import { Tooltip } from '@ringcx/ui';
+
 import { INTERACTION_SOURCES } from '../../../constants/app';
 import { sourceTypeMap } from '../../../containers/Chat/TypeIcon';
 import BargeInMenu from '../../../containers/SupervisorAgentList/components/Menus/BargeInMenu';
@@ -58,6 +60,14 @@ export const getDigitalInteractionHoveredItems = (
                     showSupervisorAssist,
                     viewInsight,
                     showViewInsights,
+                    uii,
+                }),
+                // Voice rows get a preview (eye) action like digital rows:
+                // opens the preview-call variant of the RingCX phone call
+                // window (URL-driven via the same preview-open path).
+                _getVoicePreviewHoveredMenu({
+                    monitorVoice,
+                    agentId,
                     uii,
                 }),
                 _getMonitorHoveredMenu({
@@ -125,6 +135,62 @@ export const getDigitalInteractionHoveredItems = (
         }
     }
     return [];
+};
+
+// Preview (eye) hover action for voice rows: routes through the shared
+// monitor callback with the 'voicePreview' action type, which the host panel
+// turns into the URL-driven preview-call window.
+export const _getVoicePreviewHoveredMenu = ({
+    monitorVoice,
+    agentId,
+    uii,
+}: {
+    monitorVoice: () => void;
+    agentId: string;
+    uii: string;
+}) => {
+    return (
+        <Tooltip key={`voice_preview_${agentId}_${uii}`} title='Preview call' placement='left'>
+            <button
+                type='button'
+                aria-label='Preview call'
+                onClick={(e) => {
+                    e.stopPropagation();
+                    (monitorVoice as any)(agentId, 'voicePreview', uii);
+                }}
+                style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 4,
+                    border: 'none',
+                    background: 'transparent',
+                    // Same neutral as the AI-insights icon (theme gray 700).
+                    color: '#A1A1A1',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                }}
+                data-testid={`button-voice-preview-${uii}`}
+            >
+                {/* Eye glyph: preview the call */}
+                <svg
+                    width='18'
+                    height='18'
+                    viewBox='0 0 24 24'
+                    fill='none'
+                    stroke='currentColor'
+                    strokeWidth='2'
+                    strokeLinecap='round'
+                    strokeLinejoin='round'
+                    aria-hidden
+                >
+                    <path d='M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z' />
+                    <circle cx='12' cy='12' r='3' />
+                </svg>
+            </button>
+        </Tooltip>
+    );
 };
 
 export const _getSupervisorAssistHoveredMenu = ({

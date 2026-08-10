@@ -123,7 +123,12 @@ const makeArrival = (): any => {
     agentDurationMs: null,
     confidenceScore: null,
     sentimentScore: null,
-    contactIdentity: ARRIVAL_CUSTOMERS[i % ARRIVAL_CUSTOMERS.length],
+    // Voice callers are identified by their incoming number (no contact
+    // record yet while waiting in queue); digital rows keep the name.
+    contactIdentity:
+      ch.type === 'VOICE'
+        ? `+1 (628) 555-02${String((i % 90) + 10)}`
+        : ARRIVAL_CUSTOMERS[i % ARRIVAL_CUSTOMERS.length],
     threadTitle: ARRIVAL_SUBJECTS[i % ARRIVAL_SUBJECTS.length],
     pendingDispositionMs: null,
     isVoiceInteraction: ch.type === 'VOICE',
@@ -142,7 +147,9 @@ const makeArrival = (): any => {
     isQueueRow: true,
     // Every digital arrival carries a pre-queue IVR/bot transcript to
     // preview; voice arrivals never do.
-    hasPreview: ch.type !== 'VOICE',
+    // Every queued conversation can be previewed: digital rows open the
+    // Interaction preview; voice rows open the preview-call window.
+    hasPreview: true,
     showViewInsights: true,
     showBargeIn: false,
     showMonitor: false,

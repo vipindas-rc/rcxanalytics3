@@ -599,8 +599,16 @@ export const DigitalInteractionTableRow: FC<{
                         {hasPreview && (
                             <button
                                 type='button'
-                                title='Preview interaction'
-                                aria-label='Preview interaction'
+                                title={
+                                    isVoiceInteraction
+                                        ? 'Preview call'
+                                        : 'Preview interaction'
+                                }
+                                aria-label={
+                                    isVoiceInteraction
+                                        ? 'Preview call'
+                                        : 'Preview interaction'
+                                }
                                 onClick={() =>
                                     (monitorAgentCallback as any)(
                                         agentId,

@@ -4,6 +4,7 @@ import {
   ChevronUp,
   Mail,
   MessageSquareMore,
+  MoreHorizontal,
   MoreVertical,
   PanelRightClose,
   PanelRightOpen,
@@ -17,6 +18,10 @@ import type { PreviewHistoryEntry } from "./mock/supervisorMock";
 import { makeInteractionPreview } from "./mock/supervisorMock";
 import { ContextTabContent } from "./InteractionPreview";
 import { useActiveCallContext, useContextHops } from "./contextHopStore";
+import {
+  useActivePreviewCall,
+  useElapsedSince,
+} from "./activePreviewCallStore";
 
 const RC_BLUE = "#066fac";
 const FONT = "'Roboto', sans-serif";
@@ -258,7 +263,284 @@ function FieldRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Details page for an answered voice preview call (routed as
+// /active-call/preview). Matches the RingCX agent "Active calls > Details"
+// screen: gray interaction id, "Source: <queue>", and a Call details card
+// with State / DNIS / Call time and a live call timer.
+// ---------------------------------------------------------------------------
+const PREVIEW_DNIS = "068290 97110";
+
+function formatCallTime(ms: number): string {
+  return new Date(ms).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function PreviewCallDetails() {
+  const call = useActivePreviewCall();
+  const elapsed = useElapsedSince(call?.acceptedAtMs ?? null);
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [contactExpanded, setContactExpanded] = useState(true);
+
+  if (!call) {
+    // Refresh-safe guard: no live call registered (e.g. hung up elsewhere).
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100%",
+          fontFamily: FONT,
+          color: "#666666",
+          fontSize: 14,
+        }}
+        data-testid="view-active-call-empty"
+      >
+        No active call
+      </div>
+    );
+  }
+
+  const contactFields: { label: string; value: string }[] = [
+    { label: "First name", value: "—" },
+    { label: "Last name", value: "—" },
+    { label: "Company", value: "—" },
+    { label: "Cell phone", value: call.number },
+    { label: "Notes", value: "—" },
+  ];
+
+  return (
+    <div
+      style={{ display: "flex", height: "100%", minHeight: 0, background: "#fff" }}
+      data-testid="view-active-call-preview"
+    >
+      {/* ---------- LEFT: details ---------- */}
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          display: "flex",
+          flexDirection: "column",
+          overflowY: "auto",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 20px",
+            borderBottom: "1px solid rgba(0,0,0,0.1)",
+            fontFamily: FONT,
+            flexShrink: 0,
+          }}
+        >
+          <span style={{ fontSize: 22, fontWeight: 400, color: "#121212" }}>
+            Details
+          </span>
+          {!panelOpen ? (
+            <button
+              type="button"
+              onClick={() => setPanelOpen(true)}
+              aria-label="Show contact info"
+              style={{
+                appearance: "none",
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                color: "#616161",
+                display: "inline-flex",
+              }}
+              data-testid="button-previewcall-open-panel"
+            >
+              <PanelRightOpen size={18} strokeWidth={1.8} />
+            </button>
+          ) : null}
+        </div>
+        <div style={{ padding: "20px 24px", fontFamily: FONT }}>
+          <p
+            style={{ margin: 0, fontSize: 13, color: "#b3b3b3" }}
+            data-testid="text-previewcall-id"
+          >
+            {call.number}
+          </p>
+          <p
+            style={{ margin: "8px 0 0", fontSize: 14, color: "#121212" }}
+            data-testid="text-previewcall-source"
+          >
+            Source: {call.queueName}
+          </p>
+          <div
+            style={{
+              marginTop: 20,
+              border: "1px solid rgba(0,0,0,0.1)",
+              borderRadius: 8,
+              maxWidth: 880,
+            }}
+            data-testid="card-previewcall-details"
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "16px 20px 8px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: "#121212" }}>
+                  Call details
+                </span>
+                <MoreHorizontal size={18} strokeWidth={1.8} color="#9e9e9e" />
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  color: "#121212",
+                }}
+              >
+                <PhoneIncoming size={15} strokeWidth={1.8} color="#9e9e9e" />
+                <span
+                  style={{ fontSize: 14, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}
+                  data-testid="text-previewcall-elapsed"
+                >
+                  00:{elapsed}
+                </span>
+              </div>
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                padding: "8px 20px 20px",
+                rowGap: 16,
+              }}
+            >
+              <div style={{ display: "flex", gap: 24 }}>
+                <span style={{ width: 96, fontSize: 13, color: "#9e9e9e" }}>State</span>
+                <span
+                  style={{ fontSize: 14, color: "#121212" }}
+                  data-testid="text-previewcall-state"
+                >
+                  ACTIVE
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 24 }}>
+                <span style={{ width: 96, fontSize: 13, color: "#9e9e9e" }}>DNIS</span>
+                <span style={{ fontSize: 14, color: "#121212" }}>{PREVIEW_DNIS}</span>
+              </div>
+              <div style={{ display: "flex", gap: 24 }}>
+                <span style={{ width: 96, fontSize: 13, color: "#9e9e9e" }}>Call time</span>
+                <span style={{ fontSize: 14, color: "#121212" }}>
+                  {formatCallTime(call.acceptedAtMs)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ---------- RIGHT: contact info ---------- */}
+      {panelOpen ? (
+        <div
+          style={{
+            width: 430,
+            flexShrink: 0,
+            display: "flex",
+            flexDirection: "column",
+            borderLeft: "1px solid rgba(0,0,0,0.1)",
+            background: "#fff",
+            minHeight: 0,
+          }}
+          data-testid="pane-previewcall-contact"
+        >
+          <div
+            style={{
+              height: 48,
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              borderBottom: "1px solid rgba(0,0,0,0.1)",
+              padding: "0 16px",
+              fontFamily: "'Inter', sans-serif",
+            }}
+          >
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                color: RC_BLUE,
+                borderBottom: `2px solid ${RC_BLUE}`,
+                alignSelf: "stretch",
+                display: "inline-flex",
+                alignItems: "center",
+              }}
+              role="tab"
+              aria-selected
+            >
+              CONTACT INFO
+            </span>
+            <button
+              type="button"
+              onClick={() => setPanelOpen(false)}
+              aria-label="Hide contact info"
+              style={{
+                appearance: "none",
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                color: "#616161",
+                display: "inline-flex",
+              }}
+              data-testid="button-previewcall-collapse-panel"
+            >
+              <PanelRightClose size={18} strokeWidth={1.8} />
+            </button>
+          </div>
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+            <SectionHeader
+              title={call.number}
+              subtitle={call.queueName}
+              expanded={contactExpanded}
+              menu
+              onToggle={() => setContactExpanded((v) => !v)}
+              testId="section-previewcall-contact"
+            />
+            {contactExpanded ? (
+              <div
+                style={{
+                  padding: "8px 0",
+                  borderBottom: "1px solid rgba(221,223,229,0.5)",
+                }}
+              >
+                {contactFields.map((f) => (
+                  <FieldRow key={f.label} label={f.label} value={f.value} />
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ActiveCallView({ agentId }: ActiveCallViewProps) {
+  if (agentId === "preview") return <PreviewCallDetails />;
+  return <TakenOverCallView agentId={agentId} />;
+}
+
+function TakenOverCallView({ agentId }: ActiveCallViewProps) {
   const data = makeInteractionPreview(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [detailsExpanded, setDetailsExpanded] = useState(true);

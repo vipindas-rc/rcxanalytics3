@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute, useSearch } from "wouter";
 import {
+  endActivePreviewCall,
+  toggleActivePreviewCallMute,
+  useActivePreviewCall,
+  useElapsedSince,
+} from "@/proto/activePreviewCallStore";
+import {
   MODAL_IDS,
   useUrlFlag,
   useUrlParam,
@@ -371,6 +377,7 @@ function QueuePanel({
   onPreviewOpen,
   onPreviewModeChange,
   onPreviewClose,
+  onVoicePreviewAccepted,
 }: {
   searchQuery: string;
   onSearch: (value: string) => void;
@@ -379,6 +386,7 @@ function QueuePanel({
   onPreviewOpen: (engagementId: string) => void;
   onPreviewModeChange: (mode: InteractionPreviewMode) => void;
   onPreviewClose: () => void;
+  onVoicePreviewAccepted?: () => void;
 }): JSX.Element {
   return (
     <>
@@ -410,6 +418,7 @@ function QueuePanel({
           onPreviewOpen={onPreviewOpen}
           onPreviewModeChange={onPreviewModeChange}
           onPreviewClose={onPreviewClose}
+          onVoicePreviewAccepted={onVoicePreviewAccepted}
         />
       </div>
     </>
@@ -574,6 +583,26 @@ export const SupervisorAgents = (): JSX.Element => {
     (agentId: string) => navigate(withView(`/active-call/${agentId}`)),
     [navigate, withView],
   );
+
+  // Answering an incoming voice preview call: the active call is already
+  // registered in the store; route to its Active calls details page
+  // (URL-driven, refresh-safe — the store persists across reloads).
+  const handleVoicePreviewAccepted = useCallback(
+    () => navigate(withView("/active-call/preview")),
+    [navigate, withView],
+  );
+
+  // Answered preview call — drives the top-bar call chip and Engaged status.
+  const activePreviewCall = useActivePreviewCall();
+  const activePreviewElapsed = useElapsedSince(
+    activePreviewCall?.acceptedAtMs ?? null,
+  );
+  const handleEndPreviewCall = useCallback(() => {
+    endActivePreviewCall();
+    if (activeCallMatched && activeCallAgentId === "preview") {
+      navigate(withView("/"));
+    }
+  }, [activeCallMatched, activeCallAgentId, navigate, withView]);
 
   // Closing the taken-over call window ends the Active calls context — the
   // top tab bar returns to Supervisor automatically.
@@ -1142,16 +1171,118 @@ export const SupervisorAgents = (): JSX.Element => {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 self-stretch">
+            {activePreviewCall ? (
+              /* Active call chip: dark bar with the caller number, live timer,
+                 mute toggle and hang-up (design ref: RingCX top-bar call). */
+              <div
+                className="flex h-full items-center gap-3 bg-gradient-to-r from-[#1b3a4f] to-[#2c536e] px-4"
+                data-testid="chip-active-call"
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate(withView("/active-call/preview"))
+                  }
+                  className="flex items-center gap-2 border-none bg-transparent p-0 text-left cursor-pointer"
+                  data-testid="button-active-call-details"
+                  aria-label="Open call details"
+                >
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#ffffff"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <path d="M4 13a8 8 0 0 1 16 0" />
+                    <path d="M4 13v4a1.5 1.5 0 0 0 1.5 1.5H7V12H5.5A1.5 1.5 0 0 0 4 13.5" />
+                    <path d="M20 13v4a1.5 1.5 0 0 1-1.5 1.5H17V12h1.5A1.5 1.5 0 0 1 20 13.5" />
+                    <path d="M17 18.5v.5a2 2 0 0 1-2 2h-2" />
+                  </svg>
+                  <span className="flex flex-col leading-none">
+                    <span className="font-['Lato',sans-serif] text-[15px] font-bold text-white whitespace-nowrap">
+                      {activePreviewCall.number}
+                    </span>
+                    <span
+                      className="font-['Lato',sans-serif] text-[12px] text-[#d5dee5] tabular-nums"
+                      data-testid="text-active-call-timer"
+                    >
+                      {activePreviewElapsed}
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleActivePreviewCallMute}
+                  data-testid="button-active-call-mute"
+                  aria-label={activePreviewCall.muted ? "Unmute" : "Mute"}
+                  aria-pressed={activePreviewCall.muted}
+                  className={`flex h-8 w-8 items-center justify-center rounded-full border-none cursor-pointer transition-colors ${
+                    activePreviewCall.muted
+                      ? "bg-[#e6413c] hover:bg-[#d93a35]"
+                      : "bg-white hover:bg-[#f0f0f0]"
+                  }`}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={activePreviewCall.muted ? "#ffffff" : "#121212"}
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
+                    <rect x="9" y="3" width="6" height="11" rx="3" />
+                    <path d="M5 11a7 7 0 0 0 14 0" />
+                    <line x1="12" y1="18" x2="12" y2="21" />
+                    {activePreviewCall.muted ? (
+                      <line x1="4" y1="4" x2="20" y2="20" />
+                    ) : null}
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleEndPreviewCall}
+                  data-testid="button-active-call-hangup"
+                  aria-label="Hang up"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border-none bg-[#e6413c] cursor-pointer hover:bg-[#d93a35]"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="#ffffff"
+                    aria-hidden
+                  >
+                    <path d="M12 9c-3.4 0-6.6 1.1-9.2 3.2a1.5 1.5 0 0 0-.2 2.2l1.6 1.8c.5.5 1.3.6 1.9.2l2.2-1.5c.4-.3.7-.8.7-1.3v-1.2c2-.6 4-.6 6 0v1.2c0 .5.3 1 .7 1.3l2.2 1.5c.6.4 1.4.3 1.9-.2l1.6-1.8a1.5 1.5 0 0 0-.2-2.2A14.4 14.4 0 0 0 12 9z" />
+                  </svg>
+                </button>
+              </div>
+            ) : null}
             <button
               type="button"
               className="flex h-8 w-[164px] items-center gap-1 rounded-2xl bg-white px-3"
+              data-testid="button-presence-status"
             >
-              <img
-                className="h-3.5 w-3.5"
-                alt="Presence"
-                src="/figmaAssets/presence.svg"
-              />
+              {activePreviewCall ? (
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#e6413c]"
+                  aria-hidden
+                />
+              ) : (
+                <img
+                  className="h-3.5 w-3.5"
+                  alt="Presence"
+                  src="/figmaAssets/presence.svg"
+                />
+              )}
               <img
                 className="h-4 w-4"
                 alt="Icon engage border"
@@ -1159,10 +1290,10 @@ export const SupervisorAgents = (): JSX.Element => {
               />
               <div className="flex flex-1 items-center justify-between gap-1">
                 <span className="font-caption-1 text-[length:var(--caption-1-font-size)] font-[number:var(--caption-1-font-weight)] leading-[var(--caption-1-line-height)] tracking-[var(--caption-1-letter-spacing)] text-[#121212] [font-style:var(--caption-1-font-style)]">
-                  Available
+                  {activePreviewCall ? "Engaged" : "Available"}
                 </span>
                 <span className="whitespace-nowrap font-caption-1 text-[length:var(--caption-1-font-size)] font-[number:var(--caption-1-font-weight)] leading-[var(--caption-1-line-height)] tracking-[var(--caption-1-letter-spacing)] text-[#121212] [font-style:var(--caption-1-font-style)]">
-                  21:01
+                  {activePreviewCall ? activePreviewElapsed : "21:01"}
                 </span>
               </div>
               <img
@@ -1318,6 +1449,7 @@ export const SupervisorAgents = (): JSX.Element => {
               onPreviewOpen={openQueuePreview}
               onPreviewModeChange={changeQueuePreviewMode}
               onPreviewClose={closeQueuePreview}
+              onVoicePreviewAccepted={handleVoicePreviewAccepted}
             />
           ) : (
           <>
@@ -1599,6 +1731,7 @@ export const SupervisorAgents = (): JSX.Element => {
                   : closePreview
               }
               onTakeOverCommitted={handleTakeOverCommitted}
+              onVoicePreviewAccepted={handleVoicePreviewAccepted}
               onMonitoringWindowClosed={handleMonitoringWindowClosed}
             />
           </div>

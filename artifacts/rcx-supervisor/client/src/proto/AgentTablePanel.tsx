@@ -14,6 +14,11 @@ import { DigitalInteractionTable } from "./eag/components/DigitalInteractionTabl
 import AiInsightsPanel from "./eag/components/AiInsightsPanel/AiInsightsPanel";
 import { Dialer } from "./dialer/Dialer";
 import { MonitoringCallWindow } from "./dialer/MonitoringCallWindow";
+import {
+  endActivePreviewCall,
+  startActivePreviewCall,
+  useActivePreviewCall,
+} from "./activePreviewCallStore";
 import { ReassignConversationModal } from "./ReassignConversationModal";
 import { InteractionRollupModal } from "./eag/containers/SupervisorAgentList/components/InteractionRollupModal";
 import {
@@ -351,6 +356,9 @@ interface AgentTablePanelProps {
   // Fired when a voice take-over commits so the page can switch to the
   // Active calls context for that agent's call.
   onTakeOverCommitted?: (agentId: string) => void;
+  // Fired when an incoming voice preview call is answered (the active call is
+  // already registered in the store) so the page can route to Active calls.
+  onVoicePreviewAccepted?: () => void;
   // Fired when the floating call window closes so the page can leave the
   // Active calls context if it was showing this agent's taken-over call.
   onMonitoringWindowClosed?: (agentId: string) => void;
@@ -385,6 +393,7 @@ export default function AgentTablePanel({
   showCurrentUser = false,
   interactionsVariant,
   onTakeOverCommitted,
+  onVoicePreviewAccepted,
   onMonitoringWindowClosed,
 }: AgentTablePanelProps) {
   // Supervisor view 3 shares all of view 2's Interactions behavior (pending
@@ -1107,13 +1116,37 @@ export default function AgentTablePanel({
         );
         return;
       }
-      // Transfer opens the same Transfer message dialog as the Interaction
-      // preview (URL-driven), so the supervisor picks a destination first.
+      // Transfer: voice rows open the phone-call modal with the Transfer
+      // sheet already up; digital rows keep the Transfer message dialog.
       if (type === "queueTransfer") {
+        const row = queueRows.find((r: any) => r.engagementId === uii) as any;
+        if (row?.isVoiceInteraction) {
+          if (uii) {
+            setVoicePreviewInitialSheet("transfer");
+            onPreviewOpen?.(uii);
+          }
+          return;
+        }
         if (uii) openModal("queue-transfer", undefined, uii);
         return;
       }
       if (type !== "queueClaim") return;
+      const claimRow = queueRows.find(
+        (r: any) => r.engagementId === uii,
+      ) as any;
+      // Claiming a voice call answers it: register the app-wide active call
+      // (connected phone window + Active calls details screen).
+      if (claimRow?.isVoiceInteraction && uii) {
+        removeQueueRow(uii);
+        setInsightCtx((ctx) => (ctx?.engagementId === uii ? null : ctx));
+        startActivePreviewCall({
+          number: claimRow.contactIdentity || "Unknown number",
+          queueName: claimRow.queueName || "Voice queue",
+          engagementId: uii,
+        });
+        onVoicePreviewAccepted?.();
+        return;
+      }
       const row = removeQueueRow(uii ?? "");
       if (!row) return;
       setInsightCtx((ctx) =>
@@ -1123,7 +1156,7 @@ export default function AgentTablePanel({
         `You claimed the conversation with ${row.contactIdentity}`,
       );
     },
-    [onPreviewOpen, queueRows, openModal],
+    [onPreviewOpen, queueRows, openModal, onVoicePreviewAccepted],
   );
 
   // Queue row backing the open ?modal=queue-transfer dialog. A stale deep
@@ -1195,6 +1228,20 @@ export default function AgentTablePanel({
         });
         setBargedId(uii ?? "");
         flashRef.current(`You've claimed the conversation from ${row?.fullName ?? "Agent"}`);
+        return;
+      }
+
+      // Voice preview (eye) — toggle the URL-driven preview-call window,
+      // same toggle semantics as the digital Interaction preview.
+      if (type === "voicePreview" && row?.isVoiceInteraction) {
+        if (
+          previewEngagementId === row.engagementId &&
+          previewMode !== "takeover"
+        ) {
+          onPreviewClose?.();
+        } else {
+          onPreviewOpen?.(row.engagementId);
+        }
         return;
       }
 
@@ -1424,6 +1471,36 @@ export default function AgentTablePanel({
     previewData?.engagementId ?? null,
   );
 
+  // Answered voice preview call (app-wide store): the phone window stays up
+  // in its connected state after Answer, independent of the preview URL.
+  const activePreviewCall = useActivePreviewCall();
+  const activeCallRow = activePreviewCall
+    ? ((interactions.find(
+        (r: any) => r.engagementId === activePreviewCall.engagementId,
+      ) ??
+        queueRows.find(
+          (r: any) => r.engagementId === activePreviewCall.engagementId,
+        )) as any)
+    : null;
+  const activeCallContextData = useMemo(
+    () =>
+      activeCallRow
+        ? activeCallRow.isQueueRow
+          ? makeQueuePreview(activeCallRow)
+          : makeInteractionPreview(activeCallRow)
+        : null,
+    [activeCallRow],
+  );
+  const activeCallHops = useContextHops(
+    activePreviewCall?.engagementId ?? null,
+  );
+
+  // Queue-row Transfer on a voice call opens the phone window with the
+  // Transfer sheet already up (cleared once the window closes).
+  const [voicePreviewInitialSheet, setVoicePreviewInitialSheet] = useState<
+    "transfer" | null
+  >(null);
+
   // Take over availability tracks the AI agent's lifecycle: a draining agent
   // (Pending Inactive) can't accept a take-over hand-off.
   const previewAgent = previewRow
@@ -1457,7 +1534,10 @@ export default function AgentTablePanel({
     <RcThemeProvider>
       <ThemeProvider theme={theme as any}>
         <PanelScope $readOnly={readOnly}>
-          {previewRow && previewData && previewMode === "takeover" ? (
+          {previewRow &&
+          previewData &&
+          previewMode === "takeover" &&
+          !previewRow.isVoiceInteraction ? (
             // Take-over renders embedded in place of the table (the page shows
             // a "← Supervisor" back row above this panel).
             <InteractionPreview
@@ -1575,7 +1655,76 @@ export default function AgentTablePanel({
           )}
         </PanelScope>
 
-        {previewRow && previewData && previewMode && previewMode !== "takeover" && (
+        {/* Voice interaction preview: the RingCX phone call window in its
+            preview-call variant (incoming Accept/Decline state, no
+            Mute/Keypad/Audio). URL-driven the same way as the digital
+            Interaction preview (/interactions/:id/preview). */}
+        {previewRow &&
+          previewData &&
+          previewMode &&
+          previewRow.isVoiceInteraction &&
+          activePreviewCall?.engagementId !== previewRow.engagementId && (
+          <MonitoringCallWindow
+            key={`voice-preview-${previewRow.engagementId}`}
+            variant="preview"
+            agentName={previewRow.fullName ?? "Agent"}
+            agentType={previewRow.agentType === "Air" ? "Air" : "Human"}
+            customerPhone={previewRow.contactIdentity || undefined}
+            initialTransferOpen={voicePreviewInitialSheet === "transfer"}
+            onClose={() => {
+              setVoicePreviewInitialSheet(null);
+              onPreviewClose?.();
+            }}
+            onToast={(m) => flashRef.current(m)}
+            contextData={previewData}
+            contextHops={previewContextHops}
+            onContextHop={(event) =>
+              appendContextHop(previewRow.engagementId, event)
+            }
+            onPreviewAccepted={() => {
+              // Answering registers the app-wide active call (top-bar chip,
+              // Engaged status, Active calls details) and hands routing to
+              // the page; the preview window closes with the preview URL.
+              startActivePreviewCall({
+                number: previewRow.contactIdentity || "Unknown number",
+                queueName:
+                  (previewRow as any).queueName || "Voice queue",
+                engagementId: previewRow.engagementId,
+              });
+              onVoicePreviewAccepted?.();
+            }}
+          />
+        )}
+
+        {/* Answered preview call: the same phone window, connected (in-call)
+            state. Mounted from the app-wide store so it survives the route
+            change to /active-call/preview and page refreshes. */}
+        {activePreviewCall && (
+          <MonitoringCallWindow
+            key={`voice-preview-live-${activePreviewCall.engagementId}`}
+            variant="preview"
+            connectedAtMs={activePreviewCall.acceptedAtMs}
+            agentName="Agent"
+            agentType="Human"
+            customerPhone={activePreviewCall.number}
+            onClose={() => {
+              endActivePreviewCall();
+              onMonitoringWindowClosed?.("preview");
+            }}
+            onToast={(m) => flashRef.current(m)}
+            contextData={activeCallContextData}
+            contextHops={activeCallHops}
+            onContextHop={(event) =>
+              appendContextHop(activePreviewCall.engagementId, event)
+            }
+          />
+        )}
+
+        {previewRow &&
+          previewData &&
+          previewMode &&
+          previewMode !== "takeover" &&
+          !previewRow.isVoiceInteraction && (
           <InteractionPreview
             mode={previewMode}
             data={previewData}
