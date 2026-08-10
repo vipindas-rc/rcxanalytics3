@@ -274,6 +274,193 @@ export function TransferMessageDialog({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Requeue Call Dialog — same shell as Transfer message, scoped to queues:
+// pick a destination queue (required) and optional requeue skills.
+// ---------------------------------------------------------------------------
+
+export function RequeueCallDialog({
+  onCancel,
+  onRequeue,
+}: {
+  onCancel: () => void;
+  onRequeue: (destination: { queues: string[]; skills: string[] }) => void;
+}) {
+  const [selectedQueues, setSelectedQueues] = useState<string[]>([]);
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+
+  const canRequeue = selectedQueues.length > 0;
+
+  // Escape closes the dialog, matching standard modal behavior.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onCancel]);
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 10000,
+        background: "rgba(0,0,0,0.4)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+      onClick={onCancel}
+      data-testid="overlay-requeue-call"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Requeue call"
+        style={{
+          width: 400,
+          background: "#fff",
+          borderRadius: 8,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.22)",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+        onClick={(e) => e.stopPropagation()}
+        data-testid="dialog-requeue-call"
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "16px 20px",
+            borderBottom: "1px solid #e0e0e0",
+          }}
+        >
+          <span style={{ fontFamily: FONT, fontSize: 16, fontWeight: 600, color: "#121212" }}>
+            Requeue call
+          </span>
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="Close"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 28,
+              height: 28,
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              color: "#616161",
+              borderRadius: 4,
+            }}
+            data-testid="button-requeue-dialog-close"
+          >
+            <X size={16} strokeWidth={2} />
+          </button>
+        </div>
+
+        {/* Body — Queue (required), Requeue Skills (optional). */}
+        <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 16, minHeight: 160 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, position: "relative", zIndex: 2 }}>
+            <label style={{ fontFamily: FONT, fontSize: 13, color: "#757575" }}>
+              Queue
+            </label>
+            <div data-testid="dropdown-requeue-queue-search">
+              <SupervisorFilter
+                placeholder="Select a queue..."
+                options={MOCK_QUEUES.map((q) => ({ value: q, label: q }))}
+                values={selectedQueues}
+                onValuesChange={setSelectedQueues}
+                ariaLabel="Queue"
+              />
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, position: "relative", zIndex: 1 }}>
+            <label style={{ fontFamily: FONT, fontSize: 13, color: "#757575" }}>
+              Requeue Skills
+            </label>
+            <div data-testid="dropdown-requeue-call-skills">
+              <SupervisorFilter
+                placeholder="Select skills..."
+                options={MOCK_SKILLS.map((s) => ({ value: s, label: s }))}
+                values={selectedSkills}
+                onValuesChange={setSelectedSkills}
+                disabled={selectedQueues.length === 0}
+                ariaLabel="Requeue Skills"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 12,
+            padding: "14px 20px",
+            borderTop: "1px solid #e0e0e0",
+          }}
+        >
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              fontFamily: FONT,
+              fontSize: 14,
+              fontWeight: 500,
+              color: RC_BLUE,
+              padding: "0 8px",
+            }}
+            data-testid="button-requeue-cancel"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={
+              canRequeue
+                ? () =>
+                    onRequeue({
+                      queues: selectedQueues,
+                      skills: selectedSkills,
+                    })
+                : undefined
+            }
+            disabled={!canRequeue}
+            style={{
+              height: 36,
+              padding: "0 20px",
+              borderRadius: 4,
+              border: "none",
+              background: canRequeue ? RC_BLUE : "#e0e0e0",
+              color: canRequeue ? "#fff" : "#9e9e9e",
+              fontFamily: FONT,
+              fontSize: 14,
+              fontWeight: 500,
+              cursor: canRequeue ? "pointer" : "not-allowed",
+            }}
+            data-testid="button-requeue-confirm"
+          >
+            Requeue
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Makes the floating preview popup draggable by its header. Returns the
  * current translate offset and a pointerdown handler for the drag handle —

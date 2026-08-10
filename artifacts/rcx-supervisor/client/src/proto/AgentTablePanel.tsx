@@ -61,6 +61,7 @@ export function usePendingInteractionsCount(): number {
 import {
   InteractionPreview,
   TransferMessageDialog,
+  RequeueCallDialog,
   type InteractionPreviewMode,
 } from "./InteractionPreview";
 import {
@@ -541,6 +542,8 @@ export default function AgentTablePanel({
   //   ?modal=rollup&agentId=<id>        24h interactions rollup breakdown
   //   ?modal=queue-transfer&engagementId=<uii>   Transfer message dialog for a
   //                                              pending queue row
+  //   ?modal=queue-requeue&engagementId=<uii>    Requeue call dialog for a
+  //                                              pending voice queue row
   // Invalid/stale values (unknown agent, missing context, read-only view)
   // fall back by closing the dialog via history replace.
   // ---------------------------------------------------------------------
@@ -577,6 +580,8 @@ export default function AgentTablePanel({
   const rollupAgentId = modalParam === "rollup" ? modalAgentIdParam : null;
   const queueTransferEngagementId =
     modalParam === "queue-transfer" ? modalEngagementIdParam : null;
+  const queueRequeueEngagementId =
+    modalParam === "queue-requeue" ? modalEngagementIdParam : null;
 
   // The AI Insights panel belongs to the Interactions tab table view: navigating
   // away — to the Agents tab, or into an Interaction preview route — closes it
@@ -600,7 +605,8 @@ export default function AgentTablePanel({
       modalParam === "reassign" ||
       modalParam === "agent-state" ||
       modalParam === "rollup" ||
-      modalParam === "queue-transfer"
+      modalParam === "queue-transfer" ||
+      modalParam === "queue-requeue"
     ) {
       closeModal({ replace: true });
     }
@@ -1102,11 +1108,9 @@ export default function AgentTablePanel({
         return;
       }
       if (type === "queueRequeue") {
-        const row = requeueRow(uii ?? "");
-        if (!row) return;
-        flashRef.current(
-          `Call from ${row.contactIdentity} moved to the back of the queue`,
-        );
+        // Voice rows pick a destination queue in a dialog (same pattern as
+        // the queue-transfer dialog) instead of requeueing immediately.
+        if (uii) openModal("queue-requeue", undefined, uii);
         return;
       }
       if (type === "queueRecategorize") {
@@ -1175,6 +1179,47 @@ export default function AgentTablePanel({
       closeModal({ replace: true });
     }
   }, [queueTransferEngagementId, queueTransferRow, closeModal]);
+
+  // Queue row backing the open ?modal=queue-requeue dialog; stale deep links
+  // and non-voice targets (requeue is voice-only) self-heal by closing the
+  // dialog.
+  const queueRequeueRow = useMemo(() => {
+    if (!queueRequeueEngagementId) return null;
+    const row = queueRows.find(
+      (r: any) => r.engagementId === queueRequeueEngagementId,
+    ) as any;
+    return row?.isVoiceInteraction ? row : null;
+  }, [queueRequeueEngagementId, queueRows]);
+  useEffect(() => {
+    if (queueRequeueEngagementId && !queueRequeueRow) {
+      closeModal({ replace: true });
+    }
+  }, [queueRequeueEngagementId, queueRequeueRow, closeModal]);
+
+  // Requeue confirmed from the queue-row dialog: the call goes to the back of
+  // the chosen queue, the hop log records the destination, and a toast
+  // confirms.
+  const handleQueueRequeue = useCallback(
+    (destination: { queues: string[]; skills: string[] }) => {
+      const uii = queueRequeueEngagementId ?? "";
+      closeModal();
+      // Defensive re-check: requeue is voice-only.
+      const target = queueRows.find(
+        (r: any) => r.engagementId === uii,
+      ) as any;
+      if (!target?.isVoiceInteraction) return;
+      const row = requeueRow(uii);
+      if (!row) return;
+      destination.queues.forEach((name) =>
+        appendContextHop(uii, { kind: "queue", name }),
+      );
+      const dest = destination.queues.join(", ");
+      flashRef.current(
+        `Call from ${row.contactIdentity} requeued to ${dest}`,
+      );
+    },
+    [queueRequeueEngagementId, closeModal, queueRows],
+  );
 
   // Transfer confirmed from the queue-row dialog: the interaction leaves the
   // queue, the hop log records each chosen destination, and a toast confirms.
@@ -1881,6 +1926,13 @@ export default function AgentTablePanel({
           <TransferMessageDialog
             onCancel={() => closeModal()}
             onTransfer={handleQueueTransfer}
+          />
+        )}
+
+        {queueRequeueRow && !readOnly && (
+          <RequeueCallDialog
+            onCancel={() => closeModal()}
+            onRequeue={handleQueueRequeue}
           />
         )}
 

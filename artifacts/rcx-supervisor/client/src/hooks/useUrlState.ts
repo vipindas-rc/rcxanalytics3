@@ -41,6 +41,7 @@ export const MODAL_IDS = [
   "rollup",
   "table-settings",
   "queue-transfer",
+  "queue-requeue",
 ] as const;
 export type ModalId = (typeof MODAL_IDS)[number];
 
