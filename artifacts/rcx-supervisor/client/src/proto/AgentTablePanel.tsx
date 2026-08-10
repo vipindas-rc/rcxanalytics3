@@ -61,9 +61,9 @@ export function usePendingInteractionsCount(): number {
 import {
   InteractionPreview,
   TransferMessageDialog,
-  RequeueCallDialog,
   type InteractionPreviewMode,
 } from "./InteractionPreview";
+import { RequeueDialer, type RequeueDialerResult } from "./RequeueDialer";
 import {
   SupervisorListHoverMenu,
   InformationHoverMenu,
@@ -1191,16 +1191,16 @@ export default function AgentTablePanel({
     return row?.isVoiceInteraction ? row : null;
   }, [queueRequeueEngagementId, queueRows]);
   useEffect(() => {
-    if (queueRequeueEngagementId && !queueRequeueRow) {
+    if (modalParam === "queue-requeue" && !queueRequeueRow) {
       closeModal({ replace: true });
     }
-  }, [queueRequeueEngagementId, queueRequeueRow, closeModal]);
+  }, [modalParam, queueRequeueRow, closeModal]);
 
   // Requeue confirmed from the queue-row dialog: the call goes to the back of
   // the chosen queue, the hop log records the destination, and a toast
   // confirms.
   const handleQueueRequeue = useCallback(
-    (destination: { queues: string[]; skills: string[] }) => {
+    (result: RequeueDialerResult) => {
       const uii = queueRequeueEngagementId ?? "";
       closeModal();
       // Defensive re-check: requeue is voice-only.
@@ -1210,12 +1210,12 @@ export default function AgentTablePanel({
       if (!target?.isVoiceInteraction) return;
       const row = requeueRow(uii);
       if (!row) return;
-      destination.queues.forEach((name) =>
-        appendContextHop(uii, { kind: "queue", name }),
-      );
-      const dest = destination.queues.join(", ");
+      appendContextHop(uii, { kind: "queue", name: result.queueName });
+      const skillNote = result.skillName ? ` (${result.skillName})` : "";
       flashRef.current(
-        `Call from ${row.contactIdentity} requeued to ${dest}`,
+        result.askFirst
+          ? `Ask first sent — call from ${row.contactIdentity} will move to ${result.queueName}${skillNote} once accepted`
+          : `Call from ${row.contactIdentity} requeued to ${result.queueName}${skillNote}`,
       );
     },
     [queueRequeueEngagementId, closeModal, queueRows],
@@ -1930,7 +1930,7 @@ export default function AgentTablePanel({
         )}
 
         {queueRequeueRow && !readOnly && (
-          <RequeueCallDialog
+          <RequeueDialer
             onCancel={() => closeModal()}
             onRequeue={handleQueueRequeue}
           />
