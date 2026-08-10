@@ -1433,9 +1433,9 @@ export function MonitoringCallWindow({
                           onClick={() => setTransferOpen(true)}
                           data-testid="button-preview-transfer"
                           aria-label="Transfer"
-                          className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[44px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
+                          className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
                         >
-                          <img alt="" className="size-[20px] block" src={assets.transfer} />
+                          <img alt="" className="size-[16px] block" src={assets.transfer} />
                         </button>
                         <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
                           Transfer
@@ -1447,9 +1447,9 @@ export function MonitoringCallWindow({
                           onClick={() => setRequeueOpen(true)}
                           data-testid="button-preview-requeue"
                           aria-label="Requeue"
-                          className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[44px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
+                          className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
                         >
-                          <img alt="" className="size-[20px] block" src={assets.requeue} />
+                          <img alt="" className="size-[16px] block" src={assets.requeue} />
                         </button>
                         <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
                           Requeue
@@ -1461,9 +1461,9 @@ export function MonitoringCallWindow({
                           onClick={onClose}
                           data-testid="button-preview-ignore"
                           aria-label="Ignore"
-                          className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[44px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
+                          className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
                         >
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#121212" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#121212" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
                             <line x1="6" y1="12" x2="18" y2="12" />
                           </svg>
                         </button>
