@@ -583,12 +583,7 @@ export const DigitalInteractionTableRow: FC<{
                 // Transfer / Claim. Either button removes the interaction
                 // from the queue.
                 <SupervisorListHoverMenu role='gridcell'>
-                    <StyledSupervisorCellWrapper
-                        style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                        }}
-                    >
+                    <StyledSupervisorCellWrapper>
                         {_getSupervisorAssistHoveredMenu({
                             agentId,
                             showSupervisorAssist,
@@ -597,42 +592,31 @@ export const DigitalInteractionTableRow: FC<{
                             uii: engagementId,
                         })}
                         {hasPreview && (
-                            <button
-                                type='button'
+                            <Tooltip
                                 title={
                                     isVoiceInteraction
                                         ? 'Preview call'
                                         : 'Preview interaction'
                                 }
-                                aria-label={
-                                    isVoiceInteraction
-                                        ? 'Preview call'
-                                        : 'Preview interaction'
-                                }
-                                onClick={() =>
-                                    (monitorAgentCallback as any)(
-                                        agentId,
-                                        'queuePreview',
-                                        engagementId
-                                    )
-                                }
-                                style={{
-                                    width: 28,
-                                    height: 28,
-                                    marginLeft: 8,
-                                    borderRadius: 4,
-                                    border: 'none',
-                                    background: 'transparent',
-                                    // Same neutral as the AI-insights icon
-                                    // (theme gray 700).
-                                    color: '#A1A1A1',
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                }}
-                                data-testid={`button-queue-preview-${engagementId}`}
+                                placement='left'
                             >
+                                {/* Shared icon button keeps the eye on the
+                                    same box/baseline as the other actions. */}
+                                <StyledIconButton
+                                    {...{
+                                        size: 'medium',
+                                        'aria-label': isVoiceInteraction
+                                            ? 'Preview call'
+                                            : 'Preview interaction',
+                                        onClick: () =>
+                                            (monitorAgentCallback as any)(
+                                                agentId,
+                                                'queuePreview',
+                                                engagementId
+                                            ),
+                                    }}
+                                    data-testid={`button-queue-preview-${engagementId}`}
+                                >
                                 {/* Eye glyph: preview the pre-queue IVR transcript */}
                                 <svg
                                     width='18'
@@ -648,7 +632,8 @@ export const DigitalInteractionTableRow: FC<{
                                     <path d='M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z' />
                                     <circle cx='12' cy='12' r='3' />
                                 </svg>
-                            </button>
+                                </StyledIconButton>
+                            </Tooltip>
                         )}
                         <button
                             type='button'
@@ -662,7 +647,6 @@ export const DigitalInteractionTableRow: FC<{
                             style={{
                                 height: 28,
                                 padding: '0 12px',
-                                marginLeft: 8,
                                 borderRadius: 4,
                                 border: '1px solid #066fac',
                                 background: '#ffffff',
@@ -687,7 +671,6 @@ export const DigitalInteractionTableRow: FC<{
                             style={{
                                 height: 28,
                                 padding: '0 12px',
-                                marginLeft: 8,
                                 borderRadius: 4,
                                 border: '1px solid #066fac',
                                 background: '#066fac',

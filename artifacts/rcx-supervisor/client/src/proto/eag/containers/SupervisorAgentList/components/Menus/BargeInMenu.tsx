@@ -1,10 +1,9 @@
 import { useCallback, forwardRef } from 'react';
 
-import { RcIcon } from '@ringcentral/juno';
 import { BargeSp } from '@ringcentral/juno-icon';
 import { Tooltip } from '@ringcx/ui';
 
-import { StyledIconButton } from './Menus.styled';
+import { StyledIconButton, StyledRcIcon } from './Menus.styled';
 import { MONITOR_TYPES } from '../../../../constants/app';
 import translate from '../../../../helpers/translate';
 import { getSourceType } from '../../../Chat/TypeIcon';
@@ -59,7 +58,7 @@ const BargeInMenu = forwardRef<
                     'aria-label': toolTipText,
                 }}
             >
-                <RcIcon size={'medium'} symbol={BargeSp} />
+                <StyledRcIcon symbol={BargeSp} />
             </StyledIconButton>
         );
 

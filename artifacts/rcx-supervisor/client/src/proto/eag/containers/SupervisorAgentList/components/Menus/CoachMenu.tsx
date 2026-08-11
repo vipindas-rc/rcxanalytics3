@@ -1,10 +1,9 @@
 import { useCallback, forwardRef } from 'react';
 
-import { RcIcon } from '@ringcentral/juno';
 import { WhisperSp } from '@ringcentral/juno-icon';
 import { Tooltip } from '@ringcx/ui';
 
-import { StyledIconButton } from './Menus.styled';
+import { StyledIconButton, StyledRcIcon } from './Menus.styled';
 import { INTERACTION_SOURCES, MONITOR_TYPES } from '../../../../constants/app';
 import translate from '../../../../helpers/translate';
 import { getSourceType } from '../../../Chat/TypeIcon';
@@ -61,7 +60,7 @@ const CoachMenu = forwardRef<
                     'aria-label': toolTipText,
                 }}
             >
-                <RcIcon size={'medium'} symbol={WhisperSp} />
+                <StyledRcIcon symbol={WhisperSp} />
             </StyledIconButton>
         );
 

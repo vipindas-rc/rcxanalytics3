@@ -9,7 +9,17 @@ export const StyledRcIcon = styled(RcIcon)`
 
 export const StyledIconButton = styled(IconButton)`
     && {
-        margin: auto 0;
+        /* Fixed box so every glyph (sparkle, eye, headset, barge, more)
+           lands on the same baseline regardless of its intrinsic size. */
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        margin: 0;
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
         color: ${({ theme }) => theme.colors.gray[700]};
 
         &:hover {

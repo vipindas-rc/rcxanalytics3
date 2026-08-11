@@ -46,9 +46,15 @@ export const SupervisorListHoverMenu = styled.div`
         width: max-content;
         line-height: 18px;
         display: flex;
+        align-items: center;
+        gap: 4px;
 
-        & > div {
-            margin: auto 0 auto 4px;
+        /* Every direct child — icon buttons, disabled-tooltip <span>
+           wrappers, menu wrappers — sits in the same flex flow with the
+           shared gap, so no glyph drifts when its wrapper type changes. */
+        & > * {
+            margin: 0;
+            flex: none;
         }
     }
 

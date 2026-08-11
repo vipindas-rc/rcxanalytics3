@@ -1,12 +1,12 @@
 import { Tooltip } from '@ringcx/ui';
 
 import { INTERACTION_SOURCES } from '../../../constants/app';
+import { StyledIconButton } from '../../../containers/SupervisorAgentList/components/Menus/Menus.styled';
 import { sourceTypeMap } from '../../../containers/Chat/TypeIcon';
 import BargeInMenu from '../../../containers/SupervisorAgentList/components/Menus/BargeInMenu';
 import CoachMenu from '../../../containers/SupervisorAgentList/components/Menus/CoachMenu';
 import ViewInsightsMenu from '../../../containers/SupervisorAgentList/components/Menus/ViewInsightsMenu';
 import type { IMonitorMenuInfo } from '../../../containers/SupervisorAgentList/types/SupervisorAgentList';
-import { _getMonitorHoveredMenu } from '../../../containers/SupervisorAgentList/utils/SupervisorRowRenderUtil';
 
 interface IGetDigitalInteractionHoveredItems {
     agentId: string;
@@ -41,7 +41,6 @@ export const getDigitalInteractionHoveredItems = (
         showCoach,
         showViewInsights,
         showSupervisorAssist,
-        monitorDisabledTooltip,
         bargeInDisabledTooltip,
         coachDisabledTooltip,
         disabledTooltipPlacement,
@@ -70,15 +69,8 @@ export const getDigitalInteractionHoveredItems = (
                     agentId,
                     uii,
                 }),
-                _getMonitorHoveredMenu({
-                    monitorVoice,
-                    agentId,
-                    monitoredAgent,
-                    showMonitor,
-                    uii,
-                    disabledTooltip: monitorDisabledTooltip,
-                    disabledTooltipPlacement,
-                }),
+                // Monitor is intentionally hidden in the Interactions table
+                // hover actions (still available on the Agents tab).
                 _getCoachHoveredMenu({
                     monitorVoice,
                     agentId,
@@ -112,15 +104,8 @@ export const getDigitalInteractionHoveredItems = (
                     showViewInsights,
                     uii,
                 }),
-                _getMonitorHoveredMenu({
-                    monitorVoice,
-                    agentId,
-                    monitoredAgent,
-                    showMonitor,
-                    uii,
-                    disabledTooltip: monitorDisabledTooltip,
-                    disabledTooltipPlacement,
-                }),
+                // Monitor is intentionally hidden in the Interactions table
+                // hover actions (still available on the Agents tab).
                 _getBargeInHoveredMenu({
                     monitorVoice,
                     agentId,
@@ -151,25 +136,16 @@ export const _getVoicePreviewHoveredMenu = ({
 }) => {
     return (
         <Tooltip key={`voice_preview_${agentId}_${uii}`} title='Preview call' placement='left'>
-            <button
-                type='button'
-                aria-label='Preview call'
-                onClick={(e) => {
-                    e.stopPropagation();
-                    (monitorVoice as any)(agentId, 'voicePreview', uii);
-                }}
-                style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 4,
-                    border: 'none',
-                    background: 'transparent',
-                    // Same neutral as the AI-insights icon (theme gray 700).
-                    color: '#A1A1A1',
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
+            {/* Shared icon button so the eye matches the library actions'
+                box, spacing, and hover/disabled treatment exactly. */}
+            <StyledIconButton
+                {...{
+                    size: 'medium',
+                    'aria-label': 'Preview call',
+                    onClick: (e: React.MouseEvent<HTMLButtonElement>) => {
+                        e.stopPropagation();
+                        (monitorVoice as any)(agentId, 'voicePreview', uii);
+                    },
                 }}
                 data-testid={`button-voice-preview-${uii}`}
             >
@@ -188,7 +164,7 @@ export const _getVoicePreviewHoveredMenu = ({
                     <path d='M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z' />
                     <circle cx='12' cy='12' r='3' />
                 </svg>
-            </button>
+            </StyledIconButton>
         </Tooltip>
     );
 };
