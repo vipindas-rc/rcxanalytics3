@@ -57,6 +57,9 @@ declare module "@proto" {
     showCurrentUser?: boolean;
 
     interactionsVariant?: "supervisor2" | "supervisor3";
+    // Merge the pending (queued) rows into the Interactions table
+    // (Supervisor 1 flow); false in the Queue-tab flows.
+    includePendingRows?: boolean;
     // Voice take-over committed — page switches to the Active calls context.
 
     onTakeOverCommitted?: (agentId: string) => void;

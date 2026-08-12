@@ -379,6 +379,10 @@ interface AgentTablePanelProps {
   // Time in queue / Previous agent columns. Supervisor view 3 behaves the
   // same but drops the Agent type / Confidence / Sentiment columns.
   interactionsVariant?: "supervisor2" | "supervisor3";
+  // Merge the pending (queued) rows into the Interactions table (Supervisor 1
+  // flow). False in the Queue-tab flows, where pending rows live in the
+  // top-level Queue tab instead.
+  includePendingRows?: boolean;
   // Fired when a voice take-over commits so the page can switch to the
   // Active calls context for that agent's call.
   onTakeOverCommitted?: (agentId: string) => void;
@@ -424,6 +428,7 @@ export default function AgentTablePanel({
   readOnly = false,
   showCurrentUser = false,
   interactionsVariant,
+  includePendingRows = true,
   onTakeOverCommitted,
   onVoicePreviewAccepted,
   onDigitalTakeOverCommitted,
@@ -830,7 +835,7 @@ export default function AgentTablePanel({
   // set (AI insights / preview / Transfer / Claim).
   const supervisor2Interactions = useMemo(() => {
     if (!isSupervisor2Interactions) return displayInteractions;
-    const pending = queueRows
+    const pending = (includePendingRows ? queueRows : [])
       .filter((q: any) => {
         // Pending rows funnel through the same Interactions filters as the
         // assigned rows. They are unassigned, so any agent-type selection
@@ -870,6 +875,7 @@ export default function AgentTablePanel({
     ];
   }, [
     isSupervisor2Interactions,
+    includePendingRows,
     queueRows,
     displayInteractions,
     agentTypeFilter,
@@ -877,6 +883,25 @@ export default function AgentTablePanel({
     selectedInteractionStates,
     breachedSlaOnly,
   ]);
+
+  // Queue tab rows: the Queue / Breached SLA filters apply as row pre-filters
+  // (channels and categories filter inside the grid via its column filters).
+  const queueDisplayRows = useMemo(
+    () =>
+      queueRows.filter((q: any) => {
+        if (
+          selectedQueues.length > 0 &&
+          !selectedQueues.includes(q.productName)
+        ) {
+          return false;
+        }
+        if (breachedSlaOnly && !isSlaBreached(q.timeInQueueMs)) {
+          return false;
+        }
+        return true;
+      }),
+    [queueRows, selectedQueues, breachedSlaOnly],
+  );
 
   const visibleAgentCols = useMemo(() => {
     // No selection provided -> show every column in its native order.
@@ -1842,14 +1867,14 @@ export default function AgentTablePanel({
             // insights, or take-over affordances.
             <DigitalInteractionTable
               columns={queueCols as any}
-              digitalTaskList={queueRows as any}
+              digitalTaskList={queueDisplayRows as any}
               monitorAgentCallback={queueActionCallback as any}
               monitoredAgent={{ monitoredAgentId: "", uii: "" } as any}
               viewInsight={viewInsightCallback}
               loggedInAgentId={"supervisor"}
               selectedIds={[]}
-              selectedChannels={[]}
-              selectedCategories={[]}
+              selectedChannels={selectedChannels}
+              selectedCategories={selectedCategories}
               searchValue={searchValue}
               selectedEngagementId={insightCtx?.engagementId ?? null}
               shouldShowViewInsightsButton={true}

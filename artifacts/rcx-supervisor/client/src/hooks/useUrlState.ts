@@ -16,10 +16,11 @@ import { useLocation, useSearch } from "wouter";
  *                                       (mode: preview | expanded)
  *
  * Search params (omitted at their defaults so clean URLs stay short):
- *   view      view variant: supervisor | cherry-picking | agent-2 |
- *             supervisor-2 (default: Agent view — no param)
+ *   view      flow: supervisor-2 | agent-2
+ *             (default: Supervisor 1 — no param; unknown values normalize)
  *   tab       supervisor sub-tab: agents (default: interactions)
- *   nav       top tab: queue (Cherry picking view only; default: My team)
+ *   nav       top tab: queue (Supervisor 2 / Agent 2 flows only;
+ *             default: Supervisor / My team)
  *   filters   filter toolbar visibility: open (default: hidden)
  *   modal     THE one open dialog (mutually exclusive by sharing this key):
  *             transfer | reassign | agent-state | rollup | table-settings
