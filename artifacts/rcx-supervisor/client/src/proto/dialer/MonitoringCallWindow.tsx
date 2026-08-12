@@ -46,6 +46,8 @@ export type MonitoringCallWindowProps = {
   agentType: "Air" | "Human";
   /** Customer side of the monitored call (design shows a phone number). */
   customerPhone?: string;
+  /** Preview variant: queue the call came in on ("To: <queue>" header line). */
+  queueName?: string;
   avatarBg?: string;
   /** Called whenever the window should close (end call, close control). */
   onClose: () => void;
@@ -81,7 +83,7 @@ export type MonitoringCallWindowProps = {
   onContextHop?: (event: { kind: "you" | "queue"; name?: string }) => void;
 };
 
-type Phase = "listening" | "barged" | "takenOver";
+type Phase = "passive" | "listening" | "coaching" | "barged" | "takenOver";
 type PanelTab = "contact" | "notes" | "context";
 
 const DEFAULT_CUSTOMER_PHONE = "(360) 765-2456";
@@ -345,14 +347,37 @@ function MonitorHeaderRow({
 function MonitorProfile({
   agentName,
   customerPhone,
+  queueName,
   avatarBg,
   isPreview,
+  connected,
+  assets,
 }: {
   agentName: string;
   customerPhone: string;
+  queueName?: string;
   avatarBg: string;
   isPreview?: boolean;
+  /** True once a preview call has been answered (ringing → connected). */
+  connected?: boolean;
+  assets?: ReturnType<typeof buildMonitorAssets>;
 }) {
+  // Three title states:
+  // 1. Monitoring an agent's call  → "Monitoring call" + "Agent and Customer"
+  // 2. Preview call, ringing        → never reaches here (hero banner shown)
+  // 3. Preview call, answered       → customer phone as title, no subtitle
+  const title = !isPreview
+    ? "Monitoring call"
+    : connected
+      ? customerPhone
+      : "Preview call";
+
+  const subtitle = !isPreview
+    ? `${agentName} and ${customerPhone}`
+    : connected
+      ? null
+      : customerPhone;
+
   return (
     <div className="flex gap-[12px] items-start pb-[12px] pt-[10px] w-full">
       <div
@@ -368,16 +393,30 @@ function MonitorProfile({
           data-testid="text-monitoring-title"
           className="font-['Lato',sans-serif] font-bold leading-[24px] text-[16px] text-[#121212]"
         >
-          {isPreview ? "Preview call" : "Monitoring call"}
+          {title}
         </p>
-        <p
-          data-testid="text-monitoring-parties"
-          className="font-['Lato',sans-serif] leading-[16px] text-[12px] text-[#121212]"
-        >
-          {/* Preview call pairs the supervisor directly with the incoming
-              number — no agent name in the parties line. */}
-          {isPreview ? customerPhone : `${agentName} and ${customerPhone}`}
-        </p>
+        {subtitle && (
+          <p
+            data-testid="text-monitoring-parties"
+            className="font-['Lato',sans-serif] leading-[16px] text-[12px] text-[#121212]"
+          >
+            {subtitle}
+          </p>
+        )}
+        {isPreview && connected && queueName && (
+          /* Git reference (SPoG dialer): "To: <queue>" line + headset icon */
+          <div className="flex items-center gap-[6px] pt-[2px]">
+            <p
+              data-testid="text-monitoring-queue"
+              className="font-['Lato',sans-serif] leading-[16px] text-[12px] text-[#666666] m-0"
+            >
+              To: {queueName}
+            </p>
+            {assets?.headset && (
+              <img alt="" className="size-[14px] block opacity-70" src={assets.headset} />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -434,6 +473,7 @@ function PanelTabBar({
   onTabChange,
   showContext = false,
   notesLabel = "Notes and transcripts",
+  showNotesTab = true,
 }: {
   assets: MonitorAssets;
   activeTab: PanelTab;
@@ -441,6 +481,8 @@ function PanelTabBar({
   showContext?: boolean;
   // Preview calls show the pre-queue IVR transcript until accepted.
   notesLabel?: string;
+  /** When false the Notes/Transcript tab is hidden (used for claimed preview calls). */
+  showNotesTab?: boolean;
 }) {
   const tabClass = (active: boolean) =>
     `relative flex h-[44px] items-center gap-[6px] px-[12px] border-none bg-transparent cursor-pointer font-['Lato',sans-serif] text-[14px] leading-[20px] whitespace-nowrap select-none transition-colors ${
@@ -461,20 +503,22 @@ function PanelTabBar({
         Contact info
         {activeTab === "contact" && underline}
       </button>
-      <button
-        type="button"
-        className={tabClass(activeTab === "notes")}
-        onClick={() => onTabChange("notes")}
-        data-testid="tab-monitor-notes"
-      >
-        <img
-          alt=""
-          className="size-[20px] block"
-          src={activeTab === "notes" ? assets.smartNotesActive : assets.smartNotes}
-        />
-        {notesLabel}
-        {activeTab === "notes" && underline}
-      </button>
+      {showNotesTab && (
+        <button
+          type="button"
+          className={tabClass(activeTab === "notes")}
+          onClick={() => onTabChange("notes")}
+          data-testid="tab-monitor-notes"
+        >
+          <img
+            alt=""
+            className="size-[20px] block"
+            src={activeTab === "notes" ? assets.smartNotesActive : assets.smartNotes}
+          />
+          {notesLabel}
+          {activeTab === "notes" && underline}
+        </button>
+      )}
       {showContext && (
         <button
           type="button"
@@ -956,6 +1000,47 @@ function ContactInfoPanel({
   );
 }
 
+/* -------------------- MONITORING CONTROL HELPERS -------------------- */
+
+/**
+ * "Stop monitoring" exit button — closes the supervisor window without ending
+ * the agent's call. Neutral styling; eye-with-slash icon matches the table's
+ * monitor/preview eye glyph.
+ */
+function StopMonitoringButton({ onStop }: { onStop: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-[8px]">
+      <button
+        type="button"
+        onClick={onStop}
+        data-testid="button-stop-monitoring"
+        aria-label="Stop monitoring"
+        className="flex items-center justify-center rounded-full size-[56px] bg-[#f3f3f3] border-none cursor-pointer hover:bg-[#e8e8e8] active:scale-95 transition-all"
+      >
+        {/* Eye with diagonal slash — same eye glyph as the table monitor action */}
+        <svg
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#121212"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+          <circle cx="12" cy="12" r="3" />
+          <line x1="3" y1="3" x2="21" y2="21" />
+        </svg>
+      </button>
+      <p className="font-['Lato',sans-serif] font-bold leading-[16px] text-[12px] text-[#666666] m-0">
+        Stop monitoring
+      </p>
+    </div>
+  );
+}
+
 /* -------------------- MAIN COMPONENT -------------------- */
 
 export function MonitoringCallWindow({
@@ -963,6 +1048,7 @@ export function MonitoringCallWindow({
   agentName,
   agentType,
   customerPhone = DEFAULT_CUSTOMER_PHONE,
+  queueName,
   avatarBg = "#509ac4",
   onClose,
   onToast,
@@ -978,7 +1064,9 @@ export function MonitoringCallWindow({
 }: MonitoringCallWindowProps) {
   const assets = buildMonitorAssets(assetBasePath);
   const isPreview = variant === "preview";
-  const [phase, setPhase] = useState<Phase>("listening");
+  // passive = silent observer (default); listening = audio on, Coach/Barge/Claim unlock;
+  // coaching = whispering to agent; barged = supervisor audible in call; takenOver = Dialer.
+  const [phase, setPhase] = useState<Phase>("passive");
   // Preview calls open in an incoming (ringing) state: Accept connects,
   // Decline closes the window.
   const [ringing, setRinging] = useState(isPreview && connectedAtMs == null);
@@ -999,6 +1087,7 @@ export function MonitoringCallWindow({
   const handlePreviewMuteToggle = () => toggleActivePreviewCallMute();
   const [previewOnHold, setPreviewOnHold] = useState(false);
   const [previewKeypadOpen, setPreviewKeypadOpen] = useState(false);
+  const [previewRecording, setPreviewRecording] = useState(true);
   const handlePreviewHoldToggle = () => {
     const next = !previewOnHold;
     setPreviewOnHold(next);
@@ -1027,6 +1116,10 @@ export function MonitoringCallWindow({
   }, [notesPreview]);
   const { offset, onDragPointerDown } = useDragPosition();
 
+  const isPassive   = phase === "passive";
+  const isListening = phase === "listening";
+  const isCoaching  = phase === "coaching";
+  const isBarged    = phase === "barged";
   const isTakenOver = phase === "takenOver";
 
   useEffect(() => {
@@ -1040,6 +1133,13 @@ export function MonitoringCallWindow({
     const id = window.setTimeout(() => setSnackbarVisible(false), 5000);
     return () => window.clearTimeout(id);
   }, [snackbarVisible]);
+
+  const handleListen = () => setPhase("listening");
+
+  const handleCoach = () => {
+    setPhase("coaching");
+    setSupervisorMuted(false);
+  };
 
   const handleBarge = () => {
     setPhase("barged");
@@ -1103,7 +1203,6 @@ export function MonitoringCallWindow({
     );
   }
 
-  const isBarged = phase === "barged";
   const isHuman = agentType === "Human";
 
   return (
@@ -1146,7 +1245,8 @@ export function MonitoringCallWindow({
                      screen (Figma: Agent-peer-view, node 30-1169) — blue hero
                      with avatar, then the caller number front and center. */
                   <>
-                    <div className="relative flex items-center justify-center bg-[#1A70C1] w-full h-[180px] shrink-0">
+                    {/* Figma: Top Container 280×212, fill #509ac4; avatar 100×100, fill #f3f3f3 */}
+                    <div className="relative flex items-center justify-center bg-[#509ac4] w-full h-[212px] shrink-0">
                       <div className="absolute top-[10px] right-[12px] flex gap-[10px] items-center">
                         <button
                           type="button"
@@ -1178,13 +1278,13 @@ export function MonitoringCallWindow({
                           />
                         </button>
                       </div>
-                      <div className="flex items-center justify-center rounded-full size-[96px] bg-white">
+                      <div className="flex items-center justify-center rounded-full size-[100px] bg-[#f3f3f3]">
                         <svg
                           width="44"
                           height="44"
                           viewBox="0 0 24 24"
                           fill="none"
-                          stroke="#1A70C1"
+                          stroke="#509ac4"
                           strokeWidth="1.8"
                           strokeLinecap="round"
                           strokeLinejoin="round"
@@ -1198,7 +1298,7 @@ export function MonitoringCallWindow({
                     <div className="flex flex-col items-center gap-[6px] pt-[28px] px-[16px] w-full">
                       <p
                         data-testid="text-preview-caller"
-                        className="font-['Lato',sans-serif] font-bold leading-[30px] text-[22px] text-[#121212] m-0 text-center"
+                        className="font-['Lato',sans-serif] font-bold leading-[28px] text-[20px] text-[#121212] m-0 text-center"
                       >
                         {customerPhone}
                       </p>
@@ -1206,7 +1306,7 @@ export function MonitoringCallWindow({
                         data-testid="text-incoming-call"
                         className="font-['Lato',sans-serif] leading-[20px] text-[14px] text-[#666666] m-0 text-center"
                       >
-                        Incoming preview call
+                        Preview call
                       </p>
                     </div>
                   </>
@@ -1221,122 +1321,79 @@ export function MonitoringCallWindow({
                     <MonitorProfile
                       agentName={agentName}
                       customerPhone={customerPhone}
+                      queueName={queueName}
                       avatarBg={avatarBg}
                       isPreview={isPreview}
+                      connected={!ringing}
+                      assets={assets}
                     />
                   </div>
                 )}
 
                 {!isPreview && (
-                <div className="flex flex-col gap-[12px] items-center pt-[24px] px-[10px] w-full">
-                  {/* Row 1: Mute / Keypad / Audio */}
-                  <div className="flex items-start justify-center">
-                    {isBarged ? (
-                      <ActionButton
-                        imgSrc={assets.mute}
-                        imgAlt=""
-                        label="Mute"
-                        active={supervisorMuted}
-                        onClick={() => setSupervisorMuted((v) => !v)}
-                        testId="button-monitor-mute"
-                      />
-                    ) : (
-                      <UnavailableTooltip>
-                        <ActionButton
-                          imgSrc={assets.mute}
-                          imgAlt=""
-                          label="Mute"
-                          disabled
-                          testId="button-monitor-mute"
-                        />
-                      </UnavailableTooltip>
-                    )}
-                    <UnavailableTooltip>
-                      <ActionButton
-                        imgSrc={assets.keypad}
-                        imgAlt=""
-                        label="Keypad"
-                        disabled
-                        testId="button-monitor-keypad"
-                      />
-                    </UnavailableTooltip>
-                    <ActionButton
-                      imgSrc={assets.audio}
-                      imgAlt=""
-                      label="Audio"
-                      testId="button-monitor-audio"
-                    />
-                  </div>
+                <div className="flex flex-col gap-[12px] items-center pt-[20px] px-[10px] w-full">
 
-                  {/* Row 2: Coach/Barge/Take over (Human) | Take over/Transfer (AI) */}
-                  <div className="flex items-start justify-center">
-                    {isHuman ? (
-                      <>
-                        {isHuman && !isBarged ? (
+                  {isBarged ? null : (
+                    /* ── Passive / Listening / Coaching ─────────────────────
+                       Left-aligned 3-column grid (rows wrap as needed).
+                       Listen is a toggle: on → blue active bg, Audio enables,
+                       Coach/Barge (human) or Claim (AI) appear.            */
+                    <div className="flex flex-wrap justify-start gap-y-[12px] w-[240px]">
+                      <ActionButton
+                        imgSrc={assets.headset}
+                        imgAlt=""
+                        label="Listen"
+                        active={!isPassive}
+                        onClick={() => (isPassive ? handleListen() : setPhase("passive"))}
+                        testId="button-monitor-listen"
+                      />
+                      <ActionButton
+                        imgSrc={assets.audio}
+                        imgAlt=""
+                        label="Audio"
+                        disabled={isPassive}
+                        testId="button-monitor-audio"
+                      />
+                      {!isPassive && (
+                        <>
                           <ActionButton
-                            imgSrc={assets.coach}
+                            imgSrc={assets.mute}
                             imgAlt=""
-                            label="Coach"
-                            onClick={() => onToast?.("Coaching isn't available in this preview")}
-                            testId="button-monitor-coach"
+                            label="Mute"
+                            disabled={!isCoaching}
+                            active={isCoaching && supervisorMuted}
+                            onClick={
+                              isCoaching
+                                ? () => setSupervisorMuted((v) => !v)
+                                : undefined
+                            }
+                            testId="button-monitor-mute"
                           />
-                        ) : (
-                          <UnavailableTooltip label={MONITORING_TOOLTIP}>
-                            <ActionButton
-                              imgSrc={assets.coach}
-                              imgAlt=""
-                              label="Coach"
-                              disabled
-                              testId="button-monitor-coach"
-                            />
-                          </UnavailableTooltip>
-                        )}
-                        <ActionButton
-                          imgSrc={assets.barge}
-                          imgAlt=""
-                          label="Barge"
-                          active={isBarged}
-                          onClick={isBarged ? handleStopBarge : handleBarge}
-                          testId="button-monitor-barge"
-                        />
-                        <ActionButton
-                          imgSrc={assets.takeOver}
-                          imgAlt=""
-                          label="Claim"
-                          onClick={handleTakeOver}
-                          testId="button-monitor-take-over"
-                        />
-                      </>
-                    ) : (
-                      <>
-                        <ActionButton
-                          imgSrc={assets.takeOver}
-                          imgAlt=""
-                          label="Claim"
-                          onClick={handleTakeOver}
-                          testId="button-monitor-take-over"
-                        />
-                        <ActionButton
-                          imgSrc={assets.transfer}
-                          imgAlt=""
-                          label="Transfer"
-                          onClick={() => setTransferOpen(true)}
-                          testId="button-monitor-transfer"
-                        />
-                        <ActionButton
-                          imgSrc={assets.requeue}
-                          imgAlt=""
-                          label="Requeue"
-                          onClick={() => setRequeueOpen(true)}
-                          testId="button-monitor-requeue"
-                        />
-                      </>
-                    )}
-                  </div>
-
-                  {/* Row 3: Transfer (Human agents only) */}
-                  {isHuman && (
-                    <div className="flex items-start justify-center">
+                          {isHuman && (
+                            <>
+                              <ActionButton
+                                imgSrc={assets.coach}
+                                imgAlt=""
+                                label="Coach"
+                                active={isCoaching}
+                                onClick={
+                                  isCoaching
+                                    ? () => setPhase("listening")
+                                    : handleCoach
+                                }
+                                testId="button-monitor-coach"
+                              />
+                              <ActionButton
+                                imgSrc={assets.barge}
+                                imgAlt=""
+                                label="Barge"
+                                onClick={handleBarge}
+                                testId="button-monitor-barge"
+                              />
+                            </>
+                          )}
+                        </>
+                      )}
                       <ActionButton
                         imgSrc={assets.transfer}
                         imgAlt=""
@@ -1351,10 +1408,18 @@ export function MonitoringCallWindow({
                         onClick={() => setRequeueOpen(true)}
                         testId="button-monitor-requeue"
                       />
-                      {/* Spacer keeps Transfer / Requeue aligned under Mute / Keypad */}
-                      <div aria-hidden className="w-[80px]" />
+                      {!isPassive && !isHuman && (
+                        <ActionButton
+                          imgSrc={assets.takeOver}
+                          imgAlt=""
+                          label="Claim"
+                          onClick={handleTakeOver}
+                          testId="button-monitor-take-over"
+                        />
+                      )}
                     </div>
                   )}
+
                 </div>
                 )}
 
@@ -1387,8 +1452,15 @@ export function MonitoringCallWindow({
                         testId="button-preview-call-audio"
                       />
                     </div>
-                    {/* Row 2: Hold / Transfer / Requeue */}
+                    {/* Row 2: Requeue / Hold / Transfer (SPoG dialer order) */}
                     <div className="flex items-start justify-center">
+                      <ActionButton
+                        imgSrc={assets.requeue}
+                        imgAlt=""
+                        label="Requeue"
+                        onClick={() => setRequeueOpen(true)}
+                        testId="button-preview-call-requeue"
+                      />
                       <ActionButton
                         imgSrc={assets.hold}
                         imgAlt=""
@@ -1404,13 +1476,41 @@ export function MonitoringCallWindow({
                         onClick={() => setTransferOpen(true)}
                         testId="button-preview-call-transfer"
                       />
+                    </div>
+                    {/* Row 3: Stop Rec / Disposition (left-aligned, spacer keeps 3-col grid) */}
+                    <div className="flex items-start justify-center">
                       <ActionButton
-                        imgSrc={assets.requeue}
+                        imgSrc={assets.stopRec}
                         imgAlt=""
-                        label="Requeue"
-                        onClick={() => setRequeueOpen(true)}
-                        testId="button-preview-call-requeue"
+                        label="Stop Rec"
+                        buttonBg="bg-[rgba(190,57,51,0.12)]"
+                        disabled={!previewRecording}
+                        onClick={() => {
+                          setPreviewRecording(false);
+                          onToast?.("Recording has been stopped");
+                        }}
+                        testId="button-preview-call-stop-rec"
                       />
+                      <ActionButton
+                        imgAlt=""
+                        label="Disposition"
+                        onClick={() => onToast?.("Disposition isn't available in this prototype yet")}
+                        testId="button-preview-call-disposition"
+                      >
+                        <div className="h-[24px] relative w-[27px]">
+                          <div className="absolute inset-[7.96%_33.61%_6.52%_7%]">
+                            <div className="absolute inset-[-4.38%_-5.61%]">
+                              <img alt="" className="block size-full" src={assets.dispositionGroup7} />
+                            </div>
+                          </div>
+                          <div className="absolute inset-[24.68%_8.43%_23.51%_45.97%]">
+                            <div className="absolute inset-[-7.01%_-8.33%_-1.75%_0]">
+                              <img alt="" className="block size-full" src={assets.dispositionGroup23} />
+                            </div>
+                          </div>
+                        </div>
+                      </ActionButton>
+                      <div className="w-[80px]" />
                     </div>
                     {previewKeypadOpen && (
                       <div className="pt-[4px]">
@@ -1423,10 +1523,10 @@ export function MonitoringCallWindow({
                 )}
 
                 {ringing ? (
-                  /* Incoming preview call: red Decline / green Answer, matching
-                     the RingCentral Phone incoming screen (Figma 30-1169). */
+                  /* Preview call: Transfer / Requeue / Claim row, then Close. */
                   <div className="mt-auto flex flex-col gap-[24px] pb-[28px] w-full">
-                    <div className="flex items-start justify-center gap-[24px] w-full">
+                    {/* Row 1: Transfer · Requeue · Claim */}
+                    <div className="flex items-start justify-center gap-[16px] w-full">
                       <div className="flex flex-col items-center gap-[6px]">
                         <button
                           type="button"
@@ -1458,76 +1558,106 @@ export function MonitoringCallWindow({
                       <div className="flex flex-col items-center gap-[6px]">
                         <button
                           type="button"
-                          onClick={onClose}
-                          data-testid="button-preview-ignore"
-                          aria-label="Ignore"
+                          onClick={() => {
+                            if (onPreviewAccepted) {
+                              onPreviewAccepted();
+                              return;
+                            }
+                            setRinging(false);
+                          }}
+                          data-testid="button-preview-claim"
+                          aria-label="Claim"
                           className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
                         >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#121212" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
-                            <line x1="6" y1="12" x2="18" y2="12" />
-                          </svg>
+                          <img alt="" className="size-[16px] block" src={assets.takeOver} />
                         </button>
                         <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
-                          Ignore
+                          Claim
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-start justify-center gap-[48px] w-full">
-                    <div className="flex flex-col items-center gap-[8px]">
-                      <button
-                        type="button"
-                        onClick={onClose}
-                        data-testid="button-preview-decline"
-                        className="bg-[#e6413c] flex items-center justify-center rounded-full size-[56px] border-none cursor-pointer hover:bg-[#d93a35] active:scale-95 transition-all"
-                        aria-label="Decline"
-                      >
-                        <img alt="" className="size-[28px] block" src={assets.hangUp} />
-                      </button>
-                      <p className="font-['Lato',sans-serif] leading-[20px] text-[14px] text-[#121212] m-0">
-                        Decline
-                      </p>
-                    </div>
-                    <div className="flex flex-col items-center gap-[8px]">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onPreviewAccepted) {
-                            // Host takes over: registers the active call and
-                            // routes to the Active calls tab (this window
-                            // closes with the preview URL).
-                            onPreviewAccepted();
-                            return;
-                          }
-                          setRinging(false);
-                        }}
-                        data-testid="button-preview-accept"
-                        className="bg-[#368541] flex items-center justify-center rounded-full size-[56px] border-none cursor-pointer hover:bg-[#2e7338] active:scale-95 transition-all"
-                        aria-label="Answer"
-                      >
-                        <img
-                          alt=""
-                          className="size-[28px] block"
-                          style={{ transform: "rotate(-135deg)" }}
-                          src={assets.hangUp}
-                        />
-                      </button>
-                      <p className="font-['Lato',sans-serif] leading-[20px] text-[14px] text-[#121212] m-0">
-                        Answer
-                      </p>
-                    </div>
+                    {/* Row 2: Close — neutral exit without declining */}
+                    <div className="flex items-center justify-center w-full">
+                      <div className="flex flex-col items-center gap-[8px]">
+                        <button
+                          type="button"
+                          onClick={onClose}
+                          data-testid="button-preview-close"
+                          aria-label="Close"
+                          className="flex items-center justify-center rounded-full size-[56px] bg-[#f3f3f3] border-none cursor-pointer hover:bg-[#e8e8e8] active:scale-95 transition-all"
+                        >
+                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#121212" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                          </svg>
+                        </button>
+                        <p className="font-['Lato',sans-serif] font-bold leading-[16px] text-[12px] text-[#666666] m-0">
+                          Close
+                        </p>
+                      </div>
                     </div>
                   </div>
                 ) : (
                   <div className="mt-auto flex items-center justify-center pb-[24px] w-full">
-                    <button
-                      type="button"
-                      onClick={onClose}
-                      data-testid="button-monitor-end-call"
-                      className="bg-[#e6413c] flex items-center justify-center rounded-full size-[56px] border-none cursor-pointer hover:bg-[#d93a35] active:scale-95 transition-all"
-                      aria-label="End call"
-                    >
-                      <img alt="" className="size-[28px] block" src={assets.hangUp} />
-                    </button>
+                    {isPreview ? (
+                      /* Claimed preview call: End call ends the supervisor's own call */
+                      <button
+                        type="button"
+                        onClick={onClose}
+                        data-testid="button-monitor-end-call"
+                        className="bg-[#e6413c] flex items-center justify-center rounded-full size-[56px] border-none cursor-pointer hover:bg-[#d93a35] active:scale-95 transition-all"
+                        aria-label="End call"
+                      >
+                        <img alt="" className="size-[28px] block" src={assets.hangUp} />
+                      </button>
+                    ) : (
+                      /* Monitoring: Stop monitoring exits without ending the agent's call */
+                      <StopMonitoringButton onStop={onClose} />
+                    )}
+                  </div>
+                )}
+
+                {/* Barged — the supervisor is now audible in the call, so the
+                    left panel becomes the git dialer's conference view: the
+                    customer on top, conference grid, and a red End call that
+                    opens the "how do you want to end" sheet.                  */}
+                {isBarged && !transferOpen && (
+                  <div
+                    className="absolute inset-0 z-10 bg-white flex flex-col overflow-hidden"
+                    data-testid="overlay-monitor-conference"
+                  >
+                    <Dialer
+                      initialView="conference"
+                      manageCallMode="v2"
+                      hideTitleBar
+                      style={{
+                        minHeight: 0,
+                        width: "100%",
+                        background: "transparent",
+                        padding: 0,
+                        flex: 1,
+                      }}
+                      warmCaller={{
+                        name: customerPhone,
+                        phone: customerPhone,
+                        initials: "C",
+                        avatarBg,
+                      }}
+                      assetBasePath={assetBasePath}
+                      onToast={(t) =>
+                        onToast?.(t.description ? `${t.title} — ${t.description}` : t.title)
+                      }
+                      onCallEnd={(reason) => {
+                        if (reason === "everyone") {
+                          onClose();
+                        } else {
+                          // Supervisor left the conference — drop back to
+                          // listening; the agent and customer stay connected.
+                          setSnackbarVisible(false);
+                          setPhase("listening");
+                        }
+                      }}
+                    />
                   </div>
                 )}
 
@@ -1624,9 +1754,14 @@ export function MonitoringCallWindow({
                 >
                   <PanelTabBar
                     assets={assets}
-                    activeTab={activeTab}
+                    activeTab={
+                      isPreview && !ringing && activeTab === "notes"
+                        ? "contact"
+                        : activeTab
+                    }
                     onTabChange={setActiveTab}
-                    showContext={!!contextData}
+                    showContext={!!contextData && !isPreview}
+                    showNotesTab={!isPreview || ringing}
                     notesLabel={
                       isPreview && ringing
                         ? "IVR transcript"

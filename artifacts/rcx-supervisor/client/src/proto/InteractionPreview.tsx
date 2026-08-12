@@ -88,7 +88,6 @@ export function TransferMessageDialog({
   onTransfer: (summary: string, destination: TransferDestination) => void;
 }) {
   const [selectedQueues, setSelectedQueues] = useState<string[]>([]);
-  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
 
   const canTransfer = selectedQueues.length > 0 || selectedAgents.length > 0;
@@ -202,22 +201,6 @@ export function TransferMessageDialog({
             </div>
           </div>
 
-          {/* Requeue Skills multi-select — uses the same Filter/MultiSelect as filter dropdowns */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, position: "relative", zIndex: 1 }}>
-            <label style={{ fontFamily: FONT, fontSize: 13, color: "#757575" }}>
-              Requeue Skills
-            </label>
-            <div data-testid="dropdown-requeue-skills">
-              <SupervisorFilter
-                placeholder="Select skills..."
-                options={MOCK_SKILLS.map((s) => ({ value: s, label: s }))}
-                values={selectedSkills}
-                onValuesChange={setSelectedSkills}
-                disabled={selectedQueues.length === 0}
-                ariaLabel="Requeue Skills"
-              />
-            </div>
-          </div>
         </div>
 
         {/* Footer */}
@@ -1232,8 +1215,6 @@ function ContactInfoPane({
           {(
             [
               { id: "contact", label: "CONTACT INFO" },
-              { id: "notes", label: "NOTES" },
-              { id: "context", label: "CONTEXT" },
             ] as { id: ContactInfoTab; label: string }[]
           ).map((tab) => {
             const isActive = activeTab === tab.id;

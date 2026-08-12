@@ -46,7 +46,7 @@ export const interactionColumns: ISupervisorTableCol[] = [
   { id: 'sentimentScore', content: 'Sentiment', sortAs: SortType.NUMBER, visible: true, width: 120 },
   { id: 'contactIdentity', content: 'From', sortAs: SortType.STRING, visible: true, width: 170 },
   { id: 'threadTitle', content: 'Subject', sortAs: SortType.STRING, visible: true, width: 200 },
-  { id: 'pendingDispositionMs', content: 'Pending disp.', sortAs: SortType.NUMBER, visible: true, width: 110 },
+  { id: 'pendingDispositionMs', content: 'Status', sortAs: SortType.NUMBER, visible: true, width: 110 },
 ];
 
 // --- Interaction-rollup popover columns (real INTERACTION_ROLLUP_COLUMNS) ---
@@ -57,7 +57,7 @@ export const rollupColumns: any[] = [
 ];
 
 // --- Conversation lifecycle states -------------------------------------------
-// Machine-readable key + display label. Three states only:
+// Machine-readable key + display label. Four states:
 // - Pending: waiting in queue, not yet picked by anyone.
 // - Reserved: routed/assigned to an agent, but the agent hasn't picked it up.
 // - Active: an agent is actively working the interaction.
@@ -681,7 +681,8 @@ export function makeInteractions(_agents?: unknown): any[] {
 
       // Conversation lifecycle state for the active interaction. Most rows an
       // agent holds are Active (being worked); a small deterministic slice is
-      // Reserved — routed to the agent but not yet picked up.
+      // Reserved (routed to the agent but not yet picked up) and another is
+      // Pending disposition (the interaction ended; the agent is wrapping up).
       const convo =
         t % 9 === 0 ? CONVERSATION_STATES.RESERVED : CONVERSATION_STATES.ACTIVE;
       base.conversationState = convo.key;

@@ -37,21 +37,6 @@ import {
     getDigitalInteractionHoveredItems,
 } from '../utils/DigitalInteractionRowRenderUtil';
 
-// Conversation lifecycle state -> core Tag color (bordered variant), matching
-// the legacy badge palette: Pending orange, Reserved blue, Active green.
-const conversationStateTagColor = (state: string): TagColor => {
-    switch (state) {
-        case 'PENDING':
-            return TagColor.Orange;
-        case 'RESERVED':
-            return TagColor.Blue;
-        case 'ACTIVE':
-            return TagColor.Green;
-        default:
-            return TagColor.Grey;
-    }
-};
-
 // 3-dot menu on pending (queue) rows: Ignore for every channel, plus
 // Recategorize (digital) or Requeue (voice). Same core More icon + flyout
 // menu design as the Agents tab.
@@ -239,6 +224,7 @@ export const DigitalInteractionTableRow: FC<{
                 showCoach,
                 showViewInsights,
                 showSupervisorAssist,
+                conversationState,
                 monitorDisabledTooltip,
                 bargeInDisabledTooltip,
                 coachDisabledTooltip,
@@ -255,6 +241,7 @@ export const DigitalInteractionTableRow: FC<{
             showCoach,
             showViewInsights,
             showSupervisorAssist,
+            conversationState,
             monitorDisabledTooltip,
             bargeInDisabledTooltip,
             coachDisabledTooltip,
@@ -475,21 +462,11 @@ export const DigitalInteractionTableRow: FC<{
                                 key={column.id}
                                 role='gridcell'
                             >
-                                {conversationStateLabel ? (
-                                    <span
-                                        data-testid={`badge-state-${engagementId}`}
-                                    >
-                                        <TagComponent
-                                            color={conversationStateTagColor(
-                                                String(conversationState ?? '')
-                                            )}
-                                            text={conversationStateLabel}
-                                            bordered
-                                        />
-                                    </span>
-                                ) : (
-                                    '-'
-                                )}
+                                <span
+                                    data-testid={`badge-state-${engagementId}`}
+                                >
+                                    {conversationStateLabel || '-'}
+                                </span>
                             </StyledSupervisorCellWrapper>
                         );
                     }
@@ -546,6 +523,33 @@ export const DigitalInteractionTableRow: FC<{
                                     kind='sentiment'
                                     score={sentimentScore}
                                 />
+                            </StyledSupervisorCellWrapper>
+                        );
+                    }
+
+                    if (
+                        column.id ===
+                        SUPERVISOR_INTERACTION_COLUMN_ID.PENDING_DISPOSITION_MS
+                    ) {
+                        // Status column: human-readable lifecycle label derived
+                        // from conversation state + pending-disposition flag.
+                        const statusLabel = (() => {
+                            if (pendingDispositionMs != null && pendingDispositionMs > 0)
+                                return 'Pending disposition';
+                            if (conversationState === 'ACTIVE') return 'Connected';
+                            if (conversationState === 'RESERVED') return 'Attached';
+                            if (conversationState === 'PENDING') return 'Previewing';
+                            return '—';
+                        })();
+                        return (
+                            <StyledSupervisorCellWrapper
+                                data-aid={INTERACTION_CELL}
+                                key={column.id}
+                                role='gridcell'
+                            >
+                                <span data-testid={`text-status-${engagementId}`}>
+                                    {statusLabel}
+                                </span>
                             </StyledSupervisorCellWrapper>
                         );
                     }

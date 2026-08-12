@@ -566,13 +566,23 @@ export const SupervisorAgents = (): JSX.Element => {
   // (Agent view is the clean-URL default, so only Supervisor view is carried).
   const withView = useCallback(
     (path: string) => {
-      // Carry whichever view the URL pins (a queue preview without a param
+      // Carry the whole current query string (filters, tab, sla, filters=open)
+      // so opening/closing a preview never resets the table's filtered view.
+      // Modal params stay behind — a dialog shouldn't reopen on the new route.
+      const params = new URLSearchParams(search);
+      params.delete("modal");
+      params.delete("agentId");
+      params.delete("engagementId");
+      // Pin whichever view the URL implies (a queue preview without a param
       // implies Cherry picking, so pin it explicitly on navigation).
       const view =
         rawViewParam ?? (isCherryPickingView ? "cherry-picking" : null);
-      return view ? `${path}?view=${view}` : path;
+      if (view) params.set("view", view);
+      else params.delete("view");
+      const qs = params.toString();
+      return qs ? `${path}?${qs}` : path;
     },
-    [rawViewParam, isCherryPickingView],
+    [search, rawViewParam, isCherryPickingView],
   );
 
   // URL-addressable Active calls view (deep-linkable / refresh-safe): after a

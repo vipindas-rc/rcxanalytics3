@@ -1,8 +1,11 @@
+import { Tooltip } from '@ringcx/ui';
+
 import {
     DigitalMonitorButton,
     DigitalMonitorButtonContainer,
 } from './Supervisor.styled';
 import { INTERACTION_SOURCES, MONITOR_TYPES } from '../../constants/app';
+import { StyledIconButton } from '../../containers/SupervisorAgentList/components/Menus/Menus.styled';
 import { SupervisorDataId } from '../../constants/testIds';
 import { getSourceType, sourceTypeMap } from '../../containers/Chat/TypeIcon';
 import type { IMonitorMenuInfo } from '../../containers/SupervisorAgentList/types/SupervisorAgentList';
@@ -146,6 +149,37 @@ export const getDigitalInteractionItems = (
         } else {
             return (
                 <DigitalMonitorButtonContainer>
+                    {/* Preview eye — opens the InteractionPreview panel for
+                        this digital conversation (same as the Interactions
+                        tab eye). Hidden when showMonitor is false. */}
+                    {showMonitor && (
+                        <Tooltip title="Preview conversation" placement={disabledTooltipPlacement}>
+                            <StyledIconButton
+                                size="medium"
+                                aria-label="Preview conversation"
+                                onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                                    e.stopPropagation();
+                                    (monitorVoice as any)(agentId, 'monitor', uii);
+                                }}
+                                data-testid={`button-digital-card-preview-${uii}`}
+                            >
+                                <svg
+                                    width="18"
+                                    height="18"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    aria-hidden
+                                >
+                                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+                                    <circle cx="12" cy="12" r="3" />
+                                </svg>
+                            </StyledIconButton>
+                        </Tooltip>
+                    )}
                     <DigitalMonitorButton
                         disabled={!showBargeIn}
                         data-aid={SupervisorDataId.MONITOR_BUTTON}

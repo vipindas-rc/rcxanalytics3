@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styled, { ThemeProvider, css } from "styled-components";
 import { RcThemeProvider } from "@ringcentral/juno";
-import { theme } from "@ringcx/ui";
+import { theme, Dialog } from "@ringcx/ui";
 
 import "./i18n";
 import "./vendor/ringcx-ui/icons/digital-icons/digital-icons.css";
@@ -560,6 +560,13 @@ export default function AgentTablePanel({
   // Take over is immediate and permanent for the prototype — there is no
   // hand-back, so this only ever transitions from null to an engagement id.
   const [bargedId, setBargedId] = useState<string | null>(null);
+  // Pending Ignore confirmation — set when the user picks "Ignore" from the
+  // 3-dot menu on a queue row; cleared on Cancel or Confirm.
+  const [ignoreConfirmRow, setIgnoreConfirmRow] = useState<{
+    agentId: string;
+    engagementId: string;
+    contactIdentity: string;
+  } | null>(null);
   // Active messages dialogs (Recategorize thread / End message).
   // Recategorize is URL-driven (deep-linkable / refresh-safe) via
   // ?categorize=…: "1" targets the open preview/take-over conversation, any
@@ -797,14 +804,9 @@ export default function AgentTablePanel({
           }
           return true;
         })
-        .map((it: any) => {
-          if (it.isVoiceInteraction || it.agentType === "Air") return it;
-          return {
-            ...it,
-            showMonitor: false,
-            monitorDisabledTooltip: "You can only monitor voice calls",
-          };
-        })
+        // showMonitor passes through from makeInteractions() (always true for
+        // agent rows). Human digital rows now show the preview eye, so there
+        // is no longer a need to suppress it here.
         // AirPro rows rank above human-agent rows by default so supervisors
         // see AI interactions first. The table's column-header sort takes over
         // once the user clicks a column header.
@@ -1152,12 +1154,14 @@ export default function AgentTablePanel({
       }
       // 3-dot menu actions on pending rows.
       if (type === "queueIgnore") {
-        const row = removeQueueRow(uii ?? "");
+        // Show a confirmation dialog before removing the row.
+        const row = queueRows.find((r: any) => r.engagementId === uii) as any;
         if (!row) return;
-        setInsightCtx((ctx) => (ctx?.engagementId === uii ? null : ctx));
-        flashRef.current(
-          `Conversation with ${row.contactIdentity} ignored`,
-        );
+        setIgnoreConfirmRow({
+          agentId: _agentId,
+          engagementId: uii ?? "",
+          contactIdentity: row.contactIdentity ?? "this conversation",
+        });
         return;
       }
       if (type === "queueRequeue") {
@@ -1381,15 +1385,13 @@ export default function AgentTablePanel({
         return;
       }
 
-      // Digital conversation handled by an AirPro (AI) agent -> toggle the
-      // Interaction preview popup in listening mode (URL-driven). Clicking
-      // Monitor again while previewing stops (closes) it — same toggle
-      // semantics as voice monitoring.
+      // Digital conversation (any agent type) -> toggle the Interaction
+      // preview popup in listening mode (URL-driven). Clicking Monitor again
+      // while previewing stops (closes) it — same toggle semantics as voice.
       if (
         type === "monitor" &&
         row &&
-        !row.isVoiceInteraction &&
-        row.agentType === "Air"
+        !row.isVoiceInteraction
       ) {
         if (
           previewEngagementId === row.engagementId &&
@@ -1939,14 +1941,67 @@ export default function AgentTablePanel({
           )}
         </PanelScope>
 
-        {/* Voice interaction preview: the RingCX phone call window in its
-            preview-call variant (incoming Accept/Decline state, no
-            Mute/Keypad/Audio). URL-driven the same way as the digital
-            Interaction preview (/interactions/:id/preview). */}
+        {/* Voice interaction already Active: an agent is on the call, so the
+            window opens straight into the "Monitoring call" listening
+            experience (timer, Mute/Keypad/Audio + monitoring controls, Notes
+            and transcripts) — not the incoming Answer/Decline preview. Human
+            agents get Coach/Barge/Claim; AI agents keep Claim/Transfer/
+            Requeue with Coach/Barge unavailable. */}
         {previewRow &&
           previewData &&
           previewMode &&
           previewRow.isVoiceInteraction &&
+          previewRow.conversationState === "ACTIVE" &&
+          activePreviewCall?.engagementId !== previewRow.engagementId && (
+          <MonitoringCallWindow
+            key={`voice-active-monitor-${previewRow.engagementId}`}
+            agentName={previewRow.fullName ?? "Agent"}
+            agentType={previewRow.agentType === "Air" ? "Air" : "Human"}
+            customerPhone={previewRow.contactIdentity || undefined}
+            onClose={() => {
+              setVoicePreviewInitialSheet(null);
+              onPreviewClose?.();
+            }}
+            onTakenOverCallEnded={() =>
+              onMonitoringWindowClosed?.(previewRow.agentId)
+            }
+            onToast={(m) => flashRef.current(m)}
+            contextData={previewData}
+            contextHops={previewContextHops}
+            onContextHop={(event) =>
+              appendContextHop(previewRow.engagementId, event)
+            }
+            onTakeOverCommitted={() => {
+              registerActiveCallContext(previewRow.agentId, {
+                engagementId: previewRow.engagementId,
+                fullName: previewRow.fullName ?? "Agent",
+                agentType: previewRow.agentType,
+              });
+              // Register the claimed call app-wide (same store as an answered
+              // preview call) so the in-call window survives the route change
+              // to /active-call — otherwise this preview-conditional window
+              // unmounts and the claimed call has no visible surface.
+              startActivePreviewCall({
+                number: previewRow.contactIdentity || "Unknown number",
+                queueName: (previewRow as any).queueName || "Voice queue",
+                engagementId: previewRow.engagementId,
+              });
+              onTakeOverCommitted?.(previewRow.agentId);
+            }}
+          />
+        )}
+
+        {/* Voice interaction preview: the RingCX phone call window in its
+            preview-call variant (incoming Accept/Decline state, no
+            Mute/Keypad/Audio). URL-driven the same way as the digital
+            Interaction preview (/interactions/:id/preview). Only genuinely
+            incoming (not-yet-active) calls ring here — Active calls open the
+            monitoring window above. */}
+        {previewRow &&
+          previewData &&
+          previewMode &&
+          previewRow.isVoiceInteraction &&
+          previewRow.conversationState !== "ACTIVE" &&
           activePreviewCall?.engagementId !== previewRow.engagementId && (
           <MonitoringCallWindow
             key={`voice-preview-${previewRow.engagementId}`}
@@ -1991,6 +2046,7 @@ export default function AgentTablePanel({
             agentName="Agent"
             agentType="Human"
             customerPhone={activePreviewCall.number}
+            queueName={activePreviewCall.queueName}
             onClose={() => {
               endActivePreviewCall();
               onMonitoringWindowClosed?.("preview");
@@ -2068,12 +2124,13 @@ export default function AgentTablePanel({
                       id: "ignore",
                       label: "Ignore",
                       onSelect: () => {
+                        // Routes through queueActionCallback which now shows
+                        // the confirmation dialog before removing the row.
                         queueActionCallback(
                           previewRow.agentId,
                           "queueIgnore",
                           previewRow.engagementId,
                         );
-                        onPreviewClose?.();
                       },
                     },
                   ]
@@ -2150,6 +2207,17 @@ export default function AgentTablePanel({
                   fullName: monitoredAgentRow.fullName,
                   agentType: monitoredAgentRow.agentType,
                 });
+                // Persist the claimed call app-wide so the in-call window
+                // survives the route change to /active-call (see the
+                // preview-monitor take-over above).
+                startActivePreviewCall({
+                  number:
+                    (monitoredAgentRow as any).contactIdentity ||
+                    "Unknown number",
+                  queueName:
+                    (monitoredAgentRow as any).queueName || "Voice queue",
+                  engagementId: monitoredContextEngagementId,
+                });
               }
               onTakeOverCommitted?.(monitoredAgentRow.agentId);
             }}
@@ -2186,6 +2254,92 @@ export default function AgentTablePanel({
             onRequeue={handleQueueRequeue}
           />
         )}
+
+        {/* Ignore confirmation — uses the @ringcx/ui Dialog for correct
+            RingCX fonts, colours, and modal behaviour. */}
+        <Dialog
+          open={!!ignoreConfirmRow}
+          onClose={() => setIgnoreConfirmRow(null) as any}
+          dialogTitle="Ignore conversation?"
+          hideCloseWithX
+          maxWidth="xs"
+          fullWidth
+          // Center vertically: the @ringcx/ui Dialog theme locks the container
+          // to align-items:flex-start; auto margins on the Paper absorb the
+          // remaining space and re-center it.
+          PaperProps={{ style: { marginTop: "auto", marginBottom: "auto" } }}
+          data-testid="dialog-ignore-confirm"
+          content={
+            ignoreConfirmRow ? (
+              <span style={{ fontSize: 14, lineHeight: "20px", color: "#616161" }}>
+                The conversation with{" "}
+                <strong style={{ color: "#121212" }}>{ignoreConfirmRow.contactIdentity}</strong>{" "}
+                will be removed from the queue. This action is irreversible.
+              </span>
+            ) : null
+          }
+          actions={
+            <div
+              style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 8px 8px" }}
+              data-testid="overlay-ignore-confirm"
+            >
+              <button
+                type="button"
+                onClick={() => setIgnoreConfirmRow(null)}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  color: "#066FAC",
+                  padding: "0 8px",
+                }}
+                data-testid="button-ignore-cancel"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!ignoreConfirmRow) return;
+                  // Call removeQueueRow directly — queueActionCallback now
+                  // intercepts queueIgnore to show this dialog, so re-calling
+                  // it would loop.
+                  const row = removeQueueRow(ignoreConfirmRow.engagementId);
+                  if (row) {
+                    setInsightCtx((ctx) =>
+                      ctx?.engagementId === ignoreConfirmRow.engagementId
+                        ? null
+                        : ctx,
+                    );
+                    flashRef.current(
+                      `Conversation with ${row.contactIdentity} ignored`,
+                    );
+                  }
+                  onPreviewClose?.();
+                  setIgnoreConfirmRow(null);
+                }}
+                style={{
+                  height: 36,
+                  padding: "0 20px",
+                  borderRadius: 4,
+                  border: "none",
+                  background: "#e6413c",
+                  color: "#fff",
+                  fontFamily: "inherit",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+                data-testid="button-ignore-confirm"
+              >
+                Ignore
+              </button>
+            </div>
+          }
+        />
 
         {rollupAgent && (
           <>

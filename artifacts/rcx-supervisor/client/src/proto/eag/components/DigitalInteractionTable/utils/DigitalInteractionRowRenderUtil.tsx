@@ -20,6 +20,7 @@ interface IGetDigitalInteractionHoveredItems {
     showMonitor: boolean;
     showViewInsights: boolean;
     showSupervisorAssist: boolean;
+    conversationState?: string;
     monitorDisabledTooltip?: string;
     bargeInDisabledTooltip?: string;
     coachDisabledTooltip?: string;
@@ -41,6 +42,7 @@ export const getDigitalInteractionHoveredItems = (
         showCoach,
         showViewInsights,
         showSupervisorAssist,
+        conversationState,
         bargeInDisabledTooltip,
         coachDisabledTooltip,
         disabledTooltipPlacement,
@@ -68,6 +70,7 @@ export const getDigitalInteractionHoveredItems = (
                     monitorVoice,
                     agentId,
                     uii,
+                    conversationState,
                 }),
                 // Monitor is intentionally hidden in the Interactions table
                 // hover actions (still available on the Agents tab).
@@ -93,9 +96,7 @@ export const getDigitalInteractionHoveredItems = (
                 }),
             ];
         } else {
-            // Digital rows show exactly two hover actions: Monitor and Barge.
-            // "Join" is voice/legacy-conferencing-specific and is not offered
-            // here.
+            // Digital rows: Supervisor Assist, Preview (eye), Barge.
             return [
                 _getSupervisorAssistHoveredMenu({
                     agentId,
@@ -104,8 +105,12 @@ export const getDigitalInteractionHoveredItems = (
                     showViewInsights,
                     uii,
                 }),
-                // Monitor is intentionally hidden in the Interactions table
-                // hover actions (still available on the Agents tab).
+                _getDigitalPreviewHoveredMenu({
+                    monitorVoice,
+                    agentId,
+                    uii,
+                    showMonitor,
+                }),
                 _getBargeInHoveredMenu({
                     monitorVoice,
                     agentId,
@@ -129,19 +134,24 @@ export const _getVoicePreviewHoveredMenu = ({
     monitorVoice,
     agentId,
     uii,
+    conversationState,
 }: {
     monitorVoice: () => void;
     agentId: string;
     uii: string;
+    conversationState?: string;
 }) => {
+    // Active calls open in listening/monitoring mode; all other states
+    // (Reserved, Pending) open the incoming ringing preview UI.
+    const label = conversationState === 'ACTIVE' ? 'Monitor call' : 'Preview call';
     return (
-        <Tooltip key={`voice_preview_${agentId}_${uii}`} title='Preview call' placement='left'>
+        <Tooltip key={`voice_preview_${agentId}_${uii}`} title={label} placement='left'>
             {/* Shared icon button so the eye matches the library actions'
                 box, spacing, and hover/disabled treatment exactly. */}
             <StyledIconButton
                 {...{
                     size: 'medium',
-                    'aria-label': 'Preview call',
+                    'aria-label': label,
                     onClick: (e: React.MouseEvent<HTMLButtonElement>) => {
                         e.stopPropagation();
                         (monitorVoice as any)(agentId, 'voicePreview', uii);
@@ -163,6 +173,53 @@ export const _getVoicePreviewHoveredMenu = ({
                 >
                     <path d='M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z' />
                     <circle cx='12' cy='12' r='3' />
+                </svg>
+            </StyledIconButton>
+        </Tooltip>
+    );
+};
+
+// Preview (eye) hover action for digital rows — mirrors the voice variant but
+// fires the standard 'monitor' action type so AgentTablePanel opens the
+// InteractionPreview window for the engagement.
+export const _getDigitalPreviewHoveredMenu = ({
+    monitorVoice,
+    agentId,
+    uii,
+    showMonitor,
+}: {
+    monitorVoice: () => void;
+    agentId: string;
+    uii: string;
+    showMonitor: boolean;
+}) => {
+    if (!showMonitor) return null;
+    return (
+        <Tooltip key={`digital_preview_${agentId}_${uii}`} title="Preview conversation" placement="left">
+            <StyledIconButton
+                {...{
+                    size: 'medium',
+                    'aria-label': 'Preview conversation',
+                    onClick: (e: React.MouseEvent<HTMLButtonElement>) => {
+                        e.stopPropagation();
+                        (monitorVoice as any)(agentId, 'monitor', uii);
+                    },
+                }}
+                data-testid={`button-digital-preview-${uii}`}
+            >
+                <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                >
+                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+                    <circle cx="12" cy="12" r="3" />
                 </svg>
             </StyledIconButton>
         </Tooltip>
