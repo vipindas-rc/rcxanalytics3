@@ -1770,9 +1770,11 @@ export function InteractionPreview({
           </button>
         ) : null}
       </div>
-      {/* Queue timing (from the table row) */}
-      {typeof data.waitTimeMs === "number" ||
-      typeof data.timeInQueueMs === "number" ? (
+      {/* Queue timing — only relevant for pending (queue) interactions;
+          hidden for active messages and claimed conversations. */}
+      {data.pending &&
+      (typeof data.waitTimeMs === "number" ||
+        typeof data.timeInQueueMs === "number") ? (
         <div
           style={{
             flexShrink: 0,

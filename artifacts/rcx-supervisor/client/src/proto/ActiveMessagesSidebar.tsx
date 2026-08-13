@@ -136,95 +136,106 @@ export function ActiveMessagesSidebar({
             </div>
           </div>
         ) : null}
-        <div className="px-3.5 pb-3.5 pt-3">
-          <div className="mb-2.5 text-[15px] font-bold text-[#121212]">
-            Claimed conversations
-          </div>
-          <div className="flex flex-col gap-2.5">
-            {rows.map((row) => {
-              const selected = row.engagementId === selectedId;
-              return (
-                <div
-                  key={row.engagementId}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onSelect(row.engagementId)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onSelect(row.engagementId);
-                    }
-                  }}
-                  data-testid={`active-message-card-${row.engagementId}`}
-                  aria-current={selected ? "true" : undefined}
-                  className={`relative flex cursor-pointer flex-col rounded-xl border px-3.5 py-3 text-left transition-colors ${
-                    selected
-                      ? "border-[#066fac] bg-[#f2f8fc]"
-                      : "border-[#00000014] bg-white shadow-[0_1px_4px_rgba(0,0,0,0.06)] hover:bg-[#f9f9f9]"
-                  }`}
-                >
-                  {selected ? (
-                    // Speech-bubble tail marking the open conversation,
-                    // pointing toward the thread on the right.
-                    <span
-                      aria-hidden="true"
-                      className="absolute right-[-6px] top-1/2 h-3 w-3 -translate-y-1/2 rotate-45 border-r border-t border-[#066fac] bg-[#f2f8fc]"
-                    />
-                  ) : null}
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-[14px] font-bold text-[#121212]">
-                      {row.contactIdentity || "Customer"}
-                    </span>
-                    <span className="shrink-0 text-[13px] text-[#666666]">
-                      {timeSinceClaim(row.engagementId)}
-                    </span>
-                  </div>
-                  {row.threadTitle ? (
-                    <span className="mt-0.5 truncate text-[14px] text-[#121212]">
-                      {row.threadTitle}
-                    </span>
-                  ) : null}
-                  <div className="mt-2 flex items-center justify-between">
-                    <ChannelGlyph row={row} />
-                    <div className="flex items-center gap-2.5">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onTransfer?.(row.engagementId);
-                        }}
-                        aria-label="Transfer conversation"
-                        title="Transfer conversation"
-                        data-testid={`button-transfer-${row.engagementId}`}
-                        className="flex h-6 w-6 items-center justify-center rounded-full text-[#757575] hover:bg-[#f2f2f2]"
-                      >
-                        <ArrowRight size={16} strokeWidth={2} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDone?.(row.engagementId);
-                        }}
-                        aria-label="Done with conversation"
-                        title="Done with conversation"
-                        data-testid={`button-done-${row.engagementId}`}
-                        className="flex h-6 w-6 items-center justify-center rounded-full border border-[#9e9e9e] text-[#757575] hover:border-[#368541] hover:text-[#368541]"
-                      >
-                        <Check size={13} strokeWidth={2.5} />
-                      </button>
+        {/* Group claimed rows by queue name — each group gets the queue name
+            as its heading, matching the incoming-offer section style. */}
+        {rows.length === 0 ? null : (() => {
+          // Build ordered list of unique queue labels and their rows.
+          const groups: { label: string; groupRows: ActiveMessagesSidebarRow[] }[] = [];
+          const seen = new Map<string, ActiveMessagesSidebarRow[]>();
+          for (const row of rows) {
+            const key = row.queueName || row.productName || "Digital queue";
+            if (!seen.has(key)) {
+              const bucket: ActiveMessagesSidebarRow[] = [];
+              seen.set(key, bucket);
+              groups.push({ label: key, groupRows: bucket });
+            }
+            seen.get(key)!.push(row);
+          }
+          return groups.map(({ label, groupRows }) => (
+            <div key={label} className="px-3.5 pb-3.5 pt-3">
+              <div className="mb-2.5 text-[15px] font-bold text-[#121212]">
+                {label}
+              </div>
+              <div className="flex flex-col gap-2.5">
+                {groupRows.map((row) => {
+                  const selected = row.engagementId === selectedId;
+                  return (
+                    <div
+                      key={row.engagementId}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => onSelect(row.engagementId)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onSelect(row.engagementId);
+                        }
+                      }}
+                      data-testid={`active-message-card-${row.engagementId}`}
+                      aria-current={selected ? "true" : undefined}
+                      className={`relative flex cursor-pointer flex-col rounded-xl border px-3.5 py-3 text-left transition-colors ${
+                        selected
+                          ? "border-[#066fac] bg-[#f2f8fc]"
+                          : "border-[#00000014] bg-white shadow-[0_1px_4px_rgba(0,0,0,0.06)] hover:bg-[#f9f9f9]"
+                      }`}
+                    >
+                      {selected ? (
+                        <span
+                          aria-hidden="true"
+                          className="absolute right-[-6px] top-1/2 h-3 w-3 -translate-y-1/2 rotate-45 border-r border-t border-[#066fac] bg-[#f2f8fc]"
+                        />
+                      ) : null}
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="truncate text-[14px] font-bold text-[#121212]">
+                          {row.contactIdentity || "Customer"}
+                        </span>
+                        <span className="shrink-0 text-[13px] text-[#666666]">
+                          {timeSinceClaim(row.engagementId)}
+                        </span>
+                      </div>
+                      {row.threadTitle ? (
+                        <span className="mt-0.5 truncate text-[14px] text-[#121212]">
+                          {row.threadTitle}
+                        </span>
+                      ) : null}
+                      <div className="mt-2 flex items-center justify-between">
+                        <ChannelGlyph row={row} />
+                        <div className="flex items-center gap-2.5">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onTransfer?.(row.engagementId);
+                            }}
+                            aria-label="Transfer conversation"
+                            title="Transfer conversation"
+                            data-testid={`button-transfer-${row.engagementId}`}
+                            className="flex h-6 w-6 items-center justify-center rounded-full text-[#757575] hover:bg-[#f2f2f2]"
+                          >
+                            <ArrowRight size={16} strokeWidth={2} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDone?.(row.engagementId);
+                            }}
+                            aria-label="Done with conversation"
+                            title="Done with conversation"
+                            data-testid={`button-done-${row.engagementId}`}
+                            className="flex h-6 w-6 items-center justify-center rounded-full border border-[#9e9e9e] text-[#757575] hover:border-[#368541] hover:text-[#368541]"
+                          >
+                            <Check size={13} strokeWidth={2.5} />
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              );
-            })}
-            {!rows.length ? (
-              <span className="text-[13px] text-[#666666]">
-                No claimed conversations
-              </span>
-            ) : null}
-          </div>
-        </div>
+                  );
+                })}
+              </div>
+            </div>
+          ));
+        })()}
       </div>
     </div>
   );
