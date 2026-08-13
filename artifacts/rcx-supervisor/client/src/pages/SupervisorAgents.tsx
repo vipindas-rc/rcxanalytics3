@@ -1240,14 +1240,19 @@ export const SupervisorAgents = (): JSX.Element => {
   const selectedCategories = iv.category;
   const selectedAgentIds = iv.agent;
   const selectedQueues = iv.queue;
-  const selectedInteractionStates = iv.state;
+  // Supervisor 2 Interactions shows only Active rows — State is always
+  // unambiguous, so the column and filter are hidden there.
+  const showStateFilter = isInteractions && !isSupervisor2View;
+  const selectedInteractionStates = showStateFilter ? iv.state : [];
   // Active-filter count for the "Filters (n)" toggle label — one per filter
   // control with a non-default selection on the active tab (each multi-select
   // counts once no matter how many values it holds).
+  const interactionFilterValues = showStateFilter
+    ? [iv.agentType, iv.agent, iv.channel, iv.category, iv.queue, iv.state]
+    : [iv.agentType, iv.agent, iv.channel, iv.category, iv.queue];
   const activeFilterCount = isInteractions
-    ? [iv.agentType, iv.agent, iv.channel, iv.category, iv.queue, iv.state].filter(
-        (v) => v.length > 0,
-      ).length + (breachedSlaOnly ? 1 : 0)
+    ? interactionFilterValues.filter((v) => v.length > 0).length +
+      (breachedSlaOnly ? 1 : 0)
     : [channelFilter, agentTypeFilter, stateFilter].filter((v) => v.length > 0)
         .length;
   // Both agent types picked = no narrowing (same as none picked).
@@ -1258,7 +1263,10 @@ export const SupervisorAgents = (): JSX.Element => {
     (id) => id === "fullName" || visibleCols[id],
   );
   const visibleInteractionColumnIds = interactionColOrder.filter(
-    (id) => id === "sourceName" || visibleInteractionCols[id],
+    (id) =>
+      (id === "sourceName" || visibleInteractionCols[id]) &&
+      // Supervisor 2 Interactions is always Active — hide the State column.
+      !(isSupervisor2View && id === "conversationState"),
   );
 
   // The settings dialog lists both tabs' columns in their draggable saved
@@ -1798,8 +1806,8 @@ export const SupervisorAgents = (): JSX.Element => {
                       testId="select-category"
                     />
                   </div>
-                  {/* Line 2 (design order): Queues, States, then the Breached
-                      SLA toggle — only rows past the 10-minute SLA remain. */}
+                  {/* Line 2 (design order): Queues, States (hidden in
+                      Supervisor 2), then the Breached SLA toggle. */}
                   {/* No z-index here: the menus carry their own z and
                       must not be capped below the table's sticky header. */}
                   <div className="grid grid-cols-4 items-center gap-3">
@@ -1810,14 +1818,18 @@ export const SupervisorAgents = (): JSX.Element => {
                       options={interactionFilters.options.queue}
                       testId="select-queue"
                     />
-                    <SupervisorFilter
-                      values={iv.state}
-                      onValuesChange={(v) => setInteractionFilter("state", v)}
-                      placeholder="All states"
-                      options={interactionFilters.options.state}
-                      testId="select-state"
-                    />
-                    <div className="col-span-2 flex items-center gap-4">
+                    {showStateFilter && (
+                      <SupervisorFilter
+                        values={iv.state}
+                        onValuesChange={(v) => setInteractionFilter("state", v)}
+                        placeholder="All states"
+                        options={interactionFilters.options.state}
+                        testId="select-state"
+                      />
+                    )}
+                    <div
+                      className={`${showStateFilter ? "col-span-2" : "col-span-3"} flex items-center gap-4`}
+                    >
                       <SupervisorCheckbox
                         checked={breachedSlaOnly}
                         onCheckedChange={setBreachedSlaOnly}
