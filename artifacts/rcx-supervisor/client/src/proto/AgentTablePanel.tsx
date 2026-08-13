@@ -1846,6 +1846,7 @@ export default function AgentTablePanel({
                   data={previewData}
                   contextHops={previewContextHops}
                   takeOverDisabled={previewAgentPendingInactive}
+                  hideTiming={activeMessagesMode}
                   onClose={() => onPreviewClose?.()}
                   onEnlarge={() => onPreviewModeChange?.("expanded")}
                   onTakeOver={handlePreviewTakeOver}

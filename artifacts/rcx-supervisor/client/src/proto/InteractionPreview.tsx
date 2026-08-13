@@ -1404,6 +1404,9 @@ export interface InteractionPreviewProps {
   // Incrementing signal: each change > 0 opens the transfer dialog (the
   // sidebar card's → control routes here).
   transferSignal?: number;
+  // Active messages / claimed conversation views — queue timing is not
+  // relevant once an agent owns the conversation; hide the timing row.
+  hideTiming?: boolean;
 }
 
 export function InteractionPreview({
@@ -1421,6 +1424,7 @@ export function InteractionPreview({
   onRecategorize,
   onEndMessage,
   transferSignal = 0,
+  hideTiming = false,
 }: InteractionPreviewProps) {
   const isFullPage = mode !== "preview";
   const isTakeover = mode === "takeover";
@@ -1770,9 +1774,10 @@ export function InteractionPreview({
           </button>
         ) : null}
       </div>
-      {/* Queue timing — only relevant for pending (queue) interactions;
-          hidden for active messages and claimed conversations. */}
-      {data.pending &&
+      {/* Queue timing — only for pending (queue) previews; hidden when the
+          parent marks this as a claimed / active-messages view. */}
+      {!hideTiming &&
+      data.pending &&
       (typeof data.waitTimeMs === "number" ||
         typeof data.timeInQueueMs === "number") ? (
         <div
