@@ -72,8 +72,20 @@ declare module "@proto" {
 
     onDigitalTakeOverCommitted?: (engagementId: string) => void;
     activeMessagesMode?: boolean;
-    // Floating call window closed — page leaves the Active calls context
-    // if it was showing this agent's taken-over call.
+    // When set, slices the Queue tab's display rows to the given page window
+    // so the hosting panel can render its own pagination controls.
+    queuePageSlice?: { page: number; pageSize: number };
+    // Called with the full post-filter (pre-slice) row count whenever it changes,
+    // so PaginatedQueuePanel can show an accurate range indicator.
+    onQueueFilteredCount?: (count: number) => void;
+    // When set, slices the Interactions tab's merged rows to the given page
+    // window (Supervisor (Expected) flow).
+    interactionsPageSlice?: { page: number; pageSize: number };
+    // Called with the full post-filter (pre-slice) Interactions row count.
+    onInteractionsFilteredCount?: (count: number) => void;
+    // Pads the seeded Interactions list up to this many rows (applied once
+    // on mount).
+    interactionsVolume?: number;
   }
   const AgentTablePanel: ComponentType<ProtoAgentTablePanelProps>;
   export default AgentTablePanel;
@@ -105,14 +117,19 @@ declare module "@proto" {
   }
   export const interactionFilterRows: InteractionFilterRow[];
   // Live "Queue (n)" counter hook — tracks queue arrivals/departures and
-  // Claim/Transfer removals.
-  export function useQueuePendingCount(): number;
+  // Claim/Transfer removals. Pass extended=true for the high-volume set used
+  // by the Supervisor (pagination) flow.
+  export function useQueuePendingCount(extended?: boolean): number;
+  // All raw queue rows — for consumers (e.g. pagination panel) that need the
+  // full list to compute total / filtered counts. Pass extended=true for the
+  // high-volume set used by the Supervisor (pagination) flow.
+  export function useQueueRows(extended?: boolean): unknown[];
   // Live "Interactions (n)" counter — all pending interactions: queued
   // (Pending) rows plus Reserved rows (assigned but not yet picked up).
   export function usePendingInteractionsCount(): number;
   // Live pending (queued) rows in the same slim filter-row shape, so
   // Supervisor view 2 can cascade filter options over unassigned rows too.
-  export function usePendingFilterRows(): InteractionFilterRow[];
+  export function usePendingFilterRows(extended?: boolean): InteractionFilterRow[];
   // Latest filter design: RingCX MultiSelect-based multi-select dropdown.
   export interface SupervisorFilterOption {
     value: string;

@@ -41,7 +41,7 @@ export const interactionColumns: ISupervisorTableCol[] = [
   { id: 'conversationState', content: 'State', sortAs: SortType.STRING, visible: true, width: 150 },
   // Routing priority (1.0 = highest). Only some interactions carry one; the
   // rest render the em-dash placeholder. Sits right after State by design.
-  { id: 'priority', content: 'Priority', sortAs: SortType.NUMBER, visible: true, width: 100 },
+  { id: 'priority', content: 'Priority', sortAs: SortType.NUMBER, visible: false, width: 100 },
   { id: 'confidenceScore', content: 'Confidence', sortAs: SortType.NUMBER, visible: true, width: 120 },
   { id: 'sentimentScore', content: 'Sentiment', sortAs: SortType.NUMBER, visible: true, width: 120 },
   { id: 'contactIdentity', content: 'From', sortAs: SortType.STRING, visible: true, width: 170 },
@@ -584,7 +584,11 @@ export function transcriptTurnAt(
 // real, matching rows in the Interactions tab (which then blink to show the
 // selection). Rich fields (contact, subject, categories, durations) are cycled
 // from the captured interaction templates so the table still looks realistic.
-export function makeInteractions(_agents?: unknown): any[] {
+// `volume` (optional) pads the seeded list up to the requested row count by
+// cycling the base rows with fresh engagement ids and slightly offset clocks —
+// used by the Supervisor (Expected) flow to demo a high-volume Interactions
+// table without disturbing the other flows' data.
+export function makeInteractions(_agents?: unknown, volume?: number): any[] {
   const templates = clone(captured.interactions) as any[];
   const agents = makeAgents() as any[];
   const rows: any[] = [];
@@ -710,6 +714,30 @@ export function makeInteractions(_agents?: unknown): any[] {
     });
   });
 
+  if (volume && rows.length > 0) {
+    const base = [...rows];
+    let n = 0;
+    while (rows.length < volume) {
+      const src = base[n % base.length];
+      const cycle = Math.floor(n / base.length) + 2;
+      const engagementId = `${src.engagementId}-v${cycle}`;
+      rows.push({
+        ...src,
+        engagementId,
+        glId: engagementId,
+        // Offset the clocks so cloned rows don't read as duplicates and the
+        // live 1-second timers stay visibly independent.
+        timeInQueueMs: (Number(src.timeInQueueMs) || 0) + ((n % 11) + 1) * 23000,
+        waitTimeMs: (Number(src.waitTimeMs) || 0) + ((n % 11) + 1) * 23000,
+        agentDurationMs:
+          typeof src.agentDurationMs === 'number'
+            ? src.agentDurationMs + ((n % 7) + 1) * 17000
+            : src.agentDurationMs,
+      });
+      n += 1;
+    }
+  }
+
   return rows;
 }
 
@@ -769,7 +797,7 @@ export const supervisor2InteractionColumns: ISupervisorTableCol[] =
       return [
         { ...c, content: 'Queue' },
         ...(stateCol ? [{ ...stateCol, visible: true }] : []),
-        ...(priorityCol ? [{ ...priorityCol, visible: true }] : []),
+        ...(priorityCol ? [{ ...priorityCol, visible: false }] : []),
         { id: 'waitTimeMs', content: 'Total waiting time', sortAs: SortType.NUMBER, visible: true, width: 130 },
         { id: 'timeInQueueMs', content: 'Time in queue', sortAs: SortType.NUMBER, visible: true, width: 120 },
       ];
@@ -817,6 +845,47 @@ const QUEUE_CUSTOMERS = [
   'Aisha Khan',
   'Robert Lang',
   'Grace Liu',
+  'James Patel',
+  'Emma Wilson',
+  'Raj Sharma',
+  'Fatima Al-Hassan',
+  'Kevin Park',
+  'Ingrid Nielsen',
+  'Miguel Torres',
+  'Yuki Tanaka',
+  'Sarah O\'Brien',
+  'Andrei Volkov',
+  'Adaeze Obi',
+  'Henrik Johansson',
+  'Min-Ji Lee',
+  'Omar Khalil',
+  'Clara Dubois',
+  'Bruno Santos',
+  'Zara Ahmed',
+  'Paul Nguyen',
+  'Leila Moradi',
+  'Samuel Okonkwo',
+  'Elena Papadopoulos',
+  'Marcus Chen',
+  'Chioma Eze',
+  'Lars Eriksson',
+  'Ananya Roy',
+  'Jin-Ho Kim',
+  'Fatou Diallo',
+  'David Nakamura',
+  'Sofía Vargas',
+  'Alex Thompson',
+  'Nadia Petrov',
+  'Ibrahim Yilmaz',
+  'Wei Chen',
+  'Amara Diagne',
+  'Stefan Müller',
+  'Riya Kapoor',
+  'Mohammed Al-Rashid',
+  'Lucia Romano',
+  'Kwame Asante',
+  'Victor Tran',
+  'Hannah Schmidt',
 ];
 
 const QUEUE_NAMES = [
@@ -862,10 +931,17 @@ const PREVIOUS_AGENTS = [
   'Sarah Kim',
 ];
 
-export function makeQueueInteractions(): any[] {
-  return QUEUE_CUSTOMERS.map((customerName, i) => {
+// `count` limits how many seeded rows are produced (defaults to the full
+// customer list); `idPrefix` keeps engagement ids distinct between the
+// compact and extended queue sets so Claim/Transfer/preview lookups never
+// collide across flows.
+export function makeQueueInteractions(
+  count: number = QUEUE_CUSTOMERS.length,
+  idPrefix = 'queue-',
+): any[] {
+  return QUEUE_CUSTOMERS.slice(0, count).map((customerName, i) => {
     const ch = CHANNELS[(i * 3 + 1) % CHANNELS.length];
-    const engagementId = `queue-${i + 1}`;
+    const engagementId = `${idPrefix}${i + 1}`;
     return {
       engagementId,
       glId: engagementId,

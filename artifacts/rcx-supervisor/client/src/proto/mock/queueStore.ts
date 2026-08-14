@@ -2,16 +2,32 @@
 // Live queue store — a tiny external store (useSyncExternalStore) shared by
 // the top-nav "Queue (n)" counter and the Queue table so both always agree.
 //
-// Simulation: every few seconds an interaction either arrives (a new customer
-// joins the queue) or leaves (another agent picked it up), so the counter and
-// table churn like a real contact center. Claim / Transfer from the hover
-// actions also remove the row immediately.
+// Two independent row sets live here:
+//   - compact: the original queue used by Supervisor 1 / Supervisor
+//     (suggestion) / Agent (suggestion) — seeded with 9 rows, capped at 14,
+//     never dropping below 3.
+//   - extended: the high-volume queue used only by the Supervisor
+//     (pagination) flow — seeded with 50 rows, capped at 55, never dropping
+//     below 20, so pagination always has multiple pages to show.
+// Both sets share the same simulation heartbeat: every second the waiting
+// clocks advance; every few seconds an interaction arrives or leaves, so the
+// counters and tables churn like a real contact center. Claim / Transfer
+// from the hover actions also remove the row immediately (from whichever set
+// holds it — engagement ids never collide across sets).
 // ---------------------------------------------------------------------------
 import { useSyncExternalStore } from 'react';
 
 import { CONVERSATION_STATES, makeQueueInteractions } from './supervisorMock';
 
-let rows: any[] = makeQueueInteractions();
+const COMPACT_SEED = 9;
+const COMPACT_CAP = 14;
+const COMPACT_FLOOR = 3;
+const EXTENDED_SEED = 50;
+const EXTENDED_CAP = 55;
+const EXTENDED_FLOOR = 20;
+
+let compactRows: any[] = makeQueueInteractions(COMPACT_SEED);
+let extendedRows: any[] = makeQueueInteractions(EXTENDED_SEED, 'queue-p-');
 let listeners: Array<() => void> = [];
 
 const emit = () => {
@@ -26,19 +42,37 @@ const subscribe = (l: () => void) => {
   };
 };
 
-const getSnapshot = () => rows;
+const getCompactSnapshot = () => compactRows;
+const getExtendedSnapshot = () => extendedRows;
 
-export const useQueueRows = (): any[] =>
-  useSyncExternalStore(subscribe, getSnapshot);
+/**
+ * Live pending rows. Pass `extended: true` only in the Supervisor
+ * (pagination) flow to read the high-volume set; every other flow reads the
+ * compact set (the original queue behavior).
+ */
+export const useQueueRows = (extended = false): any[] =>
+  useSyncExternalStore(
+    subscribe,
+    extended ? getExtendedSnapshot : getCompactSnapshot,
+  );
 
-export const useQueuePendingCount = (): number =>
-  useSyncExternalStore(subscribe, getSnapshot).length;
+export const useQueuePendingCount = (extended = false): number =>
+  useSyncExternalStore(
+    subscribe,
+    extended ? getExtendedSnapshot : getCompactSnapshot,
+  ).length;
 
 /** Remove an interaction from the queue (claimed / transferred / picked up). */
 export const removeQueueRow = (engagementId: string): any | null => {
-  const row = rows.find((r) => r.engagementId === engagementId) ?? null;
+  let row = compactRows.find((r) => r.engagementId === engagementId) ?? null;
   if (row) {
-    rows = rows.filter((r) => r.engagementId !== engagementId);
+    compactRows = compactRows.filter((r) => r.engagementId !== engagementId);
+    emit();
+    return row;
+  }
+  row = extendedRows.find((r) => r.engagementId === engagementId) ?? null;
+  if (row) {
+    extendedRows = extendedRows.filter((r) => r.engagementId !== engagementId);
     emit();
   }
   return row;
@@ -48,19 +82,33 @@ export const removeQueueRow = (engagementId: string): any | null => {
  * Send a waiting call back to the end of the queue: its waiting clocks reset
  * and the row re-sorts to the bottom (default order is longest wait first).
  */
+const requeueIn = (rows: any[], engagementId: string): any[] | null => {
+  if (!rows.some((r) => r.engagementId === engagementId)) return null;
+  return rows
+    .map((r) =>
+      r.engagementId === engagementId
+        ? { ...r, timeInQueueMs: 0, waitTimeMs: 0 }
+        : r,
+    )
+    .sort((a, b) => b.timeInQueueMs - a.timeInQueueMs);
+};
+
 export const requeueRow = (engagementId: string): any | null => {
-  const row = rows.find((r) => r.engagementId === engagementId) ?? null;
-  if (row) {
-    rows = rows
-      .map((r) =>
-        r.engagementId === engagementId
-          ? { ...r, timeInQueueMs: 0, waitTimeMs: 0 }
-          : r,
-      )
-      .sort((a, b) => b.timeInQueueMs - a.timeInQueueMs);
+  const inCompact = requeueIn(compactRows, engagementId);
+  if (inCompact) {
+    const row = compactRows.find((r) => r.engagementId === engagementId);
+    compactRows = inCompact;
     emit();
+    return row ?? null;
   }
-  return row;
+  const inExtended = requeueIn(extendedRows, engagementId);
+  if (inExtended) {
+    const row = extendedRows.find((r) => r.engagementId === engagementId);
+    extendedRows = inExtended;
+    emit();
+    return row ?? null;
+  }
+  return null;
 };
 
 // --- Arrival generator -------------------------------------------------------
@@ -96,12 +144,14 @@ const ARRIVAL_QUEUES = [
   'VIP support',
 ];
 
-let arrivalSeq = 0;
+// Separate arrival sequences per set keep engagement ids unique within (and
+// across) the compact and extended queues.
+let compactArrivalSeq = 0;
+let extendedArrivalSeq = 0;
 
-const makeArrival = (): any => {
-  const i = arrivalSeq++;
+const makeArrival = (i: number, idPrefix: string): any => {
   const ch = ARRIVAL_CHANNELS[i % ARRIVAL_CHANNELS.length];
-  const engagementId = `queue-live-${i + 1}`;
+  const engagementId = `${idPrefix}${i + 1}`;
   return {
     engagementId,
     glId: engagementId,
@@ -145,8 +195,6 @@ const makeArrival = (): any => {
     // urgent); the rest have none and render the em dash.
     priority: i % 3 === 0 ? (Math.floor(i / 3) % 3) + 1 : null,
     isQueueRow: true,
-    // Every digital arrival carries a pre-queue IVR/bot transcript to
-    // preview; voice arrivals never do.
     // Every queued conversation can be previewed: digital rows open the
     // Interaction preview; voice rows open the preview-call window.
     hasPreview: true,
@@ -169,43 +217,65 @@ const CHURN_EVERY_TICKS = 6;
 let tick = 0;
 let churnBeat = 0;
 
+// Waiting clocks keep running: while a customer is still waiting (queue rows
+// are all Pending), both Total waiting time and Time in queue count up each
+// second, so rows cross SLA bands live.
+const advanceClocks = (rows: any[]): any[] =>
+  rows.map((r) => ({
+    ...r,
+    timeInQueueMs: r.timeInQueueMs + TIMER_TICK_MS,
+    waitTimeMs: r.waitTimeMs + TIMER_TICK_MS,
+  }));
+
+// Uneven rhythm (2 arrivals for every departure) so the counter visibly
+// drifts instead of ping-ponging around one value.
+const churn = (
+  rows: any[],
+  cap: number,
+  floor: number,
+  nextArrival: () => any,
+): any[] => {
+  if (churnBeat % 3 !== 0) {
+    // A new customer joins the queue (cap so it can't grow unbounded).
+    // Keep the default order by time in queue (longest first) so the
+    // red SLA breaches sit on top, then the orange ones, then the rest.
+    if (rows.length < cap) {
+      return [...rows, nextArrival()].sort(
+        (a, b) => b.timeInQueueMs - a.timeInQueueMs,
+      );
+    }
+    return rows;
+  }
+  if (rows.length > floor) {
+    // Another agent picks up an interaction. Take the shortest-waiting row
+    // so the long (orange/red SLA) waiters stay visible in the demo.
+    const shortest = rows.reduce(
+      (min, r) => (r.waitTimeMs < min.waitTimeMs ? r : min),
+      rows[0],
+    );
+    return rows.filter((r) => r !== shortest);
+  }
+  return rows;
+};
+
 export const startQueueSimulation = (): void => {
   if (simulationStarted) return;
   simulationStarted = true;
   window.setInterval(() => {
     tick += 1;
-    // Waiting clocks keep running: while a customer is still waiting
-    // (queue rows are all Pending), both Total waiting time and Time in
-    // queue count up each second, so rows cross SLA bands live.
-    rows = rows.map((r) => ({
-      ...r,
-      timeInQueueMs: r.timeInQueueMs + TIMER_TICK_MS,
-      waitTimeMs: r.waitTimeMs + TIMER_TICK_MS,
-    }));
+    compactRows = advanceClocks(compactRows);
+    extendedRows = advanceClocks(extendedRows);
     if (tick % CHURN_EVERY_TICKS !== 0) {
       emit();
       return;
     }
     churnBeat += 1;
-    // Uneven rhythm (2 arrivals for every departure) so the counter visibly
-    // drifts instead of ping-ponging around one value.
-    if (churnBeat % 3 !== 0) {
-      // A new customer joins the queue (cap so it can't grow unbounded).
-      // Keep the default order by time in queue (longest first) so the
-      // red SLA breaches sit on top, then the orange ones, then the rest.
-      if (rows.length < 14)
-        rows = [...rows, makeArrival()].sort(
-          (a, b) => b.timeInQueueMs - a.timeInQueueMs,
-        );
-    } else if (rows.length > 3) {
-      // Another agent picks up an interaction. Take the shortest-waiting row
-      // so the long (orange/red SLA) waiters stay visible in the demo.
-      const shortest = rows.reduce(
-        (min, r) => (r.waitTimeMs < min.waitTimeMs ? r : min),
-        rows[0],
-      );
-      rows = rows.filter((r) => r !== shortest);
-    }
+    compactRows = churn(compactRows, COMPACT_CAP, COMPACT_FLOOR, () =>
+      makeArrival(compactArrivalSeq++, 'queue-live-'),
+    );
+    extendedRows = churn(extendedRows, EXTENDED_CAP, EXTENDED_FLOOR, () =>
+      makeArrival(extendedArrivalSeq++, 'queue-live-p-'),
+    );
     emit();
   }, TIMER_TICK_MS);
 };

@@ -74,7 +74,14 @@ import {
   ExternalLink,
   Menu as DragHandleIcon,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+} from "@/components/ui/pagination";
 
 // The header/tabs/Filters blue, reused in the table settings dialogs so the
 // whole page shares one accent color.
@@ -368,34 +375,18 @@ const sideSecondaryNav = [
   },
 ];
 
-// Queue tab: pending interactions waiting to be picked up, rendered with the
-// same Interactions table as the Supervisor tab (agent-side cells stay blank
-// because no agent has the conversation yet). Display only — no queue actions.
-function QueuePanel({
-  searchQuery,
-  onSearch,
-  filtersOpen,
-  onFiltersOpenChange,
-  filterCount,
-  channelValues,
-  channelOptions,
-  onChannelChange,
-  queueValues,
-  queueOptions,
-  onQueueChange,
-  categoryValues,
-  categoryOptions,
-  onCategoryChange,
-  breachedSlaOnly,
-  onBreachedSlaChange,
-  previewEngagementId,
-  previewMode,
-  onPreviewOpen,
-  onPreviewModeChange,
-  onPreviewClose,
-  onVoicePreviewAccepted,
-  onDigitalTakeOverCommitted,
-}: {
+// Pagination page size for the Supervisor (pagination) flow.
+const QUEUE_PAGE_SIZE = 20;
+// Supervisor (Expected) flow: the merged Interactions table paginates at 10
+// rows per page over a high-volume seeded list (~100 assigned rows plus the
+// live pending rows).
+const INTERACTIONS_PAGE_SIZE = 10;
+const EXPECTED_INTERACTIONS_VOLUME = 100;
+// SLA breach threshold: mirrors AgentTablePanel's red-band value (10 min).
+
+// Shared prop shape between QueuePanel and PaginatedQueuePanel — keeps the
+// two components in sync with the same set of toolbar props.
+interface QueuePanelSharedProps {
   searchQuery: string;
   onSearch: (value: string) => void;
   filtersOpen: boolean;
@@ -419,7 +410,34 @@ function QueuePanel({
   onPreviewClose: () => void;
   onVoicePreviewAccepted?: () => void;
   onDigitalTakeOverCommitted: (engagementId: string) => void;
-}): JSX.Element {
+}
+
+// Shared queue toolbar: search, filter toggle, and filter row.
+function QueueToolbar({
+  searchQuery,
+  onSearch,
+  filtersOpen,
+  onFiltersOpenChange,
+  filterCount,
+  channelValues,
+  channelOptions,
+  onChannelChange,
+  queueValues,
+  queueOptions,
+  onQueueChange,
+  categoryValues,
+  categoryOptions,
+  onCategoryChange,
+  breachedSlaOnly,
+  onBreachedSlaChange,
+  searchTestId = "input-queue-search",
+  filtersTestId = "button-queue-filters",
+  filterRowTestId = "queue-filter-row",
+}: QueuePanelSharedProps & {
+  searchTestId?: string;
+  filtersTestId?: string;
+  filterRowTestId?: string;
+}) {
   return (
     <>
       <div className="flex shrink-0 items-center justify-between gap-6 border-b border-[#0000001a] px-5 py-3">
@@ -433,24 +451,24 @@ function QueuePanel({
             onChange={(e) => onSearch(e.target.value)}
             className="h-10 rounded-[4px] border-[#e0e0e0] pl-11 pr-[96px] font-['Roboto',sans-serif] text-[14px] tracking-[0.25px] text-[#212121] placeholder:text-[#a1a1a1]"
             placeholder="Search the queue"
-            data-testid="input-queue-search"
+            data-testid={searchTestId}
           />
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
             <SupervisorFilterToggle
               open={filtersOpen}
               count={filterCount}
               onOpenChange={onFiltersOpenChange}
-              testId="button-queue-filters"
+              testId={filtersTestId}
             />
           </div>
         </div>
-        {/* spacer keeps the search box visually centered */}
+        {/* spacer keeps the search box visually centred */}
         <div className="hidden w-0 shrink md:block md:w-[64px]" aria-hidden />
       </div>
       {filtersOpen && (
         <div
           className="flex shrink-0 items-center gap-3 border-b border-[#0000001a] bg-[#f9f9f9] px-5 py-3"
-          data-testid="queue-filter-row"
+          data-testid={filterRowTestId}
         >
           {/* Queue rows are all unassigned (Pending), so only the Channels /
               Queues / Categories filters and the Breached SLA toggle apply. */}
@@ -485,23 +503,196 @@ function QueuePanel({
           </div>
         </div>
       )}
+    </>
+  );
+}
+
+// Shared pagination footer: range indicator ("x–y of n"), Previous / Next and
+// a window of page numbers. Purely presentational — the host owns the page
+// state (URL-driven) and passes an already-clamped page.
+function PaginationFooter({
+  count,
+  pageSize,
+  page,
+  onPageChange,
+  emptyLabel,
+  testIdPrefix,
+}: {
+  // Full post-filter row count; null while the first count report is pending.
+  count: number | null;
+  pageSize: number;
+  page: number;
+  onPageChange: (page: number) => void;
+  emptyLabel: string;
+  testIdPrefix: string;
+}): JSX.Element {
+  const total = count ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const startRow = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const endRow = Math.min(page * pageSize, total);
+
+  // Page numbers to show: at most 5 consecutive pages centred on the current
+  // page (the window shifts to keep the current page visible).
+  const visiblePages = useMemo(() => {
+    const half = 2;
+    let lo = Math.max(1, page - half);
+    const hi = Math.min(pageCount, lo + 2 * half);
+    lo = Math.max(1, hi - 2 * half);
+    return Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
+  }, [page, pageCount]);
+
+  return (
+    <div
+      className="flex shrink-0 items-center justify-between border-t border-[#0000001a] bg-white px-5 py-2"
+      data-testid={`${testIdPrefix}-pagination`}
+    >
+      <span className="font-['Roboto',sans-serif] text-[13px] text-[#666666]" aria-live="polite">
+        {count === null
+          ? ""
+          : total === 0
+            ? emptyLabel
+            : `${startRow}–${endRow} of ${total}`}
+      </span>
+      <Pagination className="mx-0 w-auto">
+        <PaginationContent>
+          <PaginationItem>
+            <button
+              type="button"
+              aria-label="Go to previous page"
+              disabled={page <= 1}
+              onClick={() => onPageChange(page - 1)}
+              className="flex h-9 items-center gap-1 rounded-md px-3 font-['Roboto',sans-serif] text-[13px] font-medium text-[#121212] hover:bg-[#f5f5f5] disabled:pointer-events-none disabled:opacity-40"
+              data-testid={`button-${testIdPrefix}-page-prev`}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Previous
+            </button>
+          </PaginationItem>
+          {visiblePages.map((p) => (
+            <PaginationItem key={p}>
+              <button
+                type="button"
+                aria-label={`Page ${p}`}
+                aria-current={p === page ? "page" : undefined}
+                onClick={() => onPageChange(p)}
+                className={`flex h-9 w-9 items-center justify-center rounded-md font-['Roboto',sans-serif] text-[13px] font-medium transition-colors ${
+                  p === page
+                    ? "border border-[#e5e5e5] bg-white text-[#121212] shadow-sm"
+                    : "text-[#121212] hover:bg-[#f5f5f5]"
+                }`}
+                data-testid={`button-${testIdPrefix}-page-${p}`}
+              >
+                {p}
+              </button>
+            </PaginationItem>
+          ))}
+          <PaginationItem>
+            <button
+              type="button"
+              aria-label="Go to next page"
+              disabled={page >= pageCount}
+              onClick={() => onPageChange(page + 1)}
+              className="flex h-9 items-center gap-1 rounded-md px-3 font-['Roboto',sans-serif] text-[13px] font-medium text-[#121212] hover:bg-[#f5f5f5] disabled:pointer-events-none disabled:opacity-40"
+              data-testid={`button-${testIdPrefix}-page-next`}
+            >
+              Next
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </PaginationItem>
+        </PaginationContent>
+      </Pagination>
+    </div>
+  );
+}
+
+// Queue tab with pagination (Supervisor (pagination) flow). Slices the pending
+// rows into pages of QUEUE_PAGE_SIZE with Previous / Next / page-number
+// controls and a range indicator. The current page is URL-driven so refresh
+// and shared links land on the same page.
+function PaginatedQueuePanel({
+  page,
+  onPageChange,
+  ...shared
+}: QueuePanelSharedProps & {
+  page: number;
+  onPageChange: (page: number) => void;
+}): JSX.Element {
+  // Accurate post-filter (pre-slice) count is reported by AgentTablePanel via
+  // onQueueFilteredCount — it applies all active filters (queue, SLA, channel,
+  // category, search) before slicing, so this count is always consistent with
+  // what the current page actually shows. Seeded null so a deep-linked page
+  // isn't clamped away before the first count report lands.
+  const [filteredCount, setFilteredCount] = useState<number | null>(null);
+
+  const pageCount =
+    filteredCount === null
+      ? Number.MAX_SAFE_INTEGER
+      : Math.max(1, Math.ceil(filteredCount / QUEUE_PAGE_SIZE));
+  // Clamp to a valid page and notify the parent if the current page drifted
+  // out of range (e.g. rows were claimed from the last page, emptying it).
+  const clampedPage = Math.min(Math.max(1, page), pageCount);
+  useEffect(() => {
+    if (filteredCount !== null && clampedPage !== page) onPageChange(clampedPage);
+  }, [filteredCount, clampedPage, page, onPageChange]);
+
+  return (
+    <>
+      <QueueToolbar {...shared} />
+      <div className="min-h-0 flex-1 overflow-hidden" data-testid="queue-panel-paginated">
+        <AgentTablePanel
+          activeTab="Queue"
+          searchValue={shared.searchQuery}
+          selectedChannels={shared.channelValues}
+          selectedQueues={shared.queueValues}
+          selectedCategories={shared.categoryValues}
+          breachedSlaOnly={shared.breachedSlaOnly}
+          previewEngagementId={shared.previewEngagementId}
+          previewMode={shared.previewMode}
+          onPreviewOpen={shared.onPreviewOpen}
+          onPreviewModeChange={shared.onPreviewModeChange}
+          onPreviewClose={shared.onPreviewClose}
+          onVoicePreviewAccepted={shared.onVoicePreviewAccepted}
+          onDigitalTakeOverCommitted={shared.onDigitalTakeOverCommitted}
+          queuePageSlice={{ page: clampedPage, pageSize: QUEUE_PAGE_SIZE }}
+          onQueueFilteredCount={setFilteredCount}
+        />
+      </div>
+      <PaginationFooter
+        count={filteredCount}
+        pageSize={QUEUE_PAGE_SIZE}
+        page={clampedPage}
+        onPageChange={onPageChange}
+        emptyLabel="No items in queue"
+        testIdPrefix="queue"
+      />
+    </>
+  );
+}
+
+// Queue tab: pending interactions waiting to be picked up. Uses the same
+// Interactions table as the Supervisor tab (agent-side cells stay blank
+// because no agent has the conversation yet).
+function QueuePanel(props: QueuePanelSharedProps): JSX.Element {
+  return (
+    <>
+      <QueueToolbar {...props} />
       <div className="min-h-0 flex-1 overflow-hidden" data-testid="queue-panel">
         {/* Not readOnly: queue rows have their own hover actions (AI insights /
             Transfer / Claim) available in both Agent and Supervisor views. */}
         <AgentTablePanel
           activeTab="Queue"
-          searchValue={searchQuery}
-          selectedChannels={channelValues}
-          selectedQueues={queueValues}
-          selectedCategories={categoryValues}
-          breachedSlaOnly={breachedSlaOnly}
-          previewEngagementId={previewEngagementId}
-          previewMode={previewMode}
-          onPreviewOpen={onPreviewOpen}
-          onPreviewModeChange={onPreviewModeChange}
-          onPreviewClose={onPreviewClose}
-          onVoicePreviewAccepted={onVoicePreviewAccepted}
-          onDigitalTakeOverCommitted={onDigitalTakeOverCommitted}
+          searchValue={props.searchQuery}
+          selectedChannels={props.channelValues}
+          selectedQueues={props.queueValues}
+          selectedCategories={props.categoryValues}
+          breachedSlaOnly={props.breachedSlaOnly}
+          previewEngagementId={props.previewEngagementId}
+          previewMode={props.previewMode}
+          onPreviewOpen={props.onPreviewOpen}
+          onPreviewModeChange={props.onPreviewModeChange}
+          onPreviewClose={props.onPreviewClose}
+          onVoicePreviewAccepted={props.onVoicePreviewAccepted}
+          onDigitalTakeOverCommitted={props.onDigitalTakeOverCommitted}
         />
       </div>
     </>
@@ -512,7 +703,6 @@ export const SupervisorAgents = (): JSX.Element => {
   const [searchQuery, setSearchQuery] = useState("");
   // Live queue depth for the "Queue (n)" top tab label — tracks simulated
   // arrivals/departures and Claim/Transfer removals.
-  const queuePendingCount = useQueuePendingCount();
   // Live pending-interaction count for the "Interactions (n)" sub-tab label —
   // queued (Pending) rows plus Reserved rows (assigned, not yet picked up).
   const pendingInteractionsCount = usePendingInteractionsCount();
@@ -559,6 +749,12 @@ export const SupervisorAgents = (): JSX.Element => {
   // URL-driven tab state (deep-linkable): Interactions is the default landing
   // tab (clean URL, no param); the Agents tab is addressable via ?tab=agents.
   const search = useSearch();
+  // The pagination flow's Queue tab reads the extended high-volume queue set;
+  // the other flows keep the original compact queue. (viewParam is derived
+  // further below, so read the raw param here.)
+  const queuePendingCount = useQueuePendingCount(
+    new URLSearchParams(search).get("view") === "supervisor-pagination",
+  );
   const [pathname, navigate] = useLocation();
 
   // URL-addressable digital "Interaction preview" (deep-linkable / refresh-safe):
@@ -575,19 +771,24 @@ export const SupervisorAgents = (): JSX.Element => {
       : null;
 
   // URL-driven view mode (deep-linkable / refresh-safe). This build ships
-  // three flows:
+  // four flows:
   //   - Supervisor 1 (default, clean URL): pending + active interactions
   //     merged in the Interactions table — today's classic experience.
-  //   - Supervisor 2 (?view=supervisor-2): pending interactions move to a
-  //     top-level Queue tab; the Interactions table keeps the rest.
-  //   - Agent 2 (?view=agent-2): like Supervisor 2, but the Supervisor tab is
-  //     labeled "My team" and only shows the Agents table (no Interactions
-  //     sub-tab).
+  //   - Supervisor (suggestion) (?view=supervisor-2): pending interactions
+  //     move to a top-level Queue tab; the Interactions table keeps the rest.
+  //   - Agent (suggestion) (?view=agent-2): like Supervisor (suggestion), but
+  //     the Supervisor tab is labeled "My team" and only shows the Agents table
+  //     (no Interactions sub-tab).
+  //   - Supervisor (pagination) (?view=supervisor-pagination): like Supervisor
+  //     (suggestion) but the Queue tab paginates pending items 20 per page.
   // Any other (or missing/stale) ?view= value normalizes to the default
   // Supervisor 1 so old deep links stay refresh-safe.
   const parsedViewParam = new URLSearchParams(search).get("view");
   const rawViewParam: string | null =
-    parsedViewParam === "supervisor-2" || parsedViewParam === "agent-2"
+    parsedViewParam === "supervisor-2" ||
+    parsedViewParam === "agent-2" ||
+    parsedViewParam === "supervisor-pagination" ||
+    parsedViewParam === "supervisor-expected"
       ? parsedViewParam
       : null;
   const viewParam: string = rawViewParam ?? "supervisor-1";
@@ -601,9 +802,13 @@ export const SupervisorAgents = (): JSX.Element => {
   const isSupervisor1View = viewParam === "supervisor-1";
   const isSupervisor2View = viewParam === "supervisor-2";
   const isAgent2View = viewParam === "agent-2";
+  const isPaginationView = viewParam === "supervisor-pagination";
+  // Supervisor (Expected): a copy of Supervisor 1 (merged Interactions view)
+  // with a high-volume table paginated at 10 rows per page.
+  const isExpectedView = viewParam === "supervisor-expected";
   // Flows where pending work lives in the top-level Queue tab instead of the
   // Interactions table.
-  const hasQueueTab = isSupervisor2View || isAgent2View;
+  const hasQueueTab = isSupervisor2View || isAgent2View || isPaginationView;
   const viewLabel = isAgent2View ? "My team" : "Supervisor";
 
   // URL-addressable queue "Interaction preview" (deep-linkable / refresh-safe):
@@ -650,6 +855,26 @@ export const SupervisorAgents = (): JSX.Element => {
       updateSearch((p) => p.delete("nav"), { replace: true });
     }
   }, [navParam, hasQueueTab, previewRouteMatched, updateSearch]);
+
+  // ?page=N — the current table page. Valid in two places: the Supervisor
+  // (pagination) flow's Queue tab and the Supervisor (Expected) flow's
+  // Interactions tab; the param self-cleans everywhere else (the effect lives
+  // below, after the active tab is resolved). Parsed as a 1-based integer;
+  // anything invalid normalises to 1.
+  const rawPageParam = new URLSearchParams(search).get("page");
+  const queuePage = Math.max(
+    1,
+    rawPageParam ? (parseInt(rawPageParam, 10) || 1) : 1,
+  );
+  const setQueuePage = useCallback(
+    (page: number) => {
+      updateSearch((p) => {
+        if (page <= 1) p.delete("page");
+        else p.set("page", String(page));
+      });
+    },
+    [updateSearch],
+  );
 
   // Keeps the view selection when navigating between table and preview URLs
   // (Agent view is the clean-URL default, so only Supervisor view is carried).
@@ -776,7 +1001,12 @@ export const SupervisorAgents = (): JSX.Element => {
       updateSearch(
         (params) => {
           if (value === "Queue") params.set("nav", "queue");
-          else params.delete("nav");
+          else {
+            params.delete("nav");
+            // Leaving the Queue tab clears any pagination page param — the
+            // Supervisor tab has no paging and it must not appear in its URL.
+            params.delete("page");
+          }
           // Tab switches leave any open dialog behind.
           params.delete("modal");
           params.delete("agentId");
@@ -851,12 +1081,62 @@ export const SupervisorAgents = (): JSX.Element => {
   const hasSubTabs = !isAgent2View;
   const activeTab: "Agents" | "Interactions" = previewRouteMatched
     ? "Interactions"
-    : isSupervisor1View && queuePreviewMatched
+    : (isSupervisor1View || isExpectedView) && queuePreviewMatched
       ? "Interactions"
       : !hasSubTabs || new URLSearchParams(search).get("tab") === "agents"
         ? "Agents"
         : "Interactions";
   const isInteractions = activeTab === "Interactions";
+
+  // Supervisor (Expected): full post-filter (pre-slice) Interactions count,
+  // reported by AgentTablePanel so the footer's range indicator and page
+  // count stay accurate. Seeded null so a deep-linked page isn't clamped
+  // away before the first count report lands.
+  const [expectedFilteredCount, setExpectedFilteredCount] = useState<
+    number | null
+  >(null);
+  const expectedPageCount =
+    expectedFilteredCount === null
+      ? Number.MAX_SAFE_INTEGER
+      : Math.max(1, Math.ceil(expectedFilteredCount / INTERACTIONS_PAGE_SIZE));
+  const expectedPage = Math.min(Math.max(1, queuePage), expectedPageCount);
+  // Clamp the URL page back into range when rows leave (e.g. claims empty the
+  // last page) or a deep link overshoots.
+  useEffect(() => {
+    if (
+      isExpectedView &&
+      isInteractions &&
+      expectedFilteredCount !== null &&
+      expectedPage !== queuePage
+    ) {
+      setQueuePage(expectedPage);
+    }
+  }, [
+    isExpectedView,
+    isInteractions,
+    expectedFilteredCount,
+    expectedPage,
+    queuePage,
+    setQueuePage,
+  ]);
+
+  // Stale/invalid ?page param self-cleans: only valid in the pagination
+  // flow's Queue tab or the Expected flow's Interactions tab; discard it
+  // everywhere else.
+  useEffect(() => {
+    const pageParamValid =
+      (isPaginationView && isQueueTab) || (isExpectedView && isInteractions);
+    if (rawPageParam != null && !pageParamValid) {
+      updateSearch((p) => p.delete("page"), { replace: true });
+    }
+  }, [
+    rawPageParam,
+    isPaginationView,
+    isQueueTab,
+    isExpectedView,
+    isInteractions,
+    updateSearch,
+  ]);
 
   // Interactions-tab filters live in the URL (alongside ?view / ?tab), so any
   // filtered view is bookmarkable and refresh-safe. Values are validated
@@ -865,15 +1145,15 @@ export const SupervisorAgents = (): JSX.Element => {
   // Interactions table, so those rows also feed the filter options — that is
   // what puts "Pending" in the States dropdown and the waiting queues in the
   // Queues dropdown.
-  const pendingFilterRows = usePendingFilterRows();
+  const pendingFilterRows = usePendingFilterRows(isPaginationView);
   const filterRows = useMemo(
     () =>
       isQueueTab
         ? pendingFilterRows
-        : isSupervisor1View
+        : isSupervisor1View || isExpectedView
           ? [...pendingFilterRows, ...interactionFilterRows]
           : interactionFilterRows,
-    [isQueueTab, isSupervisor1View, pendingFilterRows],
+    [isQueueTab, isSupervisor1View, isExpectedView, pendingFilterRows],
   );
 
   const interactionFilters = useMemo(() => {
@@ -942,7 +1222,8 @@ export const SupervisorAgents = (): JSX.Element => {
 
   // Supervisor 1 merges pending (queued) rows into the Interactions table;
   // the Queue-tab flows keep pending rows in the Queue tab only.
-  const mergePendingInteractions = isSupervisor1View && isInteractions;
+  const mergePendingInteractions =
+    (isSupervisor1View || isExpectedView) && isInteractions;
 
   const setActiveTab = useCallback(
     (value: "Agents" | "Interactions") => {
@@ -1058,7 +1339,14 @@ export const SupervisorAgents = (): JSX.Element => {
     return () => window.removeEventListener("keydown", onKey);
   }, [viewMenuOpen]);
   const handleViewChange = useCallback(
-    (view: "supervisor-1" | "supervisor-2" | "agent-2") => {
+    (
+      view:
+        | "supervisor-1"
+        | "supervisor-2"
+        | "agent-2"
+        | "supervisor-pagination"
+        | "supervisor-expected",
+    ) => {
       setViewMenuOpen(false);
       updateSearch(
         (params) => {
@@ -1072,6 +1360,10 @@ export const SupervisorAgents = (): JSX.Element => {
             params.set("view", view);
           }
           if (view === "agent-2") params.delete("tab");
+          // Clear pagination page when leaving or entering any flow so stale
+          // page numbers don't carry over (the pagination flow always starts
+          // fresh on page 1 after a flow switch).
+          params.delete("page");
         },
         // Any open preview closes on a flow change (its URL context may no
         // longer apply).
@@ -1242,7 +1534,10 @@ export const SupervisorAgents = (): JSX.Element => {
   const selectedQueues = iv.queue;
   // Supervisor 2 Interactions shows only Active rows — State is always
   // unambiguous, so the column and filter are hidden there.
-  const showStateFilter = isInteractions && !isSupervisor2View;
+  // Supervisor (suggestion) and Supervisor (pagination) both show only Active
+  // rows on the Interactions tab — State is unambiguous there, so the filter
+  // and column are hidden in those flows.
+  const showStateFilter = isInteractions && !isSupervisor2View && !isPaginationView;
   const selectedInteractionStates = showStateFilter ? iv.state : [];
   // Active-filter count for the "Filters (n)" toggle label — one per filter
   // control with a non-default selection on the active tab (each multi-select
@@ -1265,8 +1560,9 @@ export const SupervisorAgents = (): JSX.Element => {
   const visibleInteractionColumnIds = interactionColOrder.filter(
     (id) =>
       (id === "sourceName" || visibleInteractionCols[id]) &&
-      // Supervisor 2 Interactions is always Active — hide the State column.
-      !(isSupervisor2View && id === "conversationState"),
+      // Supervisor (suggestion) and Supervisor (pagination) Interactions tabs
+      // are always Active — hide the State column in those flows.
+      !((isSupervisor2View || isPaginationView) && id === "conversationState"),
   );
 
   // The settings dialog lists both tabs' columns in their draggable saved
@@ -1614,6 +1910,39 @@ export const SupervisorAgents = (): JSX.Element => {
             </Tabs>
           </div>
           {isQueueTab ? (
+            isPaginationView ? (
+              <PaginatedQueuePanel
+                searchQuery={searchQuery}
+                onSearch={setSearchQuery}
+                filtersOpen={filtersOpen}
+                onFiltersOpenChange={setFiltersOpen}
+                filterCount={
+                  [iv.channel, iv.queue, iv.category].filter(
+                    (v) => v.length > 0,
+                  ).length + (breachedSlaOnly ? 1 : 0)
+                }
+                channelValues={iv.channel}
+                channelOptions={interactionFilters.options.channel}
+                onChannelChange={(v) => setInteractionFilter("channel", v)}
+                queueValues={iv.queue}
+                queueOptions={interactionFilters.options.queue}
+                onQueueChange={(v) => setInteractionFilter("queue", v)}
+                categoryValues={iv.category}
+                categoryOptions={interactionFilters.options.category}
+                onCategoryChange={(v) => setInteractionFilter("category", v)}
+                breachedSlaOnly={breachedSlaOnly}
+                onBreachedSlaChange={setBreachedSlaOnly}
+                previewEngagementId={queuePreviewEngagementId}
+                previewMode={queuePreviewMode}
+                onPreviewOpen={openQueuePreview}
+                onPreviewModeChange={changeQueuePreviewMode}
+                onPreviewClose={closeQueuePreview}
+                onVoicePreviewAccepted={handleVoicePreviewAccepted}
+                onDigitalTakeOverCommitted={handleDigitalTakeOverCommitted}
+                page={queuePage}
+                onPageChange={setQueuePage}
+              />
+            ) : (
             <QueuePanel
               searchQuery={searchQuery}
               onSearch={setSearchQuery}
@@ -1643,6 +1972,7 @@ export const SupervisorAgents = (): JSX.Element => {
               onVoicePreviewAccepted={handleVoicePreviewAccepted}
               onDigitalTakeOverCommitted={handleDigitalTakeOverCommitted}
             />
+            )
           ) : (
           <>
           {activeCallMatched ||
@@ -1897,10 +2227,25 @@ export const SupervisorAgents = (): JSX.Element => {
             }
           >
             <AgentTablePanel
+              // Remount when entering/leaving the Expected flow so its
+              // high-volume seeded Interactions list applies (seeding runs
+              // once per mount).
+              key={isExpectedView ? "supervisor-expected" : "default"}
               readOnly={false}
               activeTab={activeTab}
               interactionsVariant={isInteractions ? "supervisor3" : undefined}
               includePendingRows={mergePendingInteractions}
+              interactionsVolume={
+                isExpectedView ? EXPECTED_INTERACTIONS_VOLUME : undefined
+              }
+              interactionsPageSlice={
+                isExpectedView && isInteractions
+                  ? { page: expectedPage, pageSize: INTERACTIONS_PAGE_SIZE }
+                  : undefined
+              }
+              onInteractionsFilteredCount={
+                isExpectedView ? setExpectedFilteredCount : undefined
+              }
               showCurrentUser
               searchValue={searchQuery}
               selectedStates={selectedStates}
@@ -1944,6 +2289,24 @@ export const SupervisorAgents = (): JSX.Element => {
               onMonitoringWindowClosed={handleMonitoringWindowClosed}
             />
           </div>
+          {/* Supervisor (Expected): pagination footer under the merged
+              Interactions table. Hidden whenever the table itself is hidden
+              (Active calls / Active messages) or replaced by a full take-over
+              view. */}
+          {isExpectedView &&
+          isInteractions &&
+          !activeCallMatched &&
+          !activeMessagesMatched &&
+          previewMode !== "takeover" ? (
+            <PaginationFooter
+              count={expectedFilteredCount}
+              pageSize={INTERACTIONS_PAGE_SIZE}
+              page={expectedPage}
+              onPageChange={setQueuePage}
+              emptyLabel="No interactions to show"
+              testIdPrefix="interactions"
+            />
+          ) : null}
           </>
           )}
 
@@ -2110,7 +2473,7 @@ export const SupervisorAgents = (): JSX.Element => {
                     className="flex w-full items-center justify-between px-3 py-2 text-sm text-[#121212] hover:bg-[#f5f5f5]"
                     data-testid="menuitem-supervisor-view-2"
                   >
-                    Supervisor 2
+                    Supervisor (suggestion)
                     {isSupervisor2View && (
                       <Check className="h-4 w-4" style={{ color: RC_BLUE }} />
                     )}
@@ -2122,8 +2485,32 @@ export const SupervisorAgents = (): JSX.Element => {
                     className="flex w-full items-center justify-between px-3 py-2 text-sm text-[#121212] hover:bg-[#f5f5f5]"
                     data-testid="menuitem-agent-view-2"
                   >
-                    Agent 2
+                    Agent (suggestion)
                     {isAgent2View && (
+                      <Check className="h-4 w-4" style={{ color: RC_BLUE }} />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => handleViewChange("supervisor-pagination")}
+                    className="flex w-full items-center justify-between px-3 py-2 text-sm text-[#121212] hover:bg-[#f5f5f5]"
+                    data-testid="menuitem-supervisor-pagination"
+                  >
+                    Supervisor (pagination)
+                    {isPaginationView && (
+                      <Check className="h-4 w-4" style={{ color: RC_BLUE }} />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => handleViewChange("supervisor-expected")}
+                    className="flex w-full items-center justify-between px-3 py-2 text-sm text-[#121212] hover:bg-[#f5f5f5]"
+                    data-testid="menuitem-supervisor-expected"
+                  >
+                    Supervisor (Expected)
+                    {isExpectedView && (
                       <Check className="h-4 w-4" style={{ color: RC_BLUE }} />
                     )}
                   </button>

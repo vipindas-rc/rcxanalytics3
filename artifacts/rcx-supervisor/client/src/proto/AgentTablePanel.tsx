@@ -50,6 +50,9 @@ import { useUrlParam, useUrlSearchUpdater } from "@/hooks/useUrlState";
 // Live "Queue (n)" counter hook — re-exported so the page's top tab label can
 // track queue arrivals/departures without importing the proto mock tree.
 export { useQueuePendingCount };
+// All raw queue rows re-exported so consumers (e.g. the pagination panel) can
+// compute total / filtered counts without coupling to the proto mock tree.
+export { useQueueRows };
 
 // Live "Interactions (n)" counter: all pending interactions — queued (Pending,
 // live from the queue store) plus Reserved rows (routed to an agent but not
@@ -316,8 +319,8 @@ export type {
 // Live pending (queued) rows projected into the same slim filter-row shape as
 // interactionFilterRows, so Supervisor view 2 can offer "Pending" as a State
 // option and cascade queue/channel/category options over the unassigned rows.
-export function usePendingFilterRows(): InteractionFilterRow[] {
-  const rows = useQueueRows();
+export function usePendingFilterRows(extended = false): InteractionFilterRow[] {
+  const rows = useQueueRows(extended);
   return useMemo(
     () =>
       rows.map((q: any) => ({
@@ -398,6 +401,24 @@ interface AgentTablePanelProps {
   // Fired when the floating call window closes so the page can leave the
   // Active calls context if it was showing this agent's taken-over call.
   onMonitoringWindowClosed?: (agentId: string) => void;
+  // When set, slices the Queue tab's display rows to the given page window so
+  // the hosting panel can render its own pagination controls. The full queue
+  // store (all rows) is still used for action lookups (Claim, Transfer, etc.).
+  queuePageSlice?: { page: number; pageSize: number };
+  // Called with the full post-filter (pre-slice) row count whenever it changes
+  // so PaginatedQueuePanel can render an accurate range indicator and page count
+  // without duplicating the filter logic.
+  onQueueFilteredCount?: (count: number) => void;
+  // When set, slices the Interactions tab's merged rows to the given page
+  // window so the hosting page can render its own pagination controls
+  // (Supervisor (Expected) flow).
+  interactionsPageSlice?: { page: number; pageSize: number };
+  // Called with the full post-filter (pre-slice) Interactions row count so the
+  // hosting page can render an accurate range indicator and page count.
+  onInteractionsFilteredCount?: (count: number) => void;
+  // Pads the seeded Interactions list up to this many rows (Supervisor
+  // (Expected) flow's high-volume demo). Applied once on mount.
+  interactionsVolume?: number;
 }
 
 export default function AgentTablePanel({
@@ -434,6 +455,11 @@ export default function AgentTablePanel({
   onDigitalTakeOverCommitted,
   activeMessagesMode,
   onMonitoringWindowClosed,
+  queuePageSlice,
+  onQueueFilteredCount,
+  interactionsPageSlice,
+  onInteractionsFilteredCount,
+  interactionsVolume,
 }: AgentTablePanelProps) {
   // Supervisor view 3 shares all of view 2's Interactions behavior (pending
   // row merging, hover actions, preview) — only the column set differs.
@@ -442,12 +468,16 @@ export default function AgentTablePanel({
     interactionsVariant === "supervisor3";
   const isSupervisor3Columns = interactionsVariant === "supervisor3";
   const [agents, setAgents] = useState(() => makeAgents(25));
-  const [interactions, setInteractions] = useState(() => makeInteractions());
+  const [interactions, setInteractions] = useState(() =>
+    makeInteractions(undefined, interactionsVolume),
+  );
   // Queue tab: live pending (Waiting) interactions from the shared queue store
-  // (arrivals/departures churn it, Claim/Transfer remove rows).
-  const queueRows = useQueueRows();
+  // (arrivals/departures churn it, Claim/Transfer remove rows). The paginated
+  // Queue tab (queuePageSlice set) reads the extended high-volume set; every
+  // other flow reads the compact set.
+  const queueRows = useQueueRows(Boolean(queuePageSlice));
   const [queueCols] = useState(() =>
-    queueColumns.map((c: any) => ({ ...c, visible: true })),
+    queueColumns.map((c: any) => ({ ...c })),
   );
   const [interactionCols] = useState(() =>
     interactionColumns.map((c: any) => ({ ...c })),
@@ -884,24 +914,133 @@ export default function AgentTablePanel({
     breachedSlaOnly,
   ]);
 
-  // Queue tab rows: the Queue / Breached SLA filters apply as row pre-filters
-  // (channels and categories filter inside the grid via its column filters).
-  const queueDisplayRows = useMemo(
-    () =>
-      queueRows.filter((q: any) => {
-        if (
-          selectedQueues.length > 0 &&
-          !selectedQueues.includes(q.productName)
-        ) {
-          return false;
-        }
-        if (breachedSlaOnly && !isSlaBreached(q.timeInQueueMs)) {
-          return false;
-        }
-        return true;
-      }),
-    [queueRows, selectedQueues, breachedSlaOnly],
+  // When paginating, channel / category / search must be applied BEFORE slicing
+  // so that a) every filtered row is reachable via pagination and b) the range
+  // indicator ("21–40 of n") reflects the true post-filter count.  Without
+  // pagination the grid still applies these filters internally, so we only
+  // pre-filter when queuePageSlice is present.
+  const matchesQueueGridFilters = useCallback(
+    (q: any): boolean => {
+      if (selectedChannels.length > 0 && !selectedChannels.includes(q.sourceName)) return false;
+      if (selectedCategories.length > 0) {
+        const rowIds = String(q.categoryIds ?? "").split(",").filter(Boolean);
+        if (!selectedCategories.some((id: string) => rowIds.includes(id))) return false;
+      }
+      if (searchValue) {
+        const s = searchValue.toLowerCase();
+        // Mirror DigitalInteractionTable's interactionSearchColIndexes fields.
+        const categoryNames = String(q.categoryIds ?? "")
+          .split(",")
+          .filter(Boolean)
+          .map((id: string) => CATEGORIES_MAP[id]?.name ?? "")
+          .join(" ");
+        const haystack = [
+          q.sourceName ?? "",
+          q.fullName ?? "",
+          q.productName ?? "",
+          q.contactIdentity ?? "",
+          q.contactIdentityE164 ?? "",
+          q.threadTitle ?? "",
+          categoryNames,
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(s)) return false;
+      }
+      return true;
+    },
+    [selectedChannels, selectedCategories, searchValue],
   );
+
+  const queueDisplayRows = useMemo(() => {
+    // Base pre-filters (queue name + SLA) always run here.
+    const baseFiltered = queueRows.filter((q: any) => {
+      if (
+        selectedQueues.length > 0 &&
+        !selectedQueues.includes(q.productName)
+      ) {
+        return false;
+      }
+      if (breachedSlaOnly && !isSlaBreached(q.timeInQueueMs)) {
+        return false;
+      }
+      return true;
+    });
+    if (!queuePageSlice) return baseFiltered;
+    // Full pre-filter: also apply channel / category / search so the page
+    // slice reflects exactly what the grid would show.
+    const fullyFiltered = baseFiltered.filter(matchesQueueGridFilters);
+    const { page, pageSize } = queuePageSlice;
+    const start = (page - 1) * pageSize;
+    return fullyFiltered.slice(start, start + pageSize);
+  }, [queueRows, selectedQueues, breachedSlaOnly, queuePageSlice, matchesQueueGridFilters]);
+
+  // Pre-slice count — only meaningful when pagination is active.  Reported
+  // upward via onQueueFilteredCount so PaginatedQueuePanel can show an accurate
+  // "x–y of n" range indicator and compute page count without having to
+  // duplicate the filter logic.
+  const queueFilteredTotal = useMemo(() => {
+    if (!queuePageSlice) return 0;
+    return queueRows.filter((q: any) => {
+      if (selectedQueues.length > 0 && !selectedQueues.includes(q.productName)) return false;
+      if (breachedSlaOnly && !isSlaBreached(q.timeInQueueMs)) return false;
+      return matchesQueueGridFilters(q);
+    }).length;
+  }, [queueRows, selectedQueues, breachedSlaOnly, queuePageSlice, matchesQueueGridFilters]);
+
+  useEffect(() => {
+    if (queuePageSlice) {
+      onQueueFilteredCount?.(queueFilteredTotal);
+    }
+  }, [queueFilteredTotal, queuePageSlice, onQueueFilteredCount]);
+
+  // Interactions pagination (Supervisor (Expected) flow): the grid-level
+  // filters (agent, channel, category, search) must be applied BEFORE slicing
+  // so every filtered row is reachable via pagination and the range indicator
+  // reflects the true post-filter count. Without pagination the grid applies
+  // these filters internally, so this path only runs when a slice is set.
+  const matchesInteractionGridFilters = useCallback(
+    (r: any): boolean => {
+      // The grid's agent filter matches on agentId (interactionAgentNameCol).
+      if (
+        selectedAgentIds.length > 0 &&
+        !selectedAgentIds.includes(String(r.agentId ?? ""))
+      ) {
+        return false;
+      }
+      return matchesQueueGridFilters(r);
+    },
+    [selectedAgentIds, matchesQueueGridFilters],
+  );
+
+  const interactionsFilteredTotal = useMemo(() => {
+    if (!interactionsPageSlice) return 0;
+    return supervisor2Interactions.filter(matchesInteractionGridFilters).length;
+  }, [supervisor2Interactions, interactionsPageSlice, matchesInteractionGridFilters]);
+
+  const interactionsDisplayRows = useMemo(() => {
+    if (!interactionsPageSlice) return supervisor2Interactions;
+    const filtered = supervisor2Interactions.filter(
+      matchesInteractionGridFilters,
+    );
+    const { page, pageSize } = interactionsPageSlice;
+    const start = (page - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [supervisor2Interactions, interactionsPageSlice, matchesInteractionGridFilters]);
+
+  useEffect(() => {
+    if (interactionsPageSlice) {
+      onInteractionsFilteredCount?.(interactionsFilteredTotal);
+      // The tab label count should reflect the full filtered set, not the
+      // current page (the grid only sees the sliced rows).
+      onInteractionCountChange?.(interactionsFilteredTotal);
+    }
+  }, [
+    interactionsFilteredTotal,
+    interactionsPageSlice,
+    onInteractionsFilteredCount,
+    onInteractionCountChange,
+  ]);
 
   const visibleAgentCols = useMemo(() => {
     // No selection provided -> show every column in its native order.
@@ -1867,16 +2006,20 @@ export default function AgentTablePanel({
             // picked the interaction up yet — and there are no monitoring,
             // insights, or take-over affordances.
             <DigitalInteractionTable
-              columns={queueCols as any}
+              columns={queueCols.filter((c: any) => c.visible !== false) as any}
               digitalTaskList={queueDisplayRows as any}
               monitorAgentCallback={queueActionCallback as any}
               monitoredAgent={{ monitoredAgentId: "", uii: "" } as any}
               viewInsight={viewInsightCallback}
               loggedInAgentId={"supervisor"}
               selectedIds={[]}
-              selectedChannels={selectedChannels}
-              selectedCategories={selectedCategories}
-              searchValue={searchValue}
+              // When paginating, rows are already fully pre-filtered before the
+              // page slice; passing the same filter props again would hide rows
+              // that survived the pre-filter but whose field value has a false
+              // partial match inside the grid's internal filtration.
+              selectedChannels={queuePageSlice ? [] : selectedChannels}
+              selectedCategories={queuePageSlice ? [] : selectedCategories}
+              searchValue={queuePageSlice ? "" : searchValue}
               selectedEngagementId={insightCtx?.engagementId ?? null}
               shouldShowViewInsightsButton={true}
               AgentSvc={{ digitalAgentEnabled: true } as any}
@@ -1886,7 +2029,7 @@ export default function AgentTablePanel({
           ) : activeTab === "Interactions" ? (
             <DigitalInteractionTable
               columns={visibleInteractionCols as any}
-              digitalTaskList={supervisor2Interactions as any}
+              digitalTaskList={interactionsDisplayRows as any}
               hasActiveFilters={
                 agentTypeFilter.length > 0 ||
                 selectedQueues.length > 0 ||
@@ -1904,11 +2047,20 @@ export default function AgentTablePanel({
               }
               viewInsight={viewInsightCallback}
               loggedInAgentId={"supervisor"}
-              selectedIds={selectedAgentIds}
-              selectedChannels={selectedChannels}
-              selectedCategories={selectedCategories}
-              searchValue={searchValue}
-              onFilteredCountChange={onInteractionCountChange}
+              // When paginating, rows are already fully pre-filtered before
+              // the page slice; passing the same filter props again would
+              // double-filter the visible page.
+              selectedIds={interactionsPageSlice ? [] : selectedAgentIds}
+              selectedChannels={interactionsPageSlice ? [] : selectedChannels}
+              selectedCategories={
+                interactionsPageSlice ? [] : selectedCategories
+              }
+              searchValue={interactionsPageSlice ? "" : searchValue}
+              onFilteredCountChange={
+                // With a page slice the grid only sees one page — the true
+                // filtered count is reported via the effect above instead.
+                interactionsPageSlice ? undefined : onInteractionCountChange
+              }
               highlightAgentId={highlightAgentId}
               highlightNonce={highlightNonce}
               selectedEngagementId={insightCtx?.engagementId ?? null}
