@@ -672,7 +672,9 @@ function PaginatedQueuePanel({
 // Queue tab: pending interactions waiting to be picked up. Uses the same
 // Interactions table as the Supervisor tab (agent-side cells stay blank
 // because no agent has the conversation yet).
-function QueuePanel(props: QueuePanelSharedProps): JSX.Element {
+function QueuePanel(
+  props: QueuePanelSharedProps & { extendedQueue?: boolean },
+): JSX.Element {
   return (
     <>
       <QueueToolbar {...props} />
@@ -681,6 +683,7 @@ function QueuePanel(props: QueuePanelSharedProps): JSX.Element {
             Transfer / Claim) available in both Agent and Supervisor views. */}
         <AgentTablePanel
           activeTab="Queue"
+          extendedQueue={props.extendedQueue}
           searchValue={props.searchQuery}
           selectedChannels={props.channelValues}
           selectedQueues={props.queueValues}
@@ -749,11 +752,13 @@ export const SupervisorAgents = (): JSX.Element => {
   // URL-driven tab state (deep-linkable): Interactions is the default landing
   // tab (clean URL, no param); the Agents tab is addressable via ?tab=agents.
   const search = useSearch();
-  // The pagination flow's Queue tab reads the extended high-volume queue set;
-  // the other flows keep the original compact queue. (viewParam is derived
-  // further below, so read the raw param here.)
+  // The pagination and CP: Suggestion flows' Queue tabs read the extended
+  // high-volume queue set; the other flows keep the original compact queue.
+  // (viewParam is derived further below, so read the raw param here.)
   const queuePendingCount = useQueuePendingCount(
-    new URLSearchParams(search).get("view") === "supervisor-pagination",
+    ["supervisor-pagination", "supervisor-2", "agent-2"].includes(
+      new URLSearchParams(search).get("view") ?? "",
+    ),
   );
   const [pathname, navigate] = useLocation();
 
@@ -1944,6 +1949,7 @@ export const SupervisorAgents = (): JSX.Element => {
               />
             ) : (
             <QueuePanel
+              extendedQueue={isSupervisor2View || isAgent2View}
               searchQuery={searchQuery}
               onSearch={setSearchQuery}
               filtersOpen={filtersOpen}
@@ -2451,67 +2457,98 @@ export const SupervisorAgents = (): JSX.Element => {
                 <div
                   role="menu"
                   aria-label="View options"
-                  className="z-50 w-48 rounded-md border border-[#e5e5e5] bg-white py-1 shadow-[0_4px_16px_rgba(0,0,0,0.18)]"
+                  className="z-50 w-60 rounded-md border border-[#e5e5e5] bg-white py-1 shadow-[0_4px_16px_rgba(0,0,0,0.18)]"
                   data-testid="menu-view-switcher"
                 >
+                  <div
+                    role="presentation"
+                    aria-hidden="true"
+                    className="select-none px-3 pb-1 pt-2 text-xs font-medium text-[#9a9a9a]"
+                  >
+                    Cherry picking (CP)
+                  </div>
                   <button
                     type="button"
                     role="menuitem"
                     onClick={() => handleViewChange("supervisor-1")}
-                    className="flex w-full items-center justify-between px-3 py-2 text-sm text-[#121212] hover:bg-[#f5f5f5]"
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[#121212] hover:bg-[#f5f5f5]"
                     data-testid="menuitem-supervisor-view-1"
                   >
-                    Supervisor 1
+                    Supervisor (Current)
                     {isSupervisor1View && (
-                      <Check className="h-4 w-4" style={{ color: RC_BLUE }} />
+                      <Check className="h-4 w-4 shrink-0" style={{ color: RC_BLUE }} />
+                    )}
+                  </button>
+                  <div
+                    role="separator"
+                    aria-orientation="horizontal"
+                    className="my-1 h-px bg-[#f0f0f0]"
+                  />
+                  <div
+                    role="presentation"
+                    aria-hidden="true"
+                    className="select-none px-3 pb-1 pt-2 text-xs font-medium text-[#9a9a9a]"
+                  >
+                    CP: With tech limitations
+                  </div>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => handleViewChange("supervisor-expected")}
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[#121212] hover:bg-[#f5f5f5]"
+                    data-testid="menuitem-supervisor-expected"
+                  >
+                    Supervisor (Expected)
+                    {isExpectedView && (
+                      <Check className="h-4 w-4 shrink-0" style={{ color: RC_BLUE }} />
+                    )}
+                  </button>
+                  <div
+                    role="separator"
+                    aria-orientation="horizontal"
+                    className="my-1 h-px bg-[#f0f0f0]"
+                  />
+                  <div
+                    role="presentation"
+                    aria-hidden="true"
+                    className="select-none px-3 pb-1 pt-2 text-xs font-medium text-[#9a9a9a]"
+                  >
+                    CP: Suggestion
+                  </div>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => handleViewChange("supervisor-pagination")}
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[#121212] hover:bg-[#f5f5f5]"
+                    data-testid="menuitem-supervisor-pagination"
+                  >
+                    Supervisor (w. tech limitations)
+                    {isPaginationView && (
+                      <Check className="h-4 w-4 shrink-0" style={{ color: RC_BLUE }} />
                     )}
                   </button>
                   <button
                     type="button"
                     role="menuitem"
                     onClick={() => handleViewChange("supervisor-2")}
-                    className="flex w-full items-center justify-between px-3 py-2 text-sm text-[#121212] hover:bg-[#f5f5f5]"
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[#121212] hover:bg-[#f5f5f5]"
                     data-testid="menuitem-supervisor-view-2"
                   >
-                    Supervisor (suggestion)
+                    Supervisor
                     {isSupervisor2View && (
-                      <Check className="h-4 w-4" style={{ color: RC_BLUE }} />
+                      <Check className="h-4 w-4 shrink-0" style={{ color: RC_BLUE }} />
                     )}
                   </button>
                   <button
                     type="button"
                     role="menuitem"
                     onClick={() => handleViewChange("agent-2")}
-                    className="flex w-full items-center justify-between px-3 py-2 text-sm text-[#121212] hover:bg-[#f5f5f5]"
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[#121212] hover:bg-[#f5f5f5]"
                     data-testid="menuitem-agent-view-2"
                   >
-                    Agent (suggestion)
+                    Agent
                     {isAgent2View && (
-                      <Check className="h-4 w-4" style={{ color: RC_BLUE }} />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => handleViewChange("supervisor-pagination")}
-                    className="flex w-full items-center justify-between px-3 py-2 text-sm text-[#121212] hover:bg-[#f5f5f5]"
-                    data-testid="menuitem-supervisor-pagination"
-                  >
-                    Supervisor (pagination)
-                    {isPaginationView && (
-                      <Check className="h-4 w-4" style={{ color: RC_BLUE }} />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => handleViewChange("supervisor-expected")}
-                    className="flex w-full items-center justify-between px-3 py-2 text-sm text-[#121212] hover:bg-[#f5f5f5]"
-                    data-testid="menuitem-supervisor-expected"
-                  >
-                    Supervisor (Expected)
-                    {isExpectedView && (
-                      <Check className="h-4 w-4" style={{ color: RC_BLUE }} />
+                      <Check className="h-4 w-4 shrink-0" style={{ color: RC_BLUE }} />
                     )}
                   </button>
                 </div>

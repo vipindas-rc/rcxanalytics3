@@ -75,6 +75,7 @@ declare module "@proto" {
     // When set, slices the Queue tab's display rows to the given page window
     // so the hosting panel can render its own pagination controls.
     queuePageSlice?: { page: number; pageSize: number };
+    extendedQueue?: boolean;
     // Called with the full post-filter (pre-slice) row count whenever it changes,
     // so PaginatedQueuePanel can show an accurate range indicator.
     onQueueFilteredCount?: (count: number) => void;

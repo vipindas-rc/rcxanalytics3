@@ -405,6 +405,9 @@ interface AgentTablePanelProps {
   // the hosting panel can render its own pagination controls. The full queue
   // store (all rows) is still used for action lookups (Claim, Transfer, etc.).
   queuePageSlice?: { page: number; pageSize: number };
+  /** Read the extended high-volume queue store without pagination
+      (CP: Suggestion flows). */
+  extendedQueue?: boolean;
   // Called with the full post-filter (pre-slice) row count whenever it changes
   // so PaginatedQueuePanel can render an accurate range indicator and page count
   // without duplicating the filter logic.
@@ -456,6 +459,7 @@ export default function AgentTablePanel({
   activeMessagesMode,
   onMonitoringWindowClosed,
   queuePageSlice,
+  extendedQueue = false,
   onQueueFilteredCount,
   interactionsPageSlice,
   onInteractionsFilteredCount,
@@ -475,7 +479,7 @@ export default function AgentTablePanel({
   // (arrivals/departures churn it, Claim/Transfer remove rows). The paginated
   // Queue tab (queuePageSlice set) reads the extended high-volume set; every
   // other flow reads the compact set.
-  const queueRows = useQueueRows(Boolean(queuePageSlice));
+  const queueRows = useQueueRows(Boolean(queuePageSlice) || extendedQueue);
   const [queueCols] = useState(() =>
     queueColumns.map((c: any) => ({ ...c })),
   );
