@@ -782,8 +782,7 @@ export const SupervisorAgents = (): JSX.Element => {
   //   - Supervisor (suggestion) (?view=supervisor-2): pending interactions
   //     move to a top-level Queue tab; the Interactions table keeps the rest.
   //   - Agent (suggestion) (?view=agent-2): like Supervisor (suggestion), but
-  //     the Supervisor tab is labeled "My team" and only shows the Agents table
-  //     (no Interactions sub-tab).
+  //     the Supervisor tab is labeled "My team".
   //   - Supervisor (pagination) (?view=supervisor-pagination): like Supervisor
   //     (suggestion) but the Queue tab paginates pending items 20 per page.
   // Any other (or missing/stale) ?view= value normalizes to the default
@@ -1080,10 +1079,11 @@ export const SupervisorAgents = (): JSX.Element => {
 
   // A preview deep link always belongs to the Interactions tab (preview URLs
   // never carry ?tab=agents, so the URL-derived tab is already Interactions).
-  // Agent 2 (My team) has no sub-tabs — it always shows the Agents table.
+  // Every flow (including Agent 2 / "My team") shows the Agents/Interactions
+  // sub-tab pair.
   // In Supervisor 1 a queue preview opens from the merged Interactions table;
   // in the Queue-tab flows it belongs to the Queue tab instead.
-  const hasSubTabs = !isAgent2View;
+  const hasSubTabs = true;
   const activeTab: "Agents" | "Interactions" = previewRouteMatched
     ? "Interactions"
     : (isSupervisor1View || isExpectedView) && queuePreviewMatched
@@ -1356,15 +1356,13 @@ export const SupervisorAgents = (): JSX.Element => {
       updateSearch(
         (params) => {
           // Supervisor 1 owns the clean URL; the other flows pin the param.
-          // It also has no Queue tab, so its nav param drops too. Agent 2 has
-          // no Interactions sub-tab, so a stale ?tab drops there.
+          // It also has no Queue tab, so its nav param drops too.
           if (view === "supervisor-1") {
             params.delete("view");
             params.delete("nav");
           } else {
             params.set("view", view);
           }
-          if (view === "agent-2") params.delete("tab");
           // Clear pagination page when leaving or entering any flow so stale
           // page numbers don't carry over (the pagination flow always starts
           // fresh on page 1 after a flow switch).
@@ -1539,10 +1537,11 @@ export const SupervisorAgents = (): JSX.Element => {
   const selectedQueues = iv.queue;
   // Supervisor 2 Interactions shows only Active rows — State is always
   // unambiguous, so the column and filter are hidden there.
-  // Supervisor (suggestion) and Supervisor (pagination) both show only Active
-  // rows on the Interactions tab — State is unambiguous there, so the filter
-  // and column are hidden in those flows.
-  const showStateFilter = isInteractions && !isSupervisor2View && !isPaginationView;
+  // Supervisor (suggestion), Agent (suggestion), and Supervisor (pagination)
+  // all show only Active rows on the Interactions tab — State is unambiguous
+  // there, so the filter and column are hidden in those flows.
+  const showStateFilter =
+    isInteractions && !isSupervisor2View && !isAgent2View && !isPaginationView;
   const selectedInteractionStates = showStateFilter ? iv.state : [];
   // Active-filter count for the "Filters (n)" toggle label — one per filter
   // control with a non-default selection on the active tab (each multi-select
@@ -1565,9 +1564,13 @@ export const SupervisorAgents = (): JSX.Element => {
   const visibleInteractionColumnIds = interactionColOrder.filter(
     (id) =>
       (id === "sourceName" || visibleInteractionCols[id]) &&
-      // Supervisor (suggestion) and Supervisor (pagination) Interactions tabs
-      // are always Active — hide the State column in those flows.
-      !((isSupervisor2View || isPaginationView) && id === "conversationState"),
+      // Supervisor (suggestion), Agent (suggestion), and Supervisor
+      // (pagination) Interactions tabs are always Active — hide the State
+      // column in those flows.
+      !(
+        (isSupervisor2View || isAgent2View || isPaginationView) &&
+        id === "conversationState"
+      ),
   );
 
   // The settings dialog lists both tabs' columns in their draggable saved
@@ -1996,7 +1999,6 @@ export const SupervisorAgents = (): JSX.Element => {
               {viewLabel}
             </h2>
             <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-3">
-              {/* Agent (My team) view has no sub-tabs — just the Agents table. */}
               {hasSubTabs && (
               <Tabs
                 value={activeTab}
@@ -2457,7 +2459,7 @@ export const SupervisorAgents = (): JSX.Element => {
                 <div
                   role="menu"
                   aria-label="View options"
-                  className="z-50 w-60 rounded-md border border-[#e5e5e5] bg-white py-1 shadow-[0_4px_16px_rgba(0,0,0,0.18)]"
+                  className="z-50 w-72 rounded-md border border-[#e5e5e5] bg-white py-1 shadow-[0_4px_16px_rgba(0,0,0,0.18)]"
                   data-testid="menu-view-switcher"
                 >
                   <div
@@ -2474,7 +2476,13 @@ export const SupervisorAgents = (): JSX.Element => {
                     className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[#121212] hover:bg-[#f5f5f5]"
                     data-testid="menuitem-supervisor-view-1"
                   >
-                    Supervisor (Current)
+                    <span className="flex flex-col">
+                      Supervisor (Current)
+                      <span className="text-xs leading-4 text-[#666666]">
+                        Today's view: pending and active interactions in one
+                        table
+                      </span>
+                    </span>
                     {isSupervisor1View && (
                       <Check className="h-4 w-4 shrink-0" style={{ color: RC_BLUE }} />
                     )}
@@ -2498,7 +2506,13 @@ export const SupervisorAgents = (): JSX.Element => {
                     className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[#121212] hover:bg-[#f5f5f5]"
                     data-testid="menuitem-supervisor-expected"
                   >
-                    Supervisor (Expected)
+                    <span className="flex flex-col">
+                      Supervisor (Expected)
+                      <span className="text-xs leading-4 text-[#666666]">
+                        Current view at high volume: one merged table, 10 rows
+                        per page
+                      </span>
+                    </span>
                     {isExpectedView && (
                       <Check className="h-4 w-4 shrink-0" style={{ color: RC_BLUE }} />
                     )}
@@ -2522,7 +2536,13 @@ export const SupervisorAgents = (): JSX.Element => {
                     className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[#121212] hover:bg-[#f5f5f5]"
                     data-testid="menuitem-supervisor-pagination"
                   >
-                    Supervisor (w. tech limitations)
+                    <span className="flex flex-col">
+                      Supervisor (w. tech limitations)
+                      <span className="text-xs leading-4 text-[#666666]">
+                        Separate Queue tab with pending items paginated 20 per
+                        page
+                      </span>
+                    </span>
                     {isPaginationView && (
                       <Check className="h-4 w-4 shrink-0" style={{ color: RC_BLUE }} />
                     )}
@@ -2534,7 +2554,13 @@ export const SupervisorAgents = (): JSX.Element => {
                     className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[#121212] hover:bg-[#f5f5f5]"
                     data-testid="menuitem-supervisor-view-2"
                   >
-                    Supervisor
+                    <span className="flex flex-col">
+                      Supervisor
+                      <span className="text-xs leading-4 text-[#666666]">
+                        Pending work in its own Queue tab; Interactions shows
+                        active only
+                      </span>
+                    </span>
                     {isSupervisor2View && (
                       <Check className="h-4 w-4 shrink-0" style={{ color: RC_BLUE }} />
                     )}
@@ -2546,7 +2572,12 @@ export const SupervisorAgents = (): JSX.Element => {
                     className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[#121212] hover:bg-[#f5f5f5]"
                     data-testid="menuitem-agent-view-2"
                   >
-                    Agent
+                    <span className="flex flex-col">
+                      Agent
+                      <span className="text-xs leading-4 text-[#666666]">
+                        The same suggestion as an agent's "My team" view
+                      </span>
+                    </span>
                     {isAgent2View && (
                       <Check className="h-4 w-4 shrink-0" style={{ color: RC_BLUE }} />
                     )}
