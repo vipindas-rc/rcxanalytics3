@@ -123,6 +123,12 @@ export const DigitalInteractionTableRow: FC<{
     highlightAgentId?: string | null;
     highlightNonce?: number;
     selectedEngagementId?: string | null;
+    /** CP: Suggestion — hide Transfer + More (3-dot) menu on queue rows. */
+    hideQueueTransferAndMore?: boolean;
+    /** CP: Suggestion — label for the queue Claim button (default "Claim"). */
+    queueClaimLabel?: string;
+    /** CP: Agent suggestion view — hide the preview/Monitor eye on active rows. */
+    hideInteractionPreview?: boolean;
 }> = ({
     data: {
         engagementSource,
@@ -169,6 +175,9 @@ export const DigitalInteractionTableRow: FC<{
     isAIFeaturesEnabled,
     highlightAgentId,
     highlightNonce,
+    hideQueueTransferAndMore = false,
+    queueClaimLabel = "Claim",
+    hideInteractionPreview = false,
     selectedEngagementId,
 }) => {
     const [isInfoToolTipVisible, setIsInfoToolTipVisible] =
@@ -228,6 +237,7 @@ export const DigitalInteractionTableRow: FC<{
                 monitorDisabledTooltip,
                 bargeInDisabledTooltip,
                 coachDisabledTooltip,
+                hidePreviewEye: hideInteractionPreview,
             }),
         [
             interactionSourceType,
@@ -245,6 +255,7 @@ export const DigitalInteractionTableRow: FC<{
             monitorDisabledTooltip,
             bargeInDisabledTooltip,
             coachDisabledTooltip,
+            hideInteractionPreview,
         ]
     );
 
@@ -586,6 +597,12 @@ export const DigitalInteractionTableRow: FC<{
                 // are omitted entirely) plus optional Preview and
                 // Transfer / Claim. Either button removes the interaction
                 // from the queue.
+                // CP: Suggestion — View Insights is hidden when
+                // shouldShowViewInsightsButton is false (passed as
+                // !hideQueueViewInsights from AgentTablePanel). Transfer and
+                // the More menu are hidden when hideQueueTransferAndMore is
+                // true (Agent suggestion view). Claim is relabeled via
+                // queueClaimLabel ("Self-Assign" in suggestion views).
                 <SupervisorListHoverMenu role='gridcell'>
                     <StyledSupervisorCellWrapper>
                         {_getSupervisorAssistHoveredMenu({
@@ -595,7 +612,9 @@ export const DigitalInteractionTableRow: FC<{
                             showViewInsights,
                             uii: engagementId,
                         })}
-                        {hasPreview && (
+                        {/* Preview call / interaction: hidden for Air-agent voice
+                             rows — supervisors monitor Air calls, not preview them. */}
+                        {hasPreview && !(isVoiceInteraction && agentType === 'Air') && (
                             <Tooltip
                                 title={
                                     isVoiceInteraction
@@ -639,30 +658,32 @@ export const DigitalInteractionTableRow: FC<{
                                 </StyledIconButton>
                             </Tooltip>
                         )}
-                        <button
-                            type='button'
-                            onClick={() =>
-                                (monitorAgentCallback as any)(
-                                    agentId,
-                                    'queueTransfer',
-                                    engagementId
-                                )
-                            }
-                            style={{
-                                height: 28,
-                                padding: '0 12px',
-                                borderRadius: 4,
-                                border: '1px solid #066fac',
-                                background: '#ffffff',
-                                color: '#066fac',
-                                fontSize: 13,
-                                fontWeight: 500,
-                                cursor: 'pointer',
-                            }}
-                            data-testid={`button-queue-transfer-${engagementId}`}
-                        >
-                            Transfer
-                        </button>
+                        {!hideQueueTransferAndMore && (
+                            <button
+                                type='button'
+                                onClick={() =>
+                                    (monitorAgentCallback as any)(
+                                        agentId,
+                                        'queueTransfer',
+                                        engagementId
+                                    )
+                                }
+                                style={{
+                                    height: 28,
+                                    padding: '0 12px',
+                                    borderRadius: 4,
+                                    border: '1px solid #066fac',
+                                    background: '#ffffff',
+                                    color: '#066fac',
+                                    fontSize: 13,
+                                    fontWeight: 500,
+                                    cursor: 'pointer',
+                                }}
+                                data-testid={`button-queue-transfer-${engagementId}`}
+                            >
+                                Transfer
+                            </button>
+                        )}
                         <button
                             type='button'
                             onClick={() =>
@@ -685,14 +706,16 @@ export const DigitalInteractionTableRow: FC<{
                             }}
                             data-testid={`button-queue-claim-${engagementId}`}
                         >
-                            Claim
+                            {queueClaimLabel}
                         </button>
-                        <QueueMoreMenu
-                            engagementId={engagementId}
-                            agentId={agentId}
-                            isVoice={isVoiceInteraction}
-                            onAction={monitorAgentCallback as any}
-                        />
+                        {!hideQueueTransferAndMore && (
+                            <QueueMoreMenu
+                                engagementId={engagementId}
+                                agentId={agentId}
+                                isVoice={isVoiceInteraction}
+                                onAction={monitorAgentCallback as any}
+                            />
+                        )}
                     </StyledSupervisorCellWrapper>
                 </SupervisorListHoverMenu>
             ) : (

@@ -25,6 +25,9 @@ interface IGetDigitalInteractionHoveredItems {
     bargeInDisabledTooltip?: string;
     coachDisabledTooltip?: string;
     disabledTooltipPlacement?: 'left' | 'bottom';
+    /** CP: Agent suggestion view — omit the supervisor-only hover actions
+     *  (preview/Monitor eye, Coach, Barge) entirely. */
+    hidePreviewEye?: boolean;
 }
 
 export const getDigitalInteractionHoveredItems = (
@@ -46,6 +49,7 @@ export const getDigitalInteractionHoveredItems = (
         bargeInDisabledTooltip,
         coachDisabledTooltip,
         disabledTooltipPlacement,
+        hidePreviewEye,
     } = props;
 
     if (
@@ -66,34 +70,43 @@ export const getDigitalInteractionHoveredItems = (
                 // Voice rows get a preview (eye) action like digital rows:
                 // opens the preview-call variant of the RingCX phone call
                 // window (URL-driven via the same preview-open path).
-                _getVoicePreviewHoveredMenu({
-                    monitorVoice,
-                    agentId,
-                    uii,
-                    conversationState,
-                }),
+                // Hidden in the Agent suggestion view (hidePreviewEye).
+                hidePreviewEye
+                    ? null
+                    : _getVoicePreviewHoveredMenu({
+                          monitorVoice,
+                          agentId,
+                          uii,
+                          conversationState,
+                      }),
                 // Monitor is intentionally hidden in the Interactions table
                 // hover actions (still available on the Agents tab).
-                _getCoachHoveredMenu({
-                    monitorVoice,
-                    agentId,
-                    monitoredAgent,
-                    uii,
-                    interactionSourceType,
-                    showCoach,
-                    disabledTooltip: coachDisabledTooltip,
-                    disabledTooltipPlacement,
-                }),
-                _getBargeInHoveredMenu({
-                    monitorVoice,
-                    agentId,
-                    monitoredAgent,
-                    uii,
-                    interactionSourceType,
-                    showBargeIn,
-                    disabledTooltip: bargeInDisabledTooltip,
-                    disabledTooltipPlacement,
-                }),
+                // Coach/Barge are supervisor-only — hidden with the preview
+                // eye in the Agent suggestion view (hidePreviewEye).
+                hidePreviewEye
+                    ? null
+                    : _getCoachHoveredMenu({
+                          monitorVoice,
+                          agentId,
+                          monitoredAgent,
+                          uii,
+                          interactionSourceType,
+                          showCoach,
+                          disabledTooltip: coachDisabledTooltip,
+                          disabledTooltipPlacement,
+                      }),
+                hidePreviewEye
+                    ? null
+                    : _getBargeInHoveredMenu({
+                          monitorVoice,
+                          agentId,
+                          monitoredAgent,
+                          uii,
+                          interactionSourceType,
+                          showBargeIn,
+                          disabledTooltip: bargeInDisabledTooltip,
+                          disabledTooltipPlacement,
+                      }),
             ];
         } else {
             // Digital rows: Supervisor Assist, Preview (eye), Barge.
@@ -105,22 +118,26 @@ export const getDigitalInteractionHoveredItems = (
                     showViewInsights,
                     uii,
                 }),
-                _getDigitalPreviewHoveredMenu({
-                    monitorVoice,
-                    agentId,
-                    uii,
-                    showMonitor,
-                }),
-                _getBargeInHoveredMenu({
-                    monitorVoice,
-                    agentId,
-                    monitoredAgent,
-                    uii,
-                    interactionSourceType,
-                    showBargeIn,
-                    disabledTooltip: bargeInDisabledTooltip,
-                    disabledTooltipPlacement,
-                }),
+                hidePreviewEye
+                    ? null
+                    : _getDigitalPreviewHoveredMenu({
+                          monitorVoice,
+                          agentId,
+                          uii,
+                          showMonitor,
+                      }),
+                hidePreviewEye
+                    ? null
+                    : _getBargeInHoveredMenu({
+                          monitorVoice,
+                          agentId,
+                          monitoredAgent,
+                          uii,
+                          interactionSourceType,
+                          showBargeIn,
+                          disabledTooltip: bargeInDisabledTooltip,
+                          disabledTooltipPlacement,
+                      }),
             ];
         }
     }
@@ -195,11 +212,11 @@ export const _getDigitalPreviewHoveredMenu = ({
 }) => {
     if (!showMonitor) return null;
     return (
-        <Tooltip key={`digital_preview_${agentId}_${uii}`} title="Preview conversation" placement="left">
+        <Tooltip key={`digital_preview_${agentId}_${uii}`} title="Monitor" placement="left">
             <StyledIconButton
                 {...{
                     size: 'medium',
-                    'aria-label': 'Preview conversation',
+                    'aria-label': 'Monitor',
                     onClick: (e: React.MouseEvent<HTMLButtonElement>) => {
                         e.stopPropagation();
                         (monitorVoice as any)(agentId, 'monitor', uii);

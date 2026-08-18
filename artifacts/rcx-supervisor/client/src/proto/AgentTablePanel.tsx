@@ -30,8 +30,10 @@ import {
   columns,
   interactionColumns,
   queueColumns,
+  myQueuesColumns,
   supervisor2InteractionColumns,
   supervisor3InteractionColumns,
+  suggestionInteractionColumns,
   CONVERSATION_STATES,
   makeAgents,
   makeInteractions,
@@ -154,6 +156,22 @@ export const supervisor2InteractionColumnMeta: { id: string; label: string }[] =
 // table renders, so it gets its own meta too.
 export const supervisor3InteractionColumnMeta: { id: string; label: string }[] =
   supervisor3InteractionColumns.map((c: any) => ({
+    id: c.id,
+    label: String(c.content),
+  }));
+
+// CP: Suggestion Interactions column meta — view 3's set minus the queue-only
+// columns (Previous agent, Queue wait time, Total wait time). Used for the
+// Interactions tab settings dialog in the Supervisor and Agent suggestion views.
+export const suggestionInteractionColumnMeta: { id: string; label: string }[] =
+  suggestionInteractionColumns.map((c: any) => ({
+    id: c.id,
+    label: String(c.content),
+  }));
+
+// My Queues column meta for the suggestion-view Queue tab settings dialog.
+export const myQueuesColumnMeta: { id: string; label: string }[] =
+  myQueuesColumns.map((c: any) => ({
     id: c.id,
     label: String(c.content),
   }));
@@ -381,7 +399,28 @@ interface AgentTablePanelProps {
   // plus the pending (queued) rows in a "Pending" state, with Queue name /
   // Time in queue / Previous agent columns. Supervisor view 3 behaves the
   // same but drops the Agent type / Confidence / Sentiment columns.
-  interactionsVariant?: "supervisor2" | "supervisor3";
+  // "suggestion": active interactions only, leaner column set (no wait-time
+  // or previous-agent columns), used in the Supervisor/Agent suggestion views.
+  interactionsVariant?: "supervisor2" | "supervisor3" | "suggestion";
+  // CP: Suggestion queue-row action gating —
+  //   hideQueueViewInsights: hide the View Insights (SV Assist) hover action
+  //     on queue rows in the My Queues tab (active rows keep it).
+  //   hideQueueTransferAndMore: hide the Transfer button and the More (3-dot)
+  //     menu on queue rows (Agent suggestion view only; Self-Assign remains).
+  //   queueClaimLabel: button label for the claim action (default "Claim";
+  //     pass "Self-Assign" in suggestion views).
+  hideQueueViewInsights?: boolean;
+  hideQueueTransferAndMore?: boolean;
+  // CP: Agent suggestion view — hide the preview/Monitor eye on active
+  // Interactions rows (agents can't monitor teammates' conversations).
+  hideInteractionPreview?: boolean;
+  // My Queues table settings: column ids to render, in order. When omitted,
+  // the default column set (visible !== false) renders.
+  visibleQueueColumnIds?: string[];
+  queueClaimLabel?: string;
+  // Use the My Queues column set (renamed time columns) instead of the
+  // standard queueColumns for the Queue tab in suggestion views.
+  useMyQueuesColumns?: boolean;
   // Merge the pending (queued) rows into the Interactions table (Supervisor 1
   // flow). False in the Queue-tab flows, where pending rows live in the
   // top-level Queue tab instead.
@@ -464,13 +503,22 @@ export default function AgentTablePanel({
   interactionsPageSlice,
   onInteractionsFilteredCount,
   interactionsVolume,
+  hideQueueViewInsights = false,
+  hideQueueTransferAndMore = false,
+  hideInteractionPreview = false,
+  visibleQueueColumnIds,
+  queueClaimLabel = "Claim",
+  useMyQueuesColumns = false,
 }: AgentTablePanelProps) {
   // Supervisor view 3 shares all of view 2's Interactions behavior (pending
   // row merging, hover actions, preview) — only the column set differs.
+  // "suggestion" uses a leaner Active-only column set; pending rows live in
+  // the My Queues tab and never merge into the Interactions table.
   const isSupervisor2Interactions =
     interactionsVariant === "supervisor2" ||
     interactionsVariant === "supervisor3";
   const isSupervisor3Columns = interactionsVariant === "supervisor3";
+  const isSuggestionVariant = interactionsVariant === "suggestion";
   const [agents, setAgents] = useState(() => makeAgents(25));
   const [interactions, setInteractions] = useState(() =>
     makeInteractions(undefined, interactionsVolume),
@@ -491,6 +539,13 @@ export default function AgentTablePanel({
   );
   const [supervisor3Cols] = useState(() =>
     supervisor3InteractionColumns.map((c: any) => ({ ...c })),
+  );
+  const [suggestionCols] = useState(() =>
+    suggestionInteractionColumns.map((c: any) => ({ ...c })),
+  );
+  // My Queues columns: queueColumns with renamed time labels.
+  const [myQueuesCols] = useState(() =>
+    myQueuesColumns.map((c: any) => ({ ...c })),
   );
 
   // Capture the seeded confidence/sentiment values once. Live scores oscillate
@@ -1068,11 +1123,13 @@ export default function AgentTablePanel({
     // from the settings dialog (when provided): the ids arrive in the user's
     // saved drag order, with the Channel (sourceName) column always pinned
     // first.
-    const cols = isSupervisor3Columns
-      ? supervisor3Cols
-      : isSupervisor2Interactions
-        ? supervisor2Cols
-        : interactionCols;
+    const cols = isSuggestionVariant
+      ? suggestionCols
+      : isSupervisor3Columns
+        ? supervisor3Cols
+        : isSupervisor2Interactions
+          ? supervisor2Cols
+          : interactionCols;
     if (!visibleInteractionColumnIds) {
       return cols.map((c: any) => ({ ...c, visible: true }));
     }
@@ -2010,7 +2067,21 @@ export default function AgentTablePanel({
             // picked the interaction up yet — and there are no monitoring,
             // insights, or take-over affordances.
             <DigitalInteractionTable
-              columns={queueCols.filter((c: any) => c.visible !== false) as any}
+              columns={
+                (visibleQueueColumnIds
+                  ? // Settings-driven: render exactly the chosen ids in the
+                    // saved order (visibility + drag order from the dialog).
+                    (visibleQueueColumnIds
+                      .map((id) =>
+                        (useMyQueuesColumns ? myQueuesCols : queueCols).find(
+                          (c: any) => c.id === id,
+                        ),
+                      )
+                      .filter(Boolean) as any[])
+                  : (useMyQueuesColumns ? myQueuesCols : queueCols).filter(
+                      (c: any) => c.visible !== false,
+                    )) as any
+              }
               digitalTaskList={queueDisplayRows as any}
               monitorAgentCallback={queueActionCallback as any}
               monitoredAgent={{ monitoredAgentId: "", uii: "" } as any}
@@ -2025,7 +2096,9 @@ export default function AgentTablePanel({
               selectedCategories={queuePageSlice ? [] : selectedCategories}
               searchValue={queuePageSlice ? "" : searchValue}
               selectedEngagementId={insightCtx?.engagementId ?? null}
-              shouldShowViewInsightsButton={true}
+              shouldShowViewInsightsButton={!hideQueueViewInsights}
+              hideQueueTransferAndMore={hideQueueTransferAndMore}
+              queueClaimLabel={queueClaimLabel}
               AgentSvc={{ digitalAgentEnabled: true } as any}
               FeatureFlagsSvc={{ featureFlags: {} } as any}
               aiNotesFeatures={[] as any}
@@ -2069,6 +2142,9 @@ export default function AgentTablePanel({
               highlightNonce={highlightNonce}
               selectedEngagementId={insightCtx?.engagementId ?? null}
               shouldShowViewInsightsButton={!readOnly}
+              hideQueueTransferAndMore={hideQueueTransferAndMore}
+              queueClaimLabel={queueClaimLabel}
+              hideInteractionPreview={hideInteractionPreview}
               AgentSvc={{ digitalAgentEnabled: true } as any}
               FeatureFlagsSvc={{ featureFlags: {} } as any}
               aiNotesFeatures={[] as any}
@@ -2123,12 +2199,10 @@ export default function AgentTablePanel({
           )}
         </PanelScope>
 
-        {/* Voice interaction already Active: an agent is on the call, so the
-            window opens straight into the "Monitoring call" listening
-            experience (timer, Mute/Keypad/Audio + monitoring controls, Notes
-            and transcripts) — not the incoming Answer/Decline preview. Human
-            agents get Coach/Barge/Claim; AI agents keep Claim/Transfer/
-            Requeue with Coach/Barge unavailable. */}
+        {/* Voice interaction already Active: an agent is on the call.
+            MonitoringCallWindow branches internally on agentType:
+            Human → Whisper/Barge-only layout with status chip (no Claim/Transfer/Requeue).
+            AI → full Listen/Coach/Barge/Claim/Transfer/Requeue layout. */}
         {previewRow &&
           previewData &&
           previewMode &&
@@ -2159,10 +2233,6 @@ export default function AgentTablePanel({
                 fullName: previewRow.fullName ?? "Agent",
                 agentType: previewRow.agentType,
               });
-              // Register the claimed call app-wide (same store as an answered
-              // preview call) so the in-call window survives the route change
-              // to /active-call — otherwise this preview-conditional window
-              // unmounts and the claimed call has no visible surface.
               startActivePreviewCall({
                 number: previewRow.contactIdentity || "Unknown number",
                 queueName: (previewRow as any).queueName || "Voice queue",
@@ -2184,6 +2254,7 @@ export default function AgentTablePanel({
           previewMode &&
           previewRow.isVoiceInteraction &&
           previewRow.conversationState !== "ACTIVE" &&
+          previewRow.agentType !== "Air" &&
           activePreviewCall?.engagementId !== previewRow.engagementId && (
           <MonitoringCallWindow
             key={`voice-preview-${previewRow.engagementId}`}
@@ -2192,6 +2263,8 @@ export default function AgentTablePanel({
             agentType={previewRow.agentType === "Air" ? "Air" : "Human"}
             customerPhone={previewRow.contactIdentity || undefined}
             initialTransferOpen={voicePreviewInitialSheet === "transfer"}
+            hideTransferAndRequeue={hideQueueTransferAndMore}
+            previewClaimLabel={queueClaimLabel}
             onClose={() => {
               setVoicePreviewInitialSheet(null);
               onPreviewClose?.();
@@ -2219,8 +2292,12 @@ export default function AgentTablePanel({
 
         {/* Answered preview call: the same phone window, connected (in-call)
             state. Mounted from the app-wide store so it survives the route
-            change to /active-call/preview and page refreshes. */}
-        {activePreviewCall && (
+            change to /active-call/preview and page refreshes.
+            Synthetic monitoring registrations (engagementId "monitor-…") are
+            excluded — they exist only to drive the header chip; the actual
+            monitoring window renders separately with the Whisper/Barge layout. */}
+        {activePreviewCall &&
+          !activePreviewCall.engagementId.startsWith("monitor-") && (
           <MonitoringCallWindow
             key={`voice-preview-live-${activePreviewCall.engagementId}`}
             variant="preview"
@@ -2277,47 +2354,53 @@ export default function AgentTablePanel({
                 : () => setRecategorizeOpen(true)
             }
             overflowActions={
-              previewRow.conversationState === "PENDING"
-                ? [
-                    previewRow.isVoiceInteraction
-                      ? {
-                          id: "requeue",
-                          label: "Requeue",
-                          onSelect: () => {
-                            queueActionCallback(
-                              previewRow.agentId,
-                              "queueRequeue",
-                              previewRow.engagementId,
-                            );
+              // CP: Agent suggestion view — no Ignore/Recategorize in the
+              // preview; Self-Assign (Take over) is the only available action.
+              hideQueueTransferAndMore
+                ? undefined
+                : previewRow.conversationState === "PENDING"
+                  ? [
+                      previewRow.isVoiceInteraction
+                        ? {
+                            id: "requeue",
+                            label: "Requeue",
+                            onSelect: () => {
+                              queueActionCallback(
+                                previewRow.agentId,
+                                "queueRequeue",
+                                previewRow.engagementId,
+                              );
+                            },
+                          }
+                        : {
+                            id: "recategorize",
+                            label: "Recategorize",
+                            onSelect: () => {
+                              queueActionCallback(
+                                previewRow.agentId,
+                                "queueRecategorize",
+                                previewRow.engagementId,
+                              );
+                            },
                           },
-                        }
-                      : {
-                          id: "recategorize",
-                          label: "Recategorize",
-                          onSelect: () => {
-                            queueActionCallback(
-                              previewRow.agentId,
-                              "queueRecategorize",
-                              previewRow.engagementId,
-                            );
-                          },
+                      {
+                        id: "ignore",
+                        label: "Ignore",
+                        onSelect: () => {
+                          // Routes through queueActionCallback which now shows
+                          // the confirmation dialog before removing the row.
+                          queueActionCallback(
+                            previewRow.agentId,
+                            "queueIgnore",
+                            previewRow.engagementId,
+                          );
                         },
-                    {
-                      id: "ignore",
-                      label: "Ignore",
-                      onSelect: () => {
-                        // Routes through queueActionCallback which now shows
-                        // the confirmation dialog before removing the row.
-                        queueActionCallback(
-                          previewRow.agentId,
-                          "queueIgnore",
-                          previewRow.engagementId,
-                        );
                       },
-                    },
-                  ]
-                : undefined
+                    ]
+                  : undefined
             }
+            hideTransfer={hideQueueTransferAndMore}
+            takeOverLabel={queueClaimLabel}
           />
         )}
 
@@ -2365,6 +2448,9 @@ export default function AgentTablePanel({
           </div>
         )}
 
+        {/* Agents-tab monitor: MonitoringCallWindow handles both Human and AI.
+            Human → Whisper/Barge layout with header status chip.
+            AI → full Listen/Coach/Barge/Claim/Transfer/Requeue layout. */}
         {monitoredAgentRow && (
           <MonitoringCallWindow
             key={monitoredAgentRow.agentId}
@@ -2389,9 +2475,6 @@ export default function AgentTablePanel({
                   fullName: monitoredAgentRow.fullName,
                   agentType: monitoredAgentRow.agentType,
                 });
-                // Persist the claimed call app-wide so the in-call window
-                // survives the route change to /active-call (see the
-                // preview-monitor take-over above).
                 startActivePreviewCall({
                   number:
                     (monitoredAgentRow as any).contactIdentity ||

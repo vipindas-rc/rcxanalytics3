@@ -1407,6 +1407,12 @@ export interface InteractionPreviewProps {
   // Active messages / claimed conversation views — queue timing is not
   // relevant once an agent owns the conversation; hide the timing row.
   hideTiming?: boolean;
+  // CP: Agent suggestion view — hide the Transfer button so only Self-Assign
+  // (the Take over button) is available on queue-row previews.
+  hideTransfer?: boolean;
+  // CP: Suggestion views — override the primary action button label.
+  // Default "Claim"; pass "Self-Assign" for suggestion queue-row previews.
+  takeOverLabel?: string;
 }
 
 export function InteractionPreview({
@@ -1425,6 +1431,8 @@ export function InteractionPreview({
   onEndMessage,
   transferSignal = 0,
   hideTiming = false,
+  hideTransfer = false,
+  takeOverLabel = "Claim",
 }: InteractionPreviewProps) {
   const isFullPage = mode !== "preview";
   const isTakeover = mode === "takeover";
@@ -1557,7 +1565,7 @@ export function InteractionPreview({
       }}
       data-testid="button-take-over"
     >
-      Claim
+      {takeOverLabel}
     </button>
   );
 
@@ -2024,28 +2032,32 @@ export function InteractionPreview({
               style={{ zIndex: 10001 }}
             />
           )}
-          <button
-            type="button"
-            onClick={() => setTransferOpen(true)}
-            // Core design-system small button metrics (32px) with the
-            // table's outlined Transfer treatment.
-            style={{
-              minWidth: 64,
-              height: 32,
-              padding: "0 12px",
-              borderRadius: 4,
-              border: "1px solid #066fac",
-              background: "#ffffff",
-              color: "#066fac",
-              fontSize: 13,
-              fontWeight: 500,
-              fontFamily: "'Inter', 'Roboto', sans-serif",
-              cursor: "pointer",
-            }}
-            data-testid="button-transfer"
-          >
-            Transfer
-          </button>
+          {/* CP: Agent suggestion view — Transfer is hidden; Self-Assign is the
+              only footer action on queue-row previews. */}
+          {!hideTransfer && (
+            <button
+              type="button"
+              onClick={() => setTransferOpen(true)}
+              // Core design-system small button metrics (32px) with the
+              // table's outlined Transfer treatment.
+              style={{
+                minWidth: 64,
+                height: 32,
+                padding: "0 12px",
+                borderRadius: 4,
+                border: "1px solid #066fac",
+                background: "#ffffff",
+                color: "#066fac",
+                fontSize: 13,
+                fontWeight: 500,
+                fontFamily: "'Inter', 'Roboto', sans-serif",
+                cursor: "pointer",
+              }}
+              data-testid="button-transfer"
+            >
+              Transfer
+            </button>
+          )}
           {takeOverDisabled && takeOverDisabledTooltip ? (
             <Tooltip title={takeOverDisabledTooltip} placement="top">
               <span style={{ display: "inline-flex" }}>{takeOverButton}</span>

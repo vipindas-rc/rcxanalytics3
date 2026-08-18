@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/rcx-demo-review/"
+title = "RCX Demo Review"
+description = "A clean review page for the RingCX Supervisor prototype that shows only the two CP: Suggestion views — Supervisor and Agent. Provides a simple two-tab switcher with a full-screen embed of the prototype, with no other views or navigation distractions."
+version = "1.0.0"
+id = "artifacts/rcx-demo-review"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/rcx-demo-review/" ]
+localPort = 22964
+
+[services.development]
+run = "pnpm --filter @workspace/rcx-demo-review run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/rcx-demo-review", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/rcx-demo-review/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22964"
+BASE_PATH = "/rcx-demo-review/"

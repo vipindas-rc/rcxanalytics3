@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { ActionButton, Dialer, NumericKeypad, buildAssets, type Assets } from "./Dialer";
 import {
+  startActivePreviewCall,
+  endActivePreviewCall,
   toggleActivePreviewCallMute,
   useActivePreviewCall,
 } from "../activePreviewCallStore";
@@ -71,6 +73,16 @@ export type MonitoringCallWindowProps = {
   connectedAtMs?: number | null;
   /** Open the window with the Transfer sheet already up. */
   initialTransferOpen?: boolean;
+  /**
+   * Preview variant (Agent suggestion view): hide Transfer and Requeue from
+   * the ringing footer so only Self-Assign + Close are available.
+   */
+  hideTransferAndRequeue?: boolean;
+  /**
+   * Preview variant: label for the Claim/Self-Assign button in the ringing
+   * footer.  Defaults to "Claim".
+   */
+  previewClaimLabel?: string;
   // Fired when the taken-over call is ended from the popout dialer (End
   // call), as opposed to being handed off via transfer/requeue.
   onTakenOverCallEnded?: () => void;
@@ -460,6 +472,20 @@ function BargeSnackbar({ agentName, customerPhone }: { agentName: string; custom
       </p>
       <p className="font-['Lato',sans-serif] leading-[20px] text-[14px] text-white text-center whitespace-nowrap m-0">
         can both hear you
+      </p>
+    </div>
+  );
+}
+
+/** Whisper (coaching) snackbar — "Only [agent] can hear you". */
+function WhisperSnackbar({ agentName }: { agentName: string }) {
+  return (
+    <div
+      data-testid="snackbar-whisper"
+      className="absolute left-[140px] -translate-x-1/2 top-[40px] z-20 bg-[#666666] rounded-[4px] px-[16px] py-[12px] shadow-[0px_2px_4px_-1px_rgba(0,0,0,0.2),0px_4px_5px_0px_rgba(0,0,0,0.14),0px_1px_10px_0px_rgba(0,0,0,0.12)]"
+    >
+      <p className="font-['Lato',sans-serif] leading-[20px] text-[14px] text-white text-center whitespace-nowrap m-0">
+        Only {agentName} can hear you
       </p>
     </div>
   );
@@ -1056,6 +1082,8 @@ export function MonitoringCallWindow({
   onPreviewAccepted,
   connectedAtMs = null,
   initialTransferOpen = false,
+  hideTransferAndRequeue = false,
+  previewClaimLabel = "Claim",
   onTakenOverCallEnded,
   assetBasePath = "/figmaAssets",
   contextData = null,
@@ -1064,9 +1092,10 @@ export function MonitoringCallWindow({
 }: MonitoringCallWindowProps) {
   const assets = buildMonitorAssets(assetBasePath);
   const isPreview = variant === "preview";
-  // passive = silent observer (default); listening = audio on, Coach/Barge/Claim unlock;
-  // coaching = whispering to agent; barged = supervisor audible in call; takenOver = Dialer.
-  const [phase, setPhase] = useState<Phase>("passive");
+  const isHumanMonitoring = agentType === "Human" && !isPreview;
+  // Human monitoring starts directly in listening mode (no passive/listen-toggle step).
+  // AI monitoring and preview calls start passive / ringing as before.
+  const [phase, setPhase] = useState<Phase>(isHumanMonitoring ? "listening" : "passive");
   // Preview calls open in an incoming (ringing) state: Accept connects,
   // Decline closes the window.
   const [ringing, setRinging] = useState(isPreview && connectedAtMs == null);
@@ -1078,6 +1107,8 @@ export function MonitoringCallWindow({
         : 11,
   );
   const [snackbarVisible, setSnackbarVisible] = useState(false);
+  // Whisper (coaching) snackbar — "Only [agent] can hear you".
+  const [whisperSnackbarVisible, setWhisperSnackbarVisible] = useState(false);
   const [supervisorMuted, setSupervisorMuted] = useState(false);
 
   // In-progress preview call controls. Mute is shared with the top-bar call
@@ -1134,6 +1165,12 @@ export function MonitoringCallWindow({
     return () => window.clearTimeout(id);
   }, [snackbarVisible]);
 
+  useEffect(() => {
+    if (!whisperSnackbarVisible) return;
+    const id = window.setTimeout(() => setWhisperSnackbarVisible(false), 5000);
+    return () => window.clearTimeout(id);
+  }, [whisperSnackbarVisible]);
+
   const handleListen = () => setPhase("listening");
 
   const handleCoach = () => {
@@ -1141,10 +1178,18 @@ export function MonitoringCallWindow({
     setSupervisorMuted(false);
   };
 
+  /** Human monitoring: enter Whisper (coaching) mode — only the agent can hear the supervisor. */
+  const handleWhisper = () => {
+    setPhase("coaching");
+    setSupervisorMuted(false);
+    setWhisperSnackbarVisible(true);
+  };
+
   const handleBarge = () => {
     setPhase("barged");
     setSupervisorMuted(false);
     setSnackbarVisible(true);
+    setWhisperSnackbarVisible(false);
   };
 
   const handleStopBarge = () => {
@@ -1161,6 +1206,37 @@ export function MonitoringCallWindow({
     // Voice take-over committed — the host page switches to Active calls.
     onTakeOverCommitted?.();
   };
+
+  // Reuse the existing "active preview call" chip in the header for human
+  // monitoring — no separate chip needed.  On mount we register a synthetic
+  // active call (agent name as the "number"); on unmount we clear it.
+  useEffect(() => {
+    if (!isHumanMonitoring) return;
+    startActivePreviewCall({
+      number: agentName,
+      queueName: "Monitoring call",
+      engagementId: `monitor-${agentName.replace(/\s+/g, "-").toLowerCase()}-${Date.now()}`,
+    });
+    return () => {
+      endActivePreviewCall();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHumanMonitoring, agentName]);
+
+  // If the chip's end button clears the store externally, close the window too.
+  // Use hadActiveCallRef so we only react after the store has been set at least
+  // once — avoids an immediate close from the first-render effect ordering
+  // (Effect 1 calls startActivePreviewCall but the store hasn't re-rendered yet
+  // when Effect 2 first runs, so activePreviewCall would still read as null).
+  const hadActiveCallRef = useRef(false);
+  useEffect(() => {
+    if (!isHumanMonitoring) return;
+    if (activePreviewCall) {
+      hadActiveCallRef.current = true;
+    } else if (hadActiveCallRef.current) {
+      onClose();
+    }
+  }, [isHumanMonitoring, activePreviewCall, onClose]);
 
   /* ---------- taken-over: swap to the existing active-call dialpad ---------- */
   if (isTakenOver) {
@@ -1207,6 +1283,7 @@ export function MonitoringCallWindow({
 
   return (
     <TooltipPrimitive.Provider>
+      <>
       <div
         className="fixed z-[9998]"
         style={{
@@ -1330,14 +1407,84 @@ export function MonitoringCallWindow({
                   </div>
                 )}
 
-                {!isPreview && (
+                {!isPreview && isHuman && (
+                  /* ── Human agent: Mute / Dialpad / Audio + Whisper / Barge ──
+                     All 5 buttons share one flex-wrap 3-col container so both
+                     rows line up. Whisper enters coaching mode (snackbar), Barge
+                     puts supervisor into the call audibly. No Claim/Transfer/Requeue. */
                 <div className="flex flex-col gap-[12px] items-center pt-[20px] px-[10px] w-full">
+                  {isCoaching && whisperSnackbarVisible && (
+                    <WhisperSnackbar agentName={agentName} />
+                  )}
+                  <div className="flex flex-wrap justify-start gap-y-[12px] w-[240px]">
+                    {/* Row 1: Mute / Dialpad (always disabled) / Audio */}
+                    {/* Mute is synced to the header chip (activePreviewCall.muted).
+                        Disabled in listening-only mode; enabled in whisper/barge. */}
+                    <ActionButton
+                      imgSrc={assets.mute}
+                      imgAlt=""
+                      label={activePreviewCall?.muted ? "Unmute" : "Mute"}
+                      disabled={isListening}
+                      active={(isCoaching || isBarged) && (activePreviewCall?.muted ?? false)}
+                      onClick={isCoaching || isBarged ? toggleActivePreviewCallMute : undefined}
+                      testId="button-monitor-mute"
+                    />
+                    <UnavailableTooltip>
+                      <ActionButton
+                        imgSrc={assets.keypad}
+                        imgAlt=""
+                        label="Dialpad"
+                        disabled
+                        testId="button-monitor-dialpad"
+                      />
+                    </UnavailableTooltip>
+                    <ActionButton
+                      imgSrc={assets.audio}
+                      imgAlt=""
+                      label="Audio"
+                      testId="button-monitor-audio"
+                    />
+                    {/* Row 2: Whisper / Barge — aligns under Mute / Dialpad */}
+                    {isBarged ? (
+                      <UnavailableTooltip label="Not available while barged">
+                        <ActionButton
+                          imgSrc={assets.coach}
+                          imgAlt=""
+                          label="Whisper"
+                          disabled
+                          testId="button-monitor-whisper"
+                        />
+                      </UnavailableTooltip>
+                    ) : (
+                      <ActionButton
+                        imgSrc={assets.coach}
+                        imgAlt=""
+                        label="Whisper"
+                        active={isCoaching}
+                        onClick={
+                          isCoaching
+                            ? () => { setPhase("listening"); setWhisperSnackbarVisible(false); }
+                            : handleWhisper
+                        }
+                        testId="button-monitor-whisper"
+                      />
+                    )}
+                    <ActionButton
+                      imgSrc={assets.barge}
+                      imgAlt=""
+                      label="Barge"
+                      active={isBarged}
+                      onClick={isBarged ? handleStopBarge : handleBarge}
+                      testId="button-monitor-barge"
+                    />
+                  </div>
+                </div>
+                )}
 
+                {!isPreview && !isHuman && (
+                <div className="flex flex-col gap-[12px] items-center pt-[20px] px-[10px] w-full">
+                  {/* ── AI agent: Listen / Coach / Barge / Transfer / Requeue / Claim ── */}
                   {isBarged ? null : (
-                    /* ── Passive / Listening / Coaching ─────────────────────
-                       Left-aligned 3-column grid (rows wrap as needed).
-                       Listen is a toggle: on → blue active bg, Audio enables,
-                       Coach/Barge (human) or Claim (AI) appear.            */
                     <div className="flex flex-wrap justify-start gap-y-[12px] w-[240px]">
                       <ActionButton
                         imgSrc={assets.headset}
@@ -1369,29 +1516,6 @@ export function MonitoringCallWindow({
                             }
                             testId="button-monitor-mute"
                           />
-                          {isHuman && (
-                            <>
-                              <ActionButton
-                                imgSrc={assets.coach}
-                                imgAlt=""
-                                label="Coach"
-                                active={isCoaching}
-                                onClick={
-                                  isCoaching
-                                    ? () => setPhase("listening")
-                                    : handleCoach
-                                }
-                                testId="button-monitor-coach"
-                              />
-                              <ActionButton
-                                imgSrc={assets.barge}
-                                imgAlt=""
-                                label="Barge"
-                                onClick={handleBarge}
-                                testId="button-monitor-barge"
-                              />
-                            </>
-                          )}
                         </>
                       )}
                       <ActionButton
@@ -1408,7 +1532,7 @@ export function MonitoringCallWindow({
                         onClick={() => setRequeueOpen(true)}
                         testId="button-monitor-requeue"
                       />
-                      {!isPassive && !isHuman && (
+                      {!isPassive && (
                         <ActionButton
                           imgSrc={assets.takeOver}
                           imgAlt=""
@@ -1419,7 +1543,6 @@ export function MonitoringCallWindow({
                       )}
                     </div>
                   )}
-
                 </div>
                 )}
 
@@ -1523,38 +1646,43 @@ export function MonitoringCallWindow({
                 )}
 
                 {ringing ? (
-                  /* Preview call: Transfer / Requeue / Claim row, then Close. */
+                  /* Preview call footer: Transfer · Requeue · Claim + Close.
+                     In Agent suggestion view (hideTransferAndRequeue) only
+                     Self-Assign + Close are shown. */
                   <div className="mt-auto flex flex-col gap-[24px] pb-[28px] w-full">
-                    {/* Row 1: Transfer · Requeue · Claim */}
                     <div className="flex items-start justify-center gap-[16px] w-full">
-                      <div className="flex flex-col items-center gap-[6px]">
-                        <button
-                          type="button"
-                          onClick={() => setTransferOpen(true)}
-                          data-testid="button-preview-transfer"
-                          aria-label="Transfer"
-                          className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
-                        >
-                          <img alt="" className="size-[16px] block" src={assets.transfer} />
-                        </button>
-                        <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
-                          Transfer
-                        </p>
-                      </div>
-                      <div className="flex flex-col items-center gap-[6px]">
-                        <button
-                          type="button"
-                          onClick={() => setRequeueOpen(true)}
-                          data-testid="button-preview-requeue"
-                          aria-label="Requeue"
-                          className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
-                        >
-                          <img alt="" className="size-[16px] block" src={assets.requeue} />
-                        </button>
-                        <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
-                          Requeue
-                        </p>
-                      </div>
+                      {!hideTransferAndRequeue && (
+                        <div className="flex flex-col items-center gap-[6px]">
+                          <button
+                            type="button"
+                            onClick={() => setTransferOpen(true)}
+                            data-testid="button-preview-transfer"
+                            aria-label="Transfer"
+                            className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
+                          >
+                            <img alt="" className="size-[16px] block" src={assets.transfer} />
+                          </button>
+                          <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
+                            Transfer
+                          </p>
+                        </div>
+                      )}
+                      {!hideTransferAndRequeue && (
+                        <div className="flex flex-col items-center gap-[6px]">
+                          <button
+                            type="button"
+                            onClick={() => setRequeueOpen(true)}
+                            data-testid="button-preview-requeue"
+                            aria-label="Requeue"
+                            className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
+                          >
+                            <img alt="" className="size-[16px] block" src={assets.requeue} />
+                          </button>
+                          <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
+                            Requeue
+                          </p>
+                        </div>
+                      )}
                       <div className="flex flex-col items-center gap-[6px]">
                         <button
                           type="button"
@@ -1566,13 +1694,13 @@ export function MonitoringCallWindow({
                             setRinging(false);
                           }}
                           data-testid="button-preview-claim"
-                          aria-label="Claim"
+                          aria-label={previewClaimLabel ?? "Claim"}
                           className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
                         >
                           <img alt="" className="size-[16px] block" src={assets.takeOver} />
                         </button>
                         <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
-                          Claim
+                          {previewClaimLabel ?? "Claim"}
                         </p>
                       </div>
                     </div>
@@ -1802,7 +1930,7 @@ export function MonitoringCallWindow({
           </div>
         </div>
       </div>
-
+      </>
     </TooltipPrimitive.Provider>
   );
 }

@@ -33,6 +33,16 @@ export interface IDigitalInteractionTable {
     // Reports the row count the grid actually shows after its own filters
     // (search box, agent/channel/category) so tab labels can mirror it.
     onFilteredCountChange?: (count: number) => void;
+    // CP: Suggestion queue-row action gating:
+    //   hideQueueTransferAndMore — hide the Transfer button and More (3-dot)
+    //     menu on queue rows (Agent suggestion view only).
+    //   queueClaimLabel — button label for the claim action; "Self-Assign" in
+    //     suggestion views, "Claim" (default) everywhere else.
+    hideQueueTransferAndMore?: boolean;
+    queueClaimLabel?: string;
+    // CP: Agent suggestion view — hide the preview/Monitor eye on active
+    // Interactions rows.
+    hideInteractionPreview?: boolean;
 }
 export type InteractionSearchRowsType = {
     agentId: string;

@@ -417,7 +417,7 @@ export function MonitoringDialpad({
               onClose={onClose}
               onDragPointerDown={onDragPointerDown}
             />
-            <div className={`w-full ${isHuman ? "h-[536px]" : "h-[444px]"} flex flex-col`}>
+            <div className="w-full h-[444px] flex flex-col">
               <div className="flex flex-col items-start px-[16px] w-full">
                 <MonitorHeaderRow timer={formatTime(seconds)} assets={assets} />
                 <MonitorProfile
@@ -467,7 +467,10 @@ export function MonitoringDialpad({
                   />
                 </div>
 
-                {/* Row 2: Take over (AI) | Coach / Barge / Take over (Human) */}
+                {/* Row 2: Whisper / Barge (Human) | Claim / Transfer (AI)
+                    Human agents: supervisor can whisper to the agent or barge
+                    into the call — no Claim or Transfer (supervisor is
+                    observing, not taking ownership of the conversation). */}
                 <div className="flex items-start justify-center">
                   {isHuman ? (
                     <>
@@ -476,18 +479,18 @@ export function MonitoringDialpad({
                           <ActionButton
                             imgSrc={assets.coach}
                             imgAlt=""
-                            label="Coach"
+                            label="Whisper"
                             disabled
-                            testId="button-monitor-coach"
+                            testId="button-monitor-whisper"
                           />
                         </UnavailableTooltip>
                       ) : (
                         <ActionButton
                           imgSrc={assets.coach}
                           imgAlt=""
-                          label="Coach"
-                          onClick={() => onToast?.("Coaching isn't available in this preview")}
-                          testId="button-monitor-coach"
+                          label="Whisper"
+                          onClick={() => onToast?.("Whisper isn't available in this prototype")}
+                          testId="button-monitor-whisper"
                         />
                       )}
                       <ActionButton
@@ -497,13 +500,6 @@ export function MonitoringDialpad({
                         active={isBarged}
                         onClick={isBarged ? handleStopBarge : handleBarge}
                         testId="button-monitor-barge"
-                      />
-                      <ActionButton
-                        imgSrc={assets.takeOver}
-                        imgAlt=""
-                        label="Claim"
-                        onClick={handleTakeOver}
-                        testId="button-monitor-take-over"
                       />
                     </>
                   ) : (
@@ -525,31 +521,6 @@ export function MonitoringDialpad({
                     </>
                   )}
                 </div>
-
-                {/* Row 3 (Human only): Transfer — Human row 2 is already full. */}
-                {isHuman && (
-                  <div className="flex items-start justify-center">
-                    {!isBarged ? (
-                      <UnavailableTooltip>
-                        <ActionButton
-                          imgSrc={assets.transfer}
-                          imgAlt=""
-                          label="Transfer"
-                          disabled
-                          testId="button-monitor-transfer"
-                        />
-                      </UnavailableTooltip>
-                    ) : (
-                      <ActionButton
-                        imgSrc={assets.transfer}
-                        imgAlt=""
-                        label="Transfer"
-                        onClick={handleTransfer}
-                        testId="button-monitor-transfer"
-                      />
-                    )}
-                  </div>
-                )}
               </div>
 
               <div className="mt-auto flex items-center justify-center pb-[24px] w-full">

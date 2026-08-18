@@ -23,6 +23,8 @@ import AgentTablePanel, {
   agentColumnMeta,
   interactionColumnMeta,
   supervisor3InteractionColumnMeta,
+  suggestionInteractionColumnMeta,
+  myQueuesColumnMeta,
   agentStateOptions,
   interactionFilterRows,
   useQueuePendingCount,
@@ -244,11 +246,22 @@ const COLS_STORAGE_KEYS = {
   s2InteractionOrder: "rcx-supervisor.s2InteractionCols.order.v1",
   s3InteractionVisible: "rcx-supervisor.s3InteractionCols.visible.v2",
   s3InteractionOrder: "rcx-supervisor.s3InteractionCols.order.v1",
+  // CP: Suggestion views have their own column set (minus queue-specific time
+  // columns), so they need separate localStorage keys.
+  suggestionInteractionVisible: "rcx-supervisor.suggestionInteractionCols.visible.v1",
+  suggestionInteractionOrder: "rcx-supervisor.suggestionInteractionCols.order.v1",
+  // CP: Suggestion views — My Queues tab table settings.
+  myQueuesVisible: "rcx-supervisor.myQueuesCols.visible.v1",
+  myQueuesOrder: "rcx-supervisor.myQueuesCols.order.v1",
 } as const;
 
 // Columns that exist (and can be re-enabled in Settings) but start hidden in
 // Supervisor views 2 and 3. Classic view and the Queue tab show them.
 const S2_S3_HIDDEN_COLUMN_IDS = new Set(["priority"]);
+
+// My Queues starts with Priority hidden (matches the Interactions tab); it can
+// be re-enabled from the My Queues table settings dialog.
+const MY_QUEUES_HIDDEN_COLUMN_IDS = new Set(["priority"]);
 
 function loadStoredVisibility(
   storageKey: string,
@@ -311,6 +324,11 @@ function saveStored(storageKey: string, value: unknown): void {
     // Storage unavailable (private mode, quota) — preferences just won't stick.
   }
 }
+
+// Sticky review-mode flag: set when ?mode=review is first seen, lives for the
+// rest of the window session (per browsing context — the demo-review iframe
+// and a regular tab never share it).
+let reviewModeSticky = false;
 
 const topTabs = [
   "Active calls",
@@ -410,6 +428,24 @@ interface QueuePanelSharedProps {
   onPreviewClose: () => void;
   onVoicePreviewAccepted?: () => void;
   onDigitalTakeOverCommitted: (engagementId: string) => void;
+  // CP: Suggestion view overrides — optional so PaginatedQueuePanel (which
+  // is NOT a suggestion view) keeps working without them.
+  /** Toolbar heading text. Default "Queue"; pass "My Queues" for suggestion views. */
+  queueTitle?: string;
+  /** Hide the Breached SLA checkbox in the filter row (easy to re-enable). */
+  hideBreachedSla?: boolean;
+  /** Hide View Insights on queue rows (suggestion views). */
+  hideQueueViewInsights?: boolean;
+  /** Hide Transfer + More menu on queue rows (Agent suggestion view). */
+  hideQueueTransferAndMore?: boolean;
+  /** Label for the queue Claim button. Default "Claim"; "Self-Assign" in suggestion views. */
+  queueClaimLabel?: string;
+  /** Use My Queues column set (renamed time labels) for the Queue tab. */
+  useMyQueuesColumns?: boolean;
+  /** Show the table-settings gear in the toolbar; opens the shared dialog. */
+  onOpenSettings?: () => void;
+  /** My Queues column ids to render, in order (from the settings dialog). */
+  visibleQueueColumnIds?: string[];
 }
 
 // Shared queue toolbar: search, filter toggle, and filter row.
@@ -430,6 +466,9 @@ function QueueToolbar({
   onCategoryChange,
   breachedSlaOnly,
   onBreachedSlaChange,
+  queueTitle = "Queue",
+  hideBreachedSla = false,
+  onOpenSettings,
   searchTestId = "input-queue-search",
   filtersTestId = "button-queue-filters",
   filterRowTestId = "queue-filter-row",
@@ -442,7 +481,7 @@ function QueueToolbar({
     <>
       <div className="flex shrink-0 items-center justify-between gap-6 border-b border-[#0000001a] px-5 py-3">
         <h2 className="shrink-0 font-subtitle-mini text-[15px] font-semibold leading-[var(--subtitle-mini-line-height)] text-[#121212]">
-          Queue
+          {queueTitle}
         </h2>
         <div className="relative w-full max-w-[500px]">
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#a1a1a1]" />
@@ -464,6 +503,17 @@ function QueueToolbar({
         </div>
         {/* spacer keeps the search box visually centred */}
         <div className="hidden w-0 shrink md:block md:w-[64px]" aria-hidden />
+        {onOpenSettings && (
+          <Button
+            variant="ghost"
+            aria-label="Table settings"
+            onClick={onOpenSettings}
+            className="ml-auto h-10 w-10 shrink-0 rounded-full p-0 text-[#666666] shadow-none hover:bg-[#66666614]"
+            data-testid="button-queue-settings"
+          >
+            <SettingsIcon className="h-6 w-6" />
+          </Button>
+        )}
       </div>
       {filtersOpen && (
         <div
@@ -494,12 +544,17 @@ function QueueToolbar({
               options={categoryOptions}
               testId="select-queue-category"
             />
-            <SupervisorCheckbox
-              checked={breachedSlaOnly}
-              onCheckedChange={onBreachedSlaChange}
-              label="Breached SLA"
-              testId="checkbox-queue-breached-sla"
-            />
+            {/* Breached SLA: hidden in My Queues (suggestion views) behind a
+                simple flag — Krum Zahariev may confirm it's needed, at which
+                point setting hideBreachedSla=false re-enables it. */}
+            {!hideBreachedSla && (
+              <SupervisorCheckbox
+                checked={breachedSlaOnly}
+                onCheckedChange={onBreachedSlaChange}
+                label="Breached SLA"
+                testId="checkbox-queue-breached-sla"
+              />
+            )}
           </div>
         </div>
       )}
@@ -680,7 +735,7 @@ function QueuePanel(
       <QueueToolbar {...props} />
       <div className="min-h-0 flex-1 overflow-hidden" data-testid="queue-panel">
         {/* Not readOnly: queue rows have their own hover actions (AI insights /
-            Transfer / Claim) available in both Agent and Supervisor views. */}
+            Transfer / Self-Assign) available in both Agent and Supervisor views. */}
         <AgentTablePanel
           activeTab="Queue"
           extendedQueue={props.extendedQueue}
@@ -696,6 +751,11 @@ function QueuePanel(
           onPreviewClose={props.onPreviewClose}
           onVoicePreviewAccepted={props.onVoicePreviewAccepted}
           onDigitalTakeOverCommitted={props.onDigitalTakeOverCommitted}
+          hideQueueViewInsights={props.hideQueueViewInsights}
+          hideQueueTransferAndMore={props.hideQueueTransferAndMore}
+          queueClaimLabel={props.queueClaimLabel}
+          useMyQueuesColumns={props.useMyQueuesColumns}
+          visibleQueueColumnIds={props.visibleQueueColumnIds}
         />
       </div>
     </>
@@ -796,6 +856,17 @@ export const SupervisorAgents = (): JSX.Element => {
       ? parsedViewParam
       : null;
   const viewParam: string = rawViewParam ?? "supervisor-1";
+  // When ?mode=review is present (embedded in the RCX Demo Review artifact)
+  // the floating view-switcher FAB is hidden so the frame looks clean.
+  // Review-mode embeds hide the floating view switcher. ?mode=review flags it
+  // on entry, but internal navigation rewrites the URL and can drop the
+  // param — so once seen, review mode sticks for the rest of this window
+  // session (module flag: per browsing context, resets on reload, and the
+  // demo-review iframe src always re-supplies ?mode=review).
+  if (new URLSearchParams(search).get("mode") === "review") {
+    reviewModeSticky = true;
+  }
+  const isReviewMode = reviewModeSticky;
   // Retired/unknown ?view values (e.g. old supervisor-3 links) render as
   // Supervisor 1 and self-clean from the address bar via replace.
   useEffect(() => {
@@ -807,6 +878,9 @@ export const SupervisorAgents = (): JSX.Element => {
   const isSupervisor2View = viewParam === "supervisor-2";
   const isAgent2View = viewParam === "agent-2";
   const isPaginationView = viewParam === "supervisor-pagination";
+  // CP: Suggestion views: Supervisor and Agent suggestion — the two views that
+  // get the My Queues page, Self-Assign, and Phase 1 terminology renames.
+  const isSuggestionView = isSupervisor2View || isAgent2View;
   // Supervisor (Expected): a copy of Supervisor 1 (merged Interactions view)
   // with a high-volume table paginated at 10 rows per page.
   const isExpectedView = viewParam === "supervisor-expected";
@@ -932,6 +1006,10 @@ export const SupervisorAgents = (): JSX.Element => {
   const activePreviewElapsed = useElapsedSince(
     activePreviewCall?.acceptedAtMs ?? null,
   );
+  // "Engaged" whenever an active preview call OR human-monitoring session is
+  // registered — MonitoringCallWindow calls startActivePreviewCall on mount so
+  // activePreviewCall covers both cases without a separate store.
+  const isEngaged = !!activePreviewCall;
   const handleEndPreviewCall = useCallback(() => {
     endActivePreviewCall();
     if (activeCallMatched && activeCallAgentId === "preview") {
@@ -1441,12 +1519,19 @@ export const SupervisorAgents = (): JSX.Element => {
       agentColumnMeta.map((c) => c.id),
     ),
   );
-  // The Interactions table renders a different column set per view variant
-  // (Supervisor view 2 vs the classic Interactions tab), so the settings meta
-  // and stored preferences are variant-aware to stay aligned with the table.
-  const activeInteractionMeta = supervisor3InteractionColumnMeta;
-  const interactionVisibleKey = COLS_STORAGE_KEYS.s3InteractionVisible;
-  const interactionOrderKey = COLS_STORAGE_KEYS.s3InteractionOrder;
+  // The Interactions table renders a different column set per view variant.
+  // CP: Suggestion views (supervisor-2, agent-2) use a leaner Active-only
+  // column set (no wait-time / previous-agent columns), so they need their
+  // own meta and localStorage keys to avoid clobbering the other views' prefs.
+  const activeInteractionMeta = isSuggestionView
+    ? suggestionInteractionColumnMeta
+    : supervisor3InteractionColumnMeta;
+  const interactionVisibleKey = isSuggestionView
+    ? COLS_STORAGE_KEYS.suggestionInteractionVisible
+    : COLS_STORAGE_KEYS.s3InteractionVisible;
+  const interactionOrderKey = isSuggestionView
+    ? COLS_STORAGE_KEYS.suggestionInteractionOrder
+    : COLS_STORAGE_KEYS.s3InteractionOrder;
   const [visibleInteractionCols, setVisibleInteractionCols] = useState<
     Record<string, boolean>
   >(() =>
@@ -1469,27 +1554,95 @@ export const SupervisorAgents = (): JSX.Element => {
       agentColumnMeta.map((c) => c.id),
     ),
   );
+  // My Queues (suggestion views) table settings — own state + storage keys so
+  // they never clobber the Interactions/Agents prefs. Single schema, so no
+  // key-switch rehydration is needed.
+  const [visibleQueueCols, setVisibleQueueCols] = useState<
+    Record<string, boolean>
+  >(() =>
+    loadStoredVisibility(
+      COLS_STORAGE_KEYS.myQueuesVisible,
+      myQueuesColumnMeta.map((c) => c.id),
+      MY_QUEUES_HIDDEN_COLUMN_IDS,
+    ),
+  );
+  const [queueColOrder, setQueueColOrder] = useState<string[]>(() =>
+    loadStoredOrder(
+      COLS_STORAGE_KEYS.myQueuesOrder,
+      myQueuesColumnMeta.map((c) => c.id),
+    ),
+  );
+
+  // Ref tracks which interaction-column schema is currently "committed" to
+  // state. When the view switches between suggestion and classic/pagination
+  // views, interactionVisibleKey changes but SupervisorAgents stays mounted,
+  // so the interaction column state must be re-hydrated from the new key.
+  // Save effects check this ref before writing: if it mismatches the current
+  // key, the switch is mid-flight and stale state must not be persisted.
+  const committedInteractionKeyRef = useRef(interactionVisibleKey);
+
   useEffect(() => {
     saveStored(COLS_STORAGE_KEYS.agentVisible, visibleCols);
   }, [visibleCols]);
+  // Persist interaction visibility only when the committed key matches — blocks
+  // stale writes from the old schema to the new key during rehydration.
   useEffect(() => {
+    if (committedInteractionKeyRef.current !== interactionVisibleKey) return;
     saveStored(interactionVisibleKey, visibleInteractionCols);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleInteractionCols]);
+  }, [interactionVisibleKey, visibleInteractionCols]);
   useEffect(() => {
     saveStored(COLS_STORAGE_KEYS.agentOrder, colOrder);
   }, [colOrder]);
   useEffect(() => {
+    saveStored(COLS_STORAGE_KEYS.myQueuesVisible, visibleQueueCols);
+  }, [visibleQueueCols]);
+  useEffect(() => {
+    saveStored(COLS_STORAGE_KEYS.myQueuesOrder, queueColOrder);
+  }, [queueColOrder]);
+  // Same guard for the order key.
+  useEffect(() => {
+    if (committedInteractionKeyRef.current !== interactionVisibleKey) return;
     saveStored(interactionOrderKey, interactionColOrder);
+  }, [interactionVisibleKey, interactionOrderKey, interactionColOrder]);
+
+  // Rehydrate interaction column state whenever the active preference key
+  // changes (= the user switches between a suggestion view and any other view).
+  // Declared AFTER the save effects so those guards fire first on the same
+  // render, preventing the old state from landing in the new key.
+  useEffect(() => {
+    if (committedInteractionKeyRef.current === interactionVisibleKey) return;
+    committedInteractionKeyRef.current = interactionVisibleKey;
+    setVisibleInteractionCols(
+      loadStoredVisibility(
+        interactionVisibleKey,
+        activeInteractionMeta.map((c) => c.id),
+        S2_S3_HIDDEN_COLUMN_IDS,
+      ),
+    );
+    setInteractionColOrder(
+      loadStoredOrder(
+        interactionOrderKey,
+        activeInteractionMeta.map((c) => c.id),
+      ),
+    );
+    // activeInteractionMeta is stable per key (changes iff the key changes);
+    // including it would create a circular dep with the key — exclude it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interactionColOrder]);
+  }, [interactionVisibleKey, interactionOrderKey]);
   const [draftCols, setDraftCols] = useState<Record<string, boolean>>(
     visibleCols,
   );
   const [draftOrder, setDraftOrder] = useState<string[]>(colOrder);
   const [dragId, setDragId] = useState<string | null>(null);
 
-  const lockedColId = isInteractions ? "sourceName" : "fullName";
+  // Which table the settings dialog edits: My Queues when the (suggestion
+  // view) Queue tab is active, otherwise the active My team sub-tab.
+  const isMyQueuesSettings = isQueueTab && isSuggestionView;
+  const lockedColId = isMyQueuesSettings
+    ? "sourceName"
+    : isInteractions
+      ? "sourceName"
+      : "fullName";
   const activeVisibleCols = isInteractions ? visibleInteractionCols : visibleCols;
 
   const colLabelById = Object.fromEntries(
@@ -1504,8 +1657,20 @@ export const SupervisorAgents = (): JSX.Element => {
   // and back/forward re-opens alike (the dialog is URL-driven).
   useEffect(() => {
     if (!settingsOpen) return;
-    setDraftCols(isInteractions ? visibleInteractionCols : visibleCols);
-    setDraftOrder(isInteractions ? interactionColOrder : colOrder);
+    setDraftCols(
+      isMyQueuesSettings
+        ? visibleQueueCols
+        : isInteractions
+          ? visibleInteractionCols
+          : visibleCols,
+    );
+    setDraftOrder(
+      isMyQueuesSettings
+        ? queueColOrder
+        : isInteractions
+          ? interactionColOrder
+          : colOrder,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsOpen]);
 
@@ -1576,9 +1741,15 @@ export const SupervisorAgents = (): JSX.Element => {
   // The settings dialog lists both tabs' columns in their draggable saved
   // order; the draft order is committed on Save.
   const dialogColumnOrder = draftOrder;
-  const dialogLabelById = isInteractions
-    ? Object.fromEntries(activeInteractionMeta.map((c) => [c.id, c.label]))
-    : colLabelById;
+  const dialogLabelById = isMyQueuesSettings
+    ? Object.fromEntries(myQueuesColumnMeta.map((c) => [c.id, c.label]))
+    : isInteractions
+      ? Object.fromEntries(activeInteractionMeta.map((c) => [c.id, c.label]))
+      : colLabelById;
+  // Column ids My Queues actually renders, in saved order (Channel pinned).
+  const visibleQueueColumnIds = queueColOrder.filter(
+    (id) => id === "sourceName" || visibleQueueCols[id],
+  );
 
   return (
     <main className="flex h-screen w-full flex-col overflow-hidden bg-white">
@@ -1738,12 +1909,12 @@ export const SupervisorAgents = (): JSX.Element => {
                 </button>
               </div>
             ) : null}
-            <button
+                        <button
               type="button"
               className="flex h-8 w-[164px] items-center gap-1 rounded-2xl bg-white px-3"
               data-testid="button-presence-status"
             >
-              {activePreviewCall ? (
+              {isEngaged ? (
                 <span
                   className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#e6413c]"
                   aria-hidden
@@ -1762,7 +1933,7 @@ export const SupervisorAgents = (): JSX.Element => {
               />
               <div className="flex flex-1 items-center justify-between gap-1">
                 <span className="font-caption-1 text-[length:var(--caption-1-font-size)] font-[number:var(--caption-1-font-weight)] leading-[var(--caption-1-line-height)] tracking-[var(--caption-1-letter-spacing)] text-[#121212] [font-style:var(--caption-1-font-style)]">
-                  {activePreviewCall ? "Engaged" : "Available"}
+                  {isEngaged ? "Engaged" : "Available"}
                 </span>
                 <span className="whitespace-nowrap font-caption-1 text-[length:var(--caption-1-font-size)] font-[number:var(--caption-1-font-weight)] leading-[var(--caption-1-line-height)] tracking-[var(--caption-1-letter-spacing)] text-[#121212] [font-style:var(--caption-1-font-style)]">
                   {activePreviewCall ? activePreviewElapsed : "21:01"}
@@ -1907,7 +2078,9 @@ export const SupervisorAgents = (): JSX.Element => {
                     {tab === "Supervisor"
                       ? viewLabel
                       : tab === "Queue"
-                        ? `Queue (${queuePendingCount})`
+                        ? isSuggestionView
+                          ? `My Queues (${queuePendingCount})`
+                          : `Queue (${queuePendingCount})`
                         : tab === "Active messages" &&
                             claimedDigitalIds.length > 0
                           ? `Active messages (${claimedDigitalIds.length})`
@@ -1947,12 +2120,13 @@ export const SupervisorAgents = (): JSX.Element => {
                 onPreviewClose={closeQueuePreview}
                 onVoicePreviewAccepted={handleVoicePreviewAccepted}
                 onDigitalTakeOverCommitted={handleDigitalTakeOverCommitted}
+                hideBreachedSla={true}
                 page={queuePage}
                 onPageChange={setQueuePage}
               />
             ) : (
             <QueuePanel
-              extendedQueue={isSupervisor2View || isAgent2View}
+              extendedQueue={isSuggestionView}
               searchQuery={searchQuery}
               onSearch={setSearchQuery}
               filtersOpen={filtersOpen}
@@ -1980,6 +2154,18 @@ export const SupervisorAgents = (): JSX.Element => {
               onPreviewClose={closeQueuePreview}
               onVoicePreviewAccepted={handleVoicePreviewAccepted}
               onDigitalTakeOverCommitted={handleDigitalTakeOverCommitted}
+              queueTitle={isSuggestionView ? "My Queues" : "Queue"}
+              hideBreachedSla={true}
+              hideQueueViewInsights={isSuggestionView}
+              hideQueueTransferAndMore={isAgent2View}
+              queueClaimLabel={isSuggestionView ? "Self-Assign" : "Claim"}
+              useMyQueuesColumns={isSuggestionView}
+              onOpenSettings={
+                isSuggestionView ? () => openSettings(true) : undefined
+              }
+              visibleQueueColumnIds={
+                isSuggestionView ? visibleQueueColumnIds : undefined
+              }
             />
             )
           ) : (
@@ -2168,12 +2354,16 @@ export const SupervisorAgents = (): JSX.Element => {
                     <div
                       className={`${showStateFilter ? "col-span-2" : "col-span-3"} flex items-center gap-4`}
                     >
-                      <SupervisorCheckbox
-                        checked={breachedSlaOnly}
-                        onCheckedChange={setBreachedSlaOnly}
-                        label="Breached SLA"
-                        testId="checkbox-breached-sla"
-                      />
+                      {/* Breached SLA hidden in suggestion views (My Queues
+                          page); set isSuggestionView=false to re-enable. */}
+                      {!isSuggestionView && (
+                        <SupervisorCheckbox
+                          checked={breachedSlaOnly}
+                          onCheckedChange={setBreachedSlaOnly}
+                          label="Breached SLA"
+                          testId="checkbox-breached-sla"
+                        />
+                      )}
                     </div>
                   </div>
                 </>
@@ -2240,8 +2430,17 @@ export const SupervisorAgents = (): JSX.Element => {
               // once per mount).
               key={isExpectedView ? "supervisor-expected" : "default"}
               readOnly={false}
+              // Agent suggestion view: agents can't monitor teammates'
+              // conversations — no preview/Monitor eye on Interactions rows.
+              hideInteractionPreview={isAgent2View}
               activeTab={activeTab}
-              interactionsVariant={isInteractions ? "supervisor3" : undefined}
+              interactionsVariant={
+                isInteractions
+                  ? isSuggestionView
+                    ? "suggestion"
+                    : "supervisor3"
+                  : undefined
+              }
               includePendingRows={mergePendingInteractions}
               interactionsVolume={
                 isExpectedView ? EXPECTED_INTERACTIONS_VOLUME : undefined
@@ -2328,9 +2527,11 @@ export const SupervisorAgents = (): JSX.Element => {
                   and primary actions. */}
               <DialogHeader className="px-8 pt-7">
                 <DialogTitle className="text-xl font-semibold text-[#121212]">
-                  {isInteractions
-                    ? "Interactions table settings"
-                    : "Agent table settings"}
+                  {isMyQueuesSettings
+                    ? "My Queues table settings"
+                    : isInteractions
+                      ? "Interactions table settings"
+                      : "Agent table settings"}
                 </DialogTitle>
               </DialogHeader>
               <div className="px-8 pb-2 pt-4">
@@ -2427,7 +2628,10 @@ export const SupervisorAgents = (): JSX.Element => {
                 </Button>
                 <Button
                   onClick={() => {
-                    if (isInteractions) {
+                    if (isMyQueuesSettings) {
+                      setVisibleQueueCols(draftCols);
+                      setQueueColOrder(draftOrder);
+                    } else if (isInteractions) {
                       setVisibleInteractionCols(draftCols);
                       setInteractionColOrder(draftOrder);
                     } else {
@@ -2446,9 +2650,8 @@ export const SupervisorAgents = (): JSX.Element => {
             </DialogContent>
           </Dialog>
 
-          {/* Floating view switcher: Supervisor 1 (default), Supervisor 2,
-              Agent 2. URL-driven. */}
-          <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
+          {/* Floating view switcher — hidden in review-mode embeds. */}
+          {!isReviewMode && <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
             {viewMenuOpen && (
               <>
                 <div
@@ -2598,7 +2801,7 @@ export const SupervisorAgents = (): JSX.Element => {
             >
               <Eye className="h-5 w-5" />
             </button>
-          </div>
+          </div>}
         </section>
       </div>
     </main>

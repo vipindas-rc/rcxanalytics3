@@ -56,10 +56,17 @@ declare module "@proto" {
 
     showCurrentUser?: boolean;
 
-    interactionsVariant?: "supervisor2" | "supervisor3";
+    interactionsVariant?: "supervisor2" | "supervisor3" | "suggestion";
     // Merge the pending (queued) rows into the Interactions table
     // (Supervisor 1 flow); false in the Queue-tab flows.
     includePendingRows?: boolean;
+    // CP: Suggestion queue-row action gating.
+    hideQueueViewInsights?: boolean;
+    hideQueueTransferAndMore?: boolean;
+    queueClaimLabel?: string;
+    hideInteractionPreview?: boolean;
+    visibleQueueColumnIds?: string[];
+    useMyQueuesColumns?: boolean;
     // Voice take-over committed — page switches to the Active calls context.
 
     onTakeOverCommitted?: (agentId: string) => void;
@@ -99,6 +106,13 @@ declare module "@proto" {
   // Supervisor view 3: view 2's columns minus Agent type / Confidence /
   // Sentiment.
   export const supervisor3InteractionColumnMeta: {
+    id: string;
+    label: string;
+  }[];
+  // CP: Suggestion views — active-only column set (view 3 minus the queue
+  // time and previous-agent columns that only apply to pending rows).
+  export const myQueuesColumnMeta: { id: string; label: string }[];
+  export const suggestionInteractionColumnMeta: {
     id: string;
     label: string;
   }[];

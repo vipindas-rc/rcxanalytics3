@@ -835,6 +835,34 @@ export const supervisor3InteractionColumns: ISupervisorTableCol[] =
         : [{ ...c }],
     );
 
+// My Queues columns (CP: Suggestion views only): queue columns with Phase 1
+// terminology renames applied — "Total waiting time" → "Total wait time",
+// "Time in queue" → "Queue wait time". Row-level SLA coloring stays as-is.
+export const myQueuesColumns: ISupervisorTableCol[] = queueColumns.map((c) =>
+  c.id === 'waitTimeMs'
+    ? { ...c, content: 'Total wait time', width: 155 }
+    : c.id === 'timeInQueueMs'
+      ? { ...c, content: 'Queue wait time', width: 145 }
+      : c.id === 'categories'
+        ? { ...c, width: 200 }
+        : { ...c },
+);
+
+// Suggestion Interactions columns (CP: Suggestion views only): supervisor3's
+// Active-only column set with queue-specific time and previous-agent columns
+// removed — pending rows now live exclusively on the My Queues tab, so
+// "Queue wait time", "Total wait time", and "Previous agent" carry no meaning
+// on the Interactions (active) table.
+const SUGGESTION_EXCLUDED_INTERACTION_IDS = new Set<string>([
+  'lastAgentName',
+  'waitTimeMs',
+  'timeInQueueMs',
+]);
+export const suggestionInteractionColumns: ISupervisorTableCol[] =
+  supervisor3InteractionColumns.filter(
+    (c) => !SUGGESTION_EXCLUDED_INTERACTION_IDS.has(c.id),
+  );
+
 const QUEUE_CUSTOMERS = [
   'Maya Alvarez',
   'Daniel Okafor',

@@ -79,6 +79,9 @@ export const DigitalInteractionTable: FC<IDigitalInteractionTable> = ({
     selectedEngagementId,
     hasActiveFilters = false,
     onFilteredCountChange,
+    hideQueueTransferAndMore = false,
+    queueClaimLabel = "Claim",
+    hideInteractionPreview = false,
 }) => {
     const { digitalAgentEnabled } = AgentSvc;
     const isAIFeaturesEnabled =
@@ -233,6 +236,9 @@ export const DigitalInteractionTable: FC<IDigitalInteractionTable> = ({
                     highlightAgentId,
                     highlightNonce,
                     selectedEngagementId,
+                    hideQueueTransferAndMore,
+                    queueClaimLabel,
+                    hideInteractionPreview,
                 }}
             />
         ),
@@ -247,6 +253,9 @@ export const DigitalInteractionTable: FC<IDigitalInteractionTable> = ({
             highlightAgentId,
             highlightNonce,
             selectedEngagementId,
+            hideQueueTransferAndMore,
+            queueClaimLabel,
+            hideInteractionPreview,
         ]
     );
 
