@@ -667,7 +667,7 @@ function TakenOverCallView({ agentId }: ActiveCallViewProps) {
           }}
           data-testid="pane-activecall-contact"
         >
-          {/* Header: CONTEXT + CONTACT INFO tabs (no Agent Assist) + collapse */}
+          {/* Header: NOTES AND TRANSCRIPT + CONTACT INFO tabs (no Agent Assist) + collapse */}
           <div
             style={{
               height: 48,
@@ -681,10 +681,14 @@ function TakenOverCallView({ agentId }: ActiveCallViewProps) {
             <div style={{ display: "flex", alignItems: "stretch", flex: 1, gap: 20 }}>
               {(
                 [
-                  { id: "context", label: "CONTEXT", testId: "tab-activecall-context" },
+                  {
+                    id: "context",
+                    label: "Notes and transcript",
+                    testId: "tab-activecall-notes",
+                  },
                   {
                     id: "contact",
-                    label: "CONTACT INFO",
+                    label: "Contact info",
                     testId: "tab-activecall-contact-info",
                   },
                 ] as const

@@ -1882,18 +1882,14 @@ export function MonitoringCallWindow({
                 >
                   <PanelTabBar
                     assets={assets}
-                    activeTab={
-                      isPreview && !ringing && activeTab === "notes"
-                        ? "contact"
-                        : activeTab
-                    }
+                    activeTab={activeTab}
                     onTabChange={setActiveTab}
                     showContext={!!contextData && !isPreview}
-                    showNotesTab={!isPreview || ringing}
+                    showNotesTab={!isTakenOver}
                     notesLabel={
                       isPreview && ringing
                         ? "IVR transcript"
-                        : "Notes and transcripts"
+                        : "Notes and transcript"
                     }
                   />
                   {activeTab === "notes" && (
