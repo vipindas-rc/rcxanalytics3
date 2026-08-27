@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useSearch, useLocation, Router as WouterRouter } from 'wouter';
 
 type View = 'supervisor' | 'agent';
@@ -9,6 +10,9 @@ function ReviewPage() {
   const [, navigate] = useLocation();
   const params = new URLSearchParams(search);
   const activeView: View = params.get('tab') === 'agent' ? 'agent' : 'supervisor';
+  const [mountedViews, setMountedViews] = useState<Set<View>>(
+    () => new Set([activeView]),
+  );
 
   const views: { view: View; src: string; title: string }[] = [
     {
@@ -25,6 +29,32 @@ function ReviewPage() {
 
   function switchTab(tab: View) {
     navigate(`?tab=${tab}`, { replace: true });
+  }
+
+  // Mount the newly selected view immediately, but don't boot the second full
+  // prototype until the first one has had a chance to become usable.
+  useEffect(() => {
+    setMountedViews((current) => {
+      if (current.has(activeView)) return current;
+      const next = new Set(current);
+      next.add(activeView);
+      return next;
+    });
+  }, [activeView]);
+
+  function preloadInactiveView() {
+    const preload = () => {
+      setMountedViews((current) => {
+        if (current.size === views.length) return current;
+        return new Set(views.map(({ view }) => view));
+      });
+    };
+
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(preload, { timeout: 1500 });
+    } else {
+      setTimeout(preload, 250);
+    }
   }
 
   return (
@@ -89,27 +119,30 @@ function ReviewPage() {
         })}
       </div>
 
-      {/* Both iframes stay mounted; tabs only toggle visibility. Reloading
-          the prototype on every switch is what made switching slow — now
-          each view loads once and switching is instant (and each view keeps
-          its in-app state). */}
+      {/* The selected iframe loads first. The second full prototype is mounted
+          after the first iframe finishes loading, so duplicate application
+          startup doesn't delay the first usable review. Once mounted, both
+          views stay alive and switching preserves each view's state. */}
       <div style={{ flex: 1, position: 'relative' }}>
-        {views.map(({ view, src, title }) => (
-          <iframe
-            key={view}
-            src={src}
-            title={title}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              border: 'none',
-              width: '100%',
-              height: '100%',
-              display: activeView === view ? 'block' : 'none',
-            }}
-            allow="autoplay; clipboard-write"
-          />
-        ))}
+        {views
+          .filter(({ view }) => mountedViews.has(view))
+          .map(({ view, src, title }) => (
+            <iframe
+              key={view}
+              src={src}
+              title={title}
+              onLoad={view === activeView ? preloadInactiveView : undefined}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                border: 'none',
+                width: '100%',
+                height: '100%',
+                display: activeView === view ? 'block' : 'none',
+              }}
+              allow="autoplay; clipboard-write"
+            />
+          ))}
       </div>
     </div>
   );
