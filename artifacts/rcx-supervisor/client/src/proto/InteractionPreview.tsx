@@ -920,17 +920,15 @@ export function ContextTabContent({
 // the digital interaction preview.
 export function ContactInfoSections({
   data,
-  onRecategorize,
   onEndMessage,
 }: {
   data: InteractionPreviewData;
-  onRecategorize?: () => void;
   onEndMessage?: () => void;
 }) {
   // Active messages: the Interaction section's 3-dot menu hosts the
-  // Recategorize thread / End message actions.
+  // End message action.
   const [interactionMenuOpen, setInteractionMenuOpen] = useState(false);
-  const hasInteractionMenu = Boolean(onRecategorize || onEndMessage);
+  const hasInteractionMenu = Boolean(onEndMessage);
   const interactionMenu =
     hasInteractionMenu && interactionMenuOpen ? (
       <div
@@ -951,38 +949,6 @@ export function ContactInfoSections({
         }}
         data-testid="menu-interaction-actions"
       >
-        {onRecategorize ? (
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setInteractionMenuOpen(false);
-              onRecategorize();
-            }}
-            style={{
-              border: "none",
-              background: "transparent",
-              textAlign: "left",
-              padding: "8px 10px",
-              borderRadius: 4,
-              fontSize: 13,
-              fontFamily: FONT,
-              color: "#121212",
-              cursor: "pointer",
-            }}
-            onMouseEnter={(e) =>
-              ((e.currentTarget as HTMLButtonElement).style.background =
-                "#f5f5f5")
-            }
-            onMouseLeave={(e) =>
-              ((e.currentTarget as HTMLButtonElement).style.background =
-                "transparent")
-            }
-            data-testid="menuitem-recategorize"
-          >
-            Recategorize thread
-          </button>
-        ) : null}
         {onEndMessage ? (
           <button
             type="button"
@@ -1104,7 +1070,7 @@ export function ContactInfoSections({
         "Interaction",
         `Queue: ${data.queueName}`,
         {
-          menu: true,
+          menu: hasInteractionMenu,
           chevron: "down",
           onMenuToggle: hasInteractionMenu
             ? () => setInteractionMenuOpen((v) => !v)
@@ -1150,7 +1116,6 @@ function ContactInfoPane({
   trailing,
   contextHops = [],
   headerHeight = 48,
-  onRecategorize,
   onEndMessage,
 }: {
   data: InteractionPreviewData;
@@ -1161,7 +1126,6 @@ function ContactInfoPane({
   // Tab-row height; the windowed preview passes the preview header's height
   // so the tab underline aligns with the header's bottom edge.
   headerHeight?: number;
-  onRecategorize?: () => void;
   onEndMessage?: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<ContactInfoTab>("contact");
@@ -1267,7 +1231,6 @@ function ContactInfoPane({
       {activeTab === "contact" && (
         <ContactInfoSections
           data={data}
-          onRecategorize={onRecategorize}
           onEndMessage={onEndMessage}
         />
       )}
@@ -1392,12 +1355,9 @@ export interface InteractionPreviewProps {
   onTakeOver: () => void;
   /**
    * Pending-only overflow (3-dot) actions shown in the footer next to
-   * Transfer/Claim — e.g. Requeue/Recategorize first, Ignore last.
+   * Transfer/Claim — e.g. Ignore for a pending interaction.
    */
   overflowActions?: { id: string; label: string; onSelect: () => void }[];
-  // Active messages tab (take-over only): opens the Recategorize thread
-  // dialog for this conversation's category tags.
-  onRecategorize?: () => void;
   // Active messages tab (take-over only): starts the End message flow
   // (disposition dialog).
   onEndMessage?: () => void;
@@ -1427,7 +1387,6 @@ export function InteractionPreview({
   onRestore,
   onTakeOver,
   overflowActions,
-  onRecategorize,
   onEndMessage,
   transferSignal = 0,
   hideTiming = false,
@@ -2122,7 +2081,6 @@ export function InteractionPreview({
           // view has no header, so its tab row matches the 64px subject row
           // (the collapse icon lines up with the message icon at its end).
           headerHeight={isTakeover ? 64 : 73}
-          onRecategorize={onRecategorize}
           onEndMessage={isTakeover ? onEndMessage : undefined}
         />
       ) : null}

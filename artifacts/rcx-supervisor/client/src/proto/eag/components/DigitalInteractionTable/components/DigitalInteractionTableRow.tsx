@@ -37,9 +37,9 @@ import {
     getDigitalInteractionHoveredItems,
 } from '../utils/DigitalInteractionRowRenderUtil';
 
-// 3-dot menu on pending (queue) rows: Ignore for every channel, plus
-// Recategorize (digital) or Requeue (voice). Same core More icon + flyout
-// menu design as the Agents tab.
+// 3-dot menu on pending digital queue rows: Ignore.
+// Voice rows currently have no supported 3-dot actions, so their menu is
+// intentionally hidden until those actions are available.
 const QueueMoreMenu: FC<{
     engagementId: string;
     agentId: string;
@@ -47,24 +47,11 @@ const QueueMoreMenu: FC<{
     onAction: (agentId: string, type: string, uii: string) => void;
 }> = ({ engagementId, agentId, isVoice, onAction }) => {
     const [isOpen, setIsOpen] = useState(false);
-    // Requeue / Recategorize leads; Ignore (the destructive-ish choice) last.
+
+    // Ignore is the destructive-ish choice and stays last when more actions
+    // are added back to this menu.
     const options = useMemo(
         () => [
-            isVoice
-                ? {
-                      id: `requeue-${engagementId}`,
-                      title: 'Requeue',
-                      action: () =>
-                          onAction(agentId, 'queueRequeue', engagementId),
-                      style: { color: 'var(--primary-text-color)' },
-                  }
-                : {
-                      id: `recategorize-${engagementId}`,
-                      title: 'Recategorize',
-                      action: () =>
-                          onAction(agentId, 'queueRecategorize', engagementId),
-                      style: { color: 'var(--primary-text-color)' },
-                  },
             {
                 id: `ignore-${engagementId}`,
                 title: 'Ignore',
@@ -72,8 +59,10 @@ const QueueMoreMenu: FC<{
                 style: { color: 'var(--primary-text-color)' },
             },
         ],
-        [agentId, engagementId, isVoice, onAction]
+        [agentId, engagementId, onAction]
     );
+    if (isVoice) return null;
+
     const toggleComponent = (
         <Tooltip title='More' placement='left'>
             <StyledIconButton

@@ -80,20 +80,14 @@ import {
 } from "./contextHopStore";
 import { CATEGORIES_MAP } from "./eag/helpers/injector";
 import {
-  CONVERSATION_CATEGORIES,
   getClaimedQueueRow,
   registerClaimedDigital,
   registerClaimedQueueRow,
   removeClaimedDigital,
-  setConversationCategories,
-  useCategoryOverrides,
   useClaimedDigitalIds,
 } from "./claimedDigitalStore";
 import { ActiveMessagesSidebar } from "./ActiveMessagesSidebar";
-import {
-  EndMessageDialog,
-  RecategorizeDialog,
-} from "./ActiveMessagesDialogs";
+import { EndMessageDialog } from "./ActiveMessagesDialogs";
 
 // Claimed-digital store, re-exported so the page's "Active messages" top tab
 // (count + tab content) shares the same source of truth through @proto.
@@ -661,22 +655,7 @@ export default function AgentTablePanel({
     engagementId: string;
     contactIdentity: string;
   } | null>(null);
-  // Active messages dialogs (Recategorize thread / End message).
-  // Recategorize is URL-driven (deep-linkable / refresh-safe) via
-  // ?categorize=…: "1" targets the open preview/take-over conversation, any
-  // other value is the engagementId of a table row (hover 3-dot menu).
-  const [categorizeParam, setCategorizeParam] = useUrlParam("categorize");
-  const recategorizeOpen = categorizeParam === "1";
-  const recategorizeRowId =
-    categorizeParam && categorizeParam !== "1" ? categorizeParam : null;
-  const setRecategorizeOpen = useCallback(
-    (open: boolean) => setCategorizeParam(open ? "1" : null),
-    [setCategorizeParam],
-  );
-  const setRecategorizeRowId = useCallback(
-    (id: string | null) => setCategorizeParam(id),
-    [setCategorizeParam],
-  );
+  // Active messages End message dialog.
   const [endMessageOpen, setEndMessageOpen] = useState(false);
   // Incrementing signal that asks the open take-over view to show its
   // transfer dialog (sidebar card → arrow).
@@ -1395,10 +1374,6 @@ export default function AgentTablePanel({
         if (uii) openModal("queue-requeue", undefined, uii);
         return;
       }
-      if (type === "queueRecategorize") {
-        if (uii) setRecategorizeRowId(uii);
-        return;
-      }
       // Transfer: voice rows open the phone-call modal with the Transfer
       // sheet already up; digital rows keep the Transfer message dialog.
       if (type === "queueTransfer") {
@@ -1659,8 +1634,7 @@ export default function AgentTablePanel({
         type === "queueClaim" ||
         type === "queueTransfer" ||
         type === "queueIgnore" ||
-        type === "queueRequeue" ||
-        type === "queueRecategorize"
+        type === "queueRequeue"
       ) {
         queueActionCallback(agentId, type, uii);
         return;
@@ -1842,26 +1816,12 @@ export default function AgentTablePanel({
     if (previewEngagementId && !previewRow) onPreviewClose?.();
   }, [previewEngagementId, previewRow, onPreviewClose]);
 
-  // Recategorize dialog rewrites a claimed conversation's tags; overrides
-  // live in the claimed-digital store so they survive remounts.
-  const categoryOverrides = useCategoryOverrides();
   const previewData = useMemo(() => {
     if (!previewRow) return null;
-    const base = previewRow.isQueueRow
+    return previewRow.isQueueRow
       ? makeQueuePreview(previewRow)
       : makeInteractionPreview(previewRow);
-    const override = categoryOverrides[previewRow.engagementId];
-    return override
-      ? {
-          ...base,
-          tags: override.map((c) => ({
-            label: c.label,
-            bg: c.bg,
-            color: c.color,
-          })),
-        }
-      : base;
-  }, [previewRow, categoryOverrides]);
+  }, [previewRow]);
   const previewContextHops = useContextHops(
     previewData?.engagementId ?? null,
   );
@@ -1950,52 +1910,6 @@ export default function AgentTablePanel({
     <RcThemeProvider>
       <ThemeProvider theme={theme as any}>
         <PanelScope $readOnly={readOnly}>
-          {previewRow && recategorizeOpen ? (
-            <RecategorizeDialog
-              current={previewData?.tags ?? []}
-              onCancel={() => setRecategorizeOpen(false)}
-              onSave={(categories) => {
-                setConversationCategories(previewRow.engagementId, categories);
-                setRecategorizeOpen(false);
-                flashRef.current("Categories updated");
-              }}
-            />
-          ) : recategorizeRowId ? (
-            <RecategorizeDialog
-              current={(() => {
-                const override = categoryOverrides[recategorizeRowId];
-                if (override) return override;
-                const row =
-                  (interactions as any[]).find(
-                    (r) => r.engagementId === recategorizeRowId,
-                  ) ??
-                  (queueRows as any[]).find(
-                    (r) => r.engagementId === recategorizeRowId,
-                  );
-                if (!row) return [];
-                // Prefill with the row's Categories column values (ids →
-                // CATEGORIES_MAP names), so the dialog matches the table.
-                const ids = String(row.categoryIds ?? "")
-                  .split(",")
-                  .map((s: string) => s.trim())
-                  .filter(Boolean);
-                const names = ids
-                  .map((id: string) => CATEGORIES_MAP[id]?.name)
-                  .filter(Boolean) as string[];
-                // Mirror the table's Categories column exactly — a row
-                // without categories starts the dialog empty.
-                return CONVERSATION_CATEGORIES.filter((c) =>
-                  names.includes(c.label),
-                );
-              })()}
-              onCancel={() => setRecategorizeRowId(null)}
-              onSave={(categories) => {
-                setConversationCategories(recategorizeRowId, categories);
-                setRecategorizeRowId(null);
-                flashRef.current("Categories updated");
-              }}
-            />
-          ) : null}
           {activeMessagesMode && previewRow && endMessageOpen ? (
             <EndMessageDialog
               onCancel={() => setEndMessageOpen(false)}
@@ -2050,7 +1964,6 @@ export default function AgentTablePanel({
                   onClose={() => onPreviewClose?.()}
                   onEnlarge={() => onPreviewModeChange?.("expanded")}
                   onTakeOver={handlePreviewTakeOver}
-                  onRecategorize={() => setRecategorizeOpen(true)}
                   onEndMessage={
                     activeMessagesMode
                       ? () => setEndMessageOpen(true)
@@ -2348,41 +2261,13 @@ export default function AgentTablePanel({
             onEnlarge={() => onPreviewModeChange?.("expanded")}
             onRestore={() => onPreviewModeChange?.("preview")}
             onTakeOver={handlePreviewTakeOver}
-            onRecategorize={
-              previewRow.isVoiceInteraction
-                ? undefined
-                : () => setRecategorizeOpen(true)
-            }
             overflowActions={
-              // CP: Agent suggestion view — no Ignore/Recategorize in the
+              // CP: Agent suggestion view — no Ignore in the
               // preview; Self-Assign (Take over) is the only available action.
-              hideQueueTransferAndMore
+              hideQueueTransferAndMore || previewRow.isVoiceInteraction
                 ? undefined
                 : previewRow.conversationState === "PENDING"
                   ? [
-                      previewRow.isVoiceInteraction
-                        ? {
-                            id: "requeue",
-                            label: "Requeue",
-                            onSelect: () => {
-                              queueActionCallback(
-                                previewRow.agentId,
-                                "queueRequeue",
-                                previewRow.engagementId,
-                              );
-                            },
-                          }
-                        : {
-                            id: "recategorize",
-                            label: "Recategorize",
-                            onSelect: () => {
-                              queueActionCallback(
-                                previewRow.agentId,
-                                "queueRecategorize",
-                                previewRow.engagementId,
-                              );
-                            },
-                          },
                       {
                         id: "ignore",
                         label: "Ignore",
