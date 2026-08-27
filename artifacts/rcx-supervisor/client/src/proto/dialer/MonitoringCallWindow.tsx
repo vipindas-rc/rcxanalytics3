@@ -1663,11 +1663,10 @@ export function MonitoringCallWindow({
                 )}
 
                 {ringing ? (
-                  /* Preview call footer: Transfer · Requeue · Claim + Close.
-                     In Agent suggestion view (hideTransferAndRequeue) only
-                     Claim + Close are shown. */
-                  <div className="mt-auto flex flex-col gap-[24px] pb-[28px] w-full">
-                    <div className="flex items-start justify-center gap-[16px] w-full">
+                  /* Preview call actions follow the Figma 2x2 layout:
+                     Transfer/Requeue above To voicemail/Claim. */
+                  <div className="mt-auto flex flex-col items-center pb-[40px] w-full">
+                    <div className="grid grid-cols-2 items-start justify-items-center gap-x-[20px] gap-y-[24px] w-[180px]">
                       {!hideTransferAndRequeue && (
                         <div className="flex flex-col items-center gap-[6px]">
                           <button
@@ -1738,26 +1737,6 @@ export function MonitoringCallWindow({
                         </button>
                         <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
                           {previewClaimLabel ?? "Claim"}
-                        </p>
-                      </div>
-                    </div>
-                    {/* Row 2: Close — neutral exit without declining */}
-                    <div className="flex items-center justify-center w-full">
-                      <div className="flex flex-col items-center gap-[8px]">
-                        <button
-                          type="button"
-                          onClick={onClose}
-                          data-testid="button-preview-close"
-                          aria-label="Close"
-                          className="flex items-center justify-center rounded-full size-[56px] bg-[#f3f3f3] border-none cursor-pointer hover:bg-[#e8e8e8] active:scale-95 transition-all"
-                        >
-                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#121212" strokeWidth="2" strokeLinecap="round" aria-hidden>
-                            <line x1="18" y1="6" x2="6" y2="18" />
-                            <line x1="6" y1="6" x2="18" y2="18" />
-                          </svg>
-                        </button>
-                        <p className="font-['Lato',sans-serif] font-bold leading-[16px] text-[12px] text-[#666666] m-0">
-                          Close
                         </p>
                       </div>
                     </div>
