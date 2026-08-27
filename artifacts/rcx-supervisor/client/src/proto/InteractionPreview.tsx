@@ -1392,7 +1392,7 @@ export interface InteractionPreviewProps {
   onTakeOver: () => void;
   /**
    * Pending-only overflow (3-dot) actions shown in the footer next to
-   * Transfer/Claim — Recategorize first, Ignore last for digital interactions.
+   * Transfer/Claim — Recategorize first, Remove last for digital interactions.
    */
   overflowActions?: { id: string; label: string; onSelect: () => void }[];
   // Digital interaction only: opens the Recategorize thread dialog.

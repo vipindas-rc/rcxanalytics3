@@ -654,9 +654,9 @@ export default function AgentTablePanel({
   // Take over is immediate and permanent for the prototype — there is no
   // hand-back, so this only ever transitions from null to an engagement id.
   const [bargedId, setBargedId] = useState<string | null>(null);
-  // Pending Ignore confirmation — set when the user picks "Ignore" from the
+  // Pending Remove confirmation — set when the user picks "Remove" from the
   // 3-dot menu on a queue row; cleared on Cancel or Confirm.
-  const [ignoreConfirmRow, setIgnoreConfirmRow] = useState<{
+  const [removeConfirmRow, setRemoveConfirmRow] = useState<{
     agentId: string;
     engagementId: string;
     contactIdentity: string;
@@ -1377,11 +1377,11 @@ export default function AgentTablePanel({
         return;
       }
       // 3-dot menu actions on pending rows.
-      if (type === "queueIgnore") {
+      if (type === "queueRemove") {
         // Show a confirmation dialog before removing the row.
         const row = queueRows.find((r: any) => r.engagementId === uii) as any;
         if (!row) return;
-        setIgnoreConfirmRow({
+        setRemoveConfirmRow({
           agentId: _agentId,
           engagementId: uii ?? "",
           contactIdentity: row.contactIdentity ?? "this conversation",
@@ -1658,7 +1658,7 @@ export default function AgentTablePanel({
         type === "queuePreview" ||
         type === "queueClaim" ||
         type === "queueTransfer" ||
-        type === "queueIgnore" ||
+        type === "queueRemove" ||
         type === "queueRequeue" ||
         type === "queueRecategorize"
       ) {
@@ -2376,7 +2376,7 @@ export default function AgentTablePanel({
             onTakeOver={handlePreviewTakeOver}
             onRecategorize={() => setRecategorizeOpen(true)}
             overflowActions={
-              // CP: Agent suggestion view — no Ignore in the
+              // CP: Agent suggestion view — no Remove in the
               // preview; Claim (Take over) is the only available action.
               hideQueueTransferAndMore || previewRow.isVoiceInteraction
                 ? undefined
@@ -2388,14 +2388,14 @@ export default function AgentTablePanel({
                         onSelect: () => setRecategorizeOpen(true),
                       },
                       {
-                        id: "ignore",
-                        label: "Ignore",
+                        id: "remove",
+                        label: "Remove",
                         onSelect: () => {
                           // Routes through queueActionCallback which now shows
                           // the confirmation dialog before removing the row.
                           queueActionCallback(
                             previewRow.agentId,
-                            "queueIgnore",
+                            "queueRemove",
                             previewRow.engagementId,
                           );
                         },
@@ -2524,13 +2524,13 @@ export default function AgentTablePanel({
           />
         )}
 
-        {/* Ignore confirmation — uses the @ringcx/ui Dialog for correct
+        {/* Remove confirmation — uses the @ringcx/ui Dialog for correct
             RingCX fonts, colours, and modal behaviour. */}
         <Dialog
-          open={!!ignoreConfirmRow}
-          onClose={() => setIgnoreConfirmRow(null) as any}
+          open={!!removeConfirmRow}
+          onClose={() => setRemoveConfirmRow(null) as any}
           style={{ zIndex: 10050 }}
-          dialogTitle="Ignore conversation?"
+          dialogTitle="Remove conversation?"
           hideCloseWithX
           maxWidth="xs"
           fullWidth
@@ -2538,12 +2538,12 @@ export default function AgentTablePanel({
           // to align-items:flex-start; auto margins on the Paper absorb the
           // remaining space and re-center it.
           PaperProps={{ style: { marginTop: "auto", marginBottom: "auto" } }}
-          data-testid="dialog-ignore-confirm"
+          data-testid="dialog-remove-confirm"
           content={
-            ignoreConfirmRow ? (
+            removeConfirmRow ? (
               <span style={{ fontSize: 14, lineHeight: "20px", color: "#616161" }}>
                 The conversation with{" "}
-                <strong style={{ color: "#121212" }}>{ignoreConfirmRow.contactIdentity}</strong>{" "}
+                <strong style={{ color: "#121212" }}>{removeConfirmRow.contactIdentity}</strong>{" "}
                 will be removed from the queue. This action is irreversible.
               </span>
             ) : null
@@ -2551,11 +2551,11 @@ export default function AgentTablePanel({
           actions={
             <div
               style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 8px 8px" }}
-              data-testid="overlay-ignore-confirm"
+              data-testid="overlay-remove-confirm"
             >
               <button
                 type="button"
-                onClick={() => setIgnoreConfirmRow(null)}
+                onClick={() => setRemoveConfirmRow(null)}
                 style={{
                   border: "none",
                   background: "transparent",
@@ -2566,30 +2566,30 @@ export default function AgentTablePanel({
                   color: "#066FAC",
                   padding: "0 8px",
                 }}
-                data-testid="button-ignore-cancel"
+                data-testid="button-remove-cancel"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  if (!ignoreConfirmRow) return;
+                  if (!removeConfirmRow) return;
                   // Call removeQueueRow directly — queueActionCallback now
-                  // intercepts queueIgnore to show this dialog, so re-calling
+                  // intercepts queueRemove to show this dialog, so re-calling
                   // it would loop.
-                  const row = removeQueueRow(ignoreConfirmRow.engagementId);
+                  const row = removeQueueRow(removeConfirmRow.engagementId);
                   if (row) {
                     setInsightCtx((ctx) =>
-                      ctx?.engagementId === ignoreConfirmRow.engagementId
+                      ctx?.engagementId === removeConfirmRow.engagementId
                         ? null
                         : ctx,
                     );
                     flashRef.current(
-                      `Conversation with ${row.contactIdentity} ignored`,
+                      `Conversation with ${row.contactIdentity} removed`,
                     );
                   }
                   onPreviewClose?.();
-                  setIgnoreConfirmRow(null);
+                  setRemoveConfirmRow(null);
                 }}
                 style={{
                   height: 36,
@@ -2603,9 +2603,9 @@ export default function AgentTablePanel({
                   fontWeight: 500,
                   cursor: "pointer",
                 }}
-                data-testid="button-ignore-confirm"
+                data-testid="button-remove-confirm"
               >
-                Ignore
+                Remove
               </button>
             </div>
           }

@@ -37,9 +37,8 @@ import {
     getDigitalInteractionHoveredItems,
 } from '../utils/DigitalInteractionRowRenderUtil';
 
-// 3-dot menu on pending digital queue rows: Recategorize and Ignore.
-// Voice rows currently have no supported 3-dot actions, so their menu is
-// intentionally hidden until those actions are available.
+// 3-dot menu on pending queue rows: digital rows support Recategorize and
+// Remove; voice rows support Remove.
 const QueueMoreMenu: FC<{
     engagementId: string;
     agentId: string;
@@ -48,26 +47,33 @@ const QueueMoreMenu: FC<{
 }> = ({ engagementId, agentId, isVoice, onAction }) => {
     const [isOpen, setIsOpen] = useState(false);
 
-    // Recategorize leads; Ignore (the destructive-ish choice) stays last.
+    // Recategorize is digital-only; Remove stays last for both channels.
     const options = useMemo(
         () => [
+            ...(!isVoice
+                ? [
+                      {
+                          id: `recategorize-${engagementId}`,
+                          title: 'Recategorize',
+                          action: () =>
+                              onAction(
+                                  agentId,
+                                  'queueRecategorize',
+                                  engagementId
+                              ),
+                          style: { color: 'var(--primary-text-color)' },
+                      },
+                  ]
+                : []),
             {
-                id: `recategorize-${engagementId}`,
-                title: 'Recategorize',
-                action: () =>
-                    onAction(agentId, 'queueRecategorize', engagementId),
-                style: { color: 'var(--primary-text-color)' },
-            },
-            {
-                id: `ignore-${engagementId}`,
-                title: 'Ignore',
-                action: () => onAction(agentId, 'queueIgnore', engagementId),
+                id: `remove-${engagementId}`,
+                title: 'Remove',
+                action: () => onAction(agentId, 'queueRemove', engagementId),
                 style: { color: 'var(--primary-text-color)' },
             },
         ],
-        [agentId, engagementId, onAction]
+        [agentId, engagementId, isVoice, onAction]
     );
-    if (isVoice) return null;
 
     const toggleComponent = (
         <Tooltip title='More' placement='left'>
