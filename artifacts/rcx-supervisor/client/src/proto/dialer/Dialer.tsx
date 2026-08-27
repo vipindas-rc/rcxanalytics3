@@ -170,6 +170,7 @@ export type Assets = {
   arrowRight: string;
   voicemail: string;
   pauseBars: string;
+  callmd: string;
   phoneFilled: string;
   hangupSmall: string;
   conferenceAvatar: string;
@@ -214,6 +215,7 @@ export function buildAssets(base: string): Assets {
     arrowRight: `${p}/icon-arrow-right.svg`,
     voicemail: `${p}/icon-voicemail.svg`,
     pauseBars: `${p}/icon-pause-bars.svg`,
+    callmd: `${p}/callmd.svg`,
     phoneFilled: `${p}/icon-phone-filled.svg`,
     hangupSmall: `${p}/icon-hangup-small.svg`,
     conferenceAvatar: `${p}/icon-conference-avatar.svg`,

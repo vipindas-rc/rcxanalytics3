@@ -1733,7 +1733,7 @@ export function MonitoringCallWindow({
                           aria-label={previewClaimLabel ?? "Claim"}
                           className="bg-[#35a853] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#2d9147] active:scale-95 transition-all"
                         >
-                          <img alt="" className="size-[16px] block [filter:brightness(0)_invert(1)]" src={assets.phoneFilled} />
+                          <img alt="" className="size-[12px] block [filter:brightness(0)_invert(1)]" src={assets.callmd} />
                         </button>
                         <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
                           {previewClaimLabel ?? "Claim"}
