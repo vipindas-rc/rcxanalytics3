@@ -7,6 +7,12 @@ import type {
     ISupervisorTableCol,
 } from '../../../containers/SupervisorAgentList/types/SupervisorAgentList';
 
+export type ConversationCategoryOverride = {
+    label: string;
+    bg: string;
+    color: string;
+};
+
 export interface IDigitalInteractionTable {
     columns: ISupervisorTableCol[];
     digitalTaskList: InteractionData[];
@@ -43,6 +49,7 @@ export interface IDigitalInteractionTable {
     // CP: Agent suggestion view — hide the preview/Monitor eye on active
     // Interactions rows.
     hideInteractionPreview?: boolean;
+    categoryOverrides?: Record<string, ConversationCategoryOverride[]>;
 }
 export type InteractionSearchRowsType = {
     agentId: string;

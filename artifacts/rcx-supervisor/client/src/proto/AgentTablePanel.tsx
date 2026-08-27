@@ -2123,6 +2123,7 @@ export default function AgentTablePanel({
               shouldShowViewInsightsButton={!hideQueueViewInsights}
               hideQueueTransferAndMore={hideQueueTransferAndMore}
               queueClaimLabel={queueClaimLabel}
+              categoryOverrides={categoryOverrides}
               AgentSvc={{ digitalAgentEnabled: true } as any}
               FeatureFlagsSvc={{ featureFlags: {} } as any}
               aiNotesFeatures={[] as any}
@@ -2169,6 +2170,7 @@ export default function AgentTablePanel({
               hideQueueTransferAndMore={hideQueueTransferAndMore}
               queueClaimLabel={queueClaimLabel}
               hideInteractionPreview={hideInteractionPreview}
+              categoryOverrides={categoryOverrides}
               AgentSvc={{ digitalAgentEnabled: true } as any}
               FeatureFlagsSvc={{ featureFlags: {} } as any}
               aiNotesFeatures={[] as any}

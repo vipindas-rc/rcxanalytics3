@@ -124,6 +124,7 @@ export const DigitalInteractionTableRow: FC<{
     queueClaimLabel?: string;
     /** CP: Agent suggestion view — hide the preview/Monitor eye on active rows. */
     hideInteractionPreview?: boolean;
+    overrideCategories?: Array<{ label: string; color: string }>;
 }> = ({
     data: {
         engagementSource,
@@ -173,6 +174,7 @@ export const DigitalInteractionTableRow: FC<{
     hideQueueTransferAndMore = false,
     queueClaimLabel = "Claim",
     hideInteractionPreview = false,
+    overrideCategories,
     selectedEngagementId,
 }) => {
     const [isInfoToolTipVisible, setIsInfoToolTipVisible] =
@@ -354,6 +356,7 @@ export const DigitalInteractionTableRow: FC<{
                             <CategoriesCell
                                 key={column.id}
                                 categoryIds={categoryIds}
+                                overrideCategories={overrideCategories}
                             />
                         );
                     }

@@ -59,6 +59,21 @@ function getCategoryNamesFromIds(categoryIds: string): string {
     }
 }
 
+function getCategoryIdsFromNames(categoryNames: string[]): string {
+    try {
+        const categoriesMap = injector('CategoriesSvc')?.getCategoriesMap();
+        if (!categoriesMap) return '';
+        return Object.entries(categoriesMap)
+            .filter(([, category]: [string, any]) =>
+                categoryNames.includes(category?.name)
+            )
+            .map(([categoryId]) => categoryId)
+            .join(',');
+    } catch {
+        return '';
+    }
+}
+
 export const DigitalInteractionTable: FC<IDigitalInteractionTable> = ({
     columns,
     digitalTaskList,
@@ -82,17 +97,28 @@ export const DigitalInteractionTable: FC<IDigitalInteractionTable> = ({
     hideQueueTransferAndMore = false,
     queueClaimLabel = "Claim",
     hideInteractionPreview = false,
+    categoryOverrides = {},
 }) => {
     const { digitalAgentEnabled } = AgentSvc;
     const isAIFeaturesEnabled =
         FeatureFlagsSvc.featureFlags[AGENT_ASSIST_AI_FEATURES_FLAG];
 
     const dataWithCategoryNames = useMemo(() => {
-        return digitalTaskList.map((row) => ({
-            ...row,
-            categoryNames: getCategoryNamesFromIds(row.categoryIds),
-        }));
-    }, [digitalTaskList]);
+        return digitalTaskList.map((row) => {
+            const override = categoryOverrides[row.engagementId];
+            return {
+                ...row,
+                categoryIds: override
+                    ? getCategoryIdsFromNames(
+                          override.map((category) => category.label)
+                      )
+                    : row.categoryIds,
+                categoryNames: override
+                    ? override.map((category) => category.label).join(', ')
+                    : getCategoryNamesFromIds(row.categoryIds),
+            };
+        });
+    }, [digitalTaskList, categoryOverrides]);
 
     const visibleColumns = useMemo(
         () => columns.filter((col) => !col.hiddenColumn),
@@ -239,6 +265,8 @@ export const DigitalInteractionTable: FC<IDigitalInteractionTable> = ({
                     hideQueueTransferAndMore,
                     queueClaimLabel,
                     hideInteractionPreview,
+                    overrideCategories:
+                        categoryOverrides[data.engagementId],
                 }}
             />
         ),
@@ -256,6 +284,7 @@ export const DigitalInteractionTable: FC<IDigitalInteractionTable> = ({
             hideQueueTransferAndMore,
             queueClaimLabel,
             hideInteractionPreview,
+            categoryOverrides,
         ]
     );
 

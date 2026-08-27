@@ -1,6 +1,6 @@
 import { useState, useRef, useLayoutEffect, useMemo } from 'react';
 
-import { TagComponent as Tag } from '@ringcx/ui';
+import { TagColor, TagComponent as Tag } from '@ringcx/ui';
 
 import {
     CategoriesListColumn,
@@ -23,7 +23,25 @@ import {
     getVisibleCategories,
 } from '../utils/CategoriesCellUtil';
 
-export const CategoriesCell = ({ categoryIds }: { categoryIds: string }) => {
+const tagColorFromHex = (color: string): TagColor => {
+    const colors: Record<string, TagColor> = {
+        '#c40c05': TagColor.Red,
+        '#9b45a0': TagColor.Purple,
+        '#066fac': TagColor.Blue,
+        '#2e7d32': TagColor.Green,
+        '#b26205': TagColor.Orange,
+        '#0a7f8c': TagColor.Cyan,
+    };
+    return colors[color.toLowerCase()] ?? TagColor.Grey;
+};
+
+export const CategoriesCell = ({
+    categoryIds,
+    overrideCategories,
+}: {
+    categoryIds: string;
+    overrideCategories?: Array<{ label: string; color: string }>;
+}) => {
     const CategoriesService = injector('CategoriesSvc');
     const DashboardService = injector('DashboardSvc');
     const PriorityCategoriesNotificationService = injector(
@@ -37,6 +55,17 @@ export const CategoriesCell = ({ categoryIds }: { categoryIds: string }) => {
         PriorityCategoriesNotificationService.getSortedCategoryIds();
 
     const categories: Categories = useMemo(() => {
+        if (overrideCategories) {
+            return overrideCategories.map((category) => ({
+                id: `override:${category.label}`,
+                code: category.label,
+                groupId: '',
+                name: category.label,
+                color: tagColorFromHex(category.color),
+                isPriority: false,
+            }));
+        }
+
         const categoryIdsArray = categoryIds
             ? categoryIds
                   .split(',')
@@ -64,7 +93,13 @@ export const CategoriesCell = ({ categoryIds }: { categoryIds: string }) => {
 
             return 0;
         });
-    }, [categoryIds, categoriesMap, priorityCategories, sortedCategoryIds]);
+    }, [
+        categoryIds,
+        overrideCategories,
+        categoriesMap,
+        priorityCategories,
+        sortedCategoryIds,
+    ]);
     const [visibleCategories, setVisibleCategories] =
         useState<Categories>(categories);
     const [hiddenCategories, setHiddenCategories] = useState<Categories>([]);

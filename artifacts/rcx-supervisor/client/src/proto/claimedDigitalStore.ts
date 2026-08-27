@@ -88,13 +88,62 @@ export const CONVERSATION_CATEGORIES: ConversationCategory[] = [
   { label: "Russian", bg: "#f4e7f9", color: "#9b45a0" },
 ];
 
-let categoryOverrides: Record<string, ConversationCategory[]> = {};
+const CATEGORY_OVERRIDES_STORAGE_KEY =
+  "rcx-supervisor.conversationCategoryOverrides.v1";
+
+function loadCategoryOverrides(): Record<string, ConversationCategory[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(CATEGORY_OVERRIDES_STORAGE_KEY) ?? "{}",
+    );
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+    return Object.fromEntries(
+      Object.entries(parsed).flatMap(([engagementId, value]) => {
+        if (!Array.isArray(value)) return [];
+        const categories = value.filter(
+          (category): category is ConversationCategory =>
+            Boolean(
+              category &&
+                typeof category === "object" &&
+                typeof category.label === "string" &&
+                typeof category.bg === "string" &&
+                typeof category.color === "string",
+            ),
+        );
+        return [[engagementId, categories]];
+      }),
+    );
+  } catch {
+    return {};
+  }
+}
+
+let categoryOverrides: Record<string, ConversationCategory[]> =
+  loadCategoryOverrides();
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== CATEGORY_OVERRIDES_STORAGE_KEY) return;
+    categoryOverrides = loadCategoryOverrides();
+    emit();
+  });
+}
 
 export function setConversationCategories(
   engagementId: string,
   categories: ConversationCategory[],
 ) {
   categoryOverrides = { ...categoryOverrides, [engagementId]: categories };
+  try {
+    window.localStorage.setItem(
+      CATEGORY_OVERRIDES_STORAGE_KEY,
+      JSON.stringify(categoryOverrides),
+    );
+  } catch {
+    // Storage can be unavailable; the live in-memory update still succeeds.
+  }
   emit();
 }
 
