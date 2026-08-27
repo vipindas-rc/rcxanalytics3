@@ -479,11 +479,11 @@ function QueueToolbar({
 }) {
   return (
     <>
-      <div className="flex shrink-0 items-center justify-between gap-6 border-b border-[#0000001a] px-5 py-3">
+      <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,500px)_minmax(0,1fr)] items-center gap-6 border-b border-[#0000001a] px-5 py-3">
         <h2 className="shrink-0 font-subtitle-mini text-[15px] font-semibold leading-[var(--subtitle-mini-line-height)] text-[#121212]">
           {queueTitle}
         </h2>
-        <div className="relative w-full max-w-[500px]">
+        <div className="relative w-full min-w-0 max-w-[500px] justify-self-center">
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#a1a1a1]" />
           <Input
             value={searchQuery}
@@ -501,19 +501,19 @@ function QueueToolbar({
             />
           </div>
         </div>
-        {/* spacer keeps the search box visually centred */}
-        <div className="hidden w-0 shrink md:block md:w-[64px]" aria-hidden />
-        {onOpenSettings && (
-          <Button
-            variant="ghost"
-            aria-label="Table settings"
-            onClick={onOpenSettings}
-            className="ml-auto h-10 w-10 shrink-0 rounded-full p-0 text-[#666666] shadow-none hover:bg-[#66666614]"
-            data-testid="button-queue-settings"
-          >
-            <SettingsIcon className="h-6 w-6" />
-          </Button>
-        )}
+        <div className="flex min-w-0 justify-end">
+          {onOpenSettings && (
+            <Button
+              variant="ghost"
+              aria-label="Table settings"
+              onClick={onOpenSettings}
+              className="h-10 w-10 shrink-0 rounded-full p-0 text-[#666666] shadow-none hover:bg-[#66666614]"
+              data-testid="button-queue-settings"
+            >
+              <SettingsIcon className="h-6 w-6" />
+            </Button>
+          )}
+        </div>
       </div>
       {filtersOpen && (
         <div

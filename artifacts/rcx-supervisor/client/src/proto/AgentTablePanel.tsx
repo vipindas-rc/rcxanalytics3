@@ -80,14 +80,20 @@ import {
 } from "./contextHopStore";
 import { CATEGORIES_MAP } from "./eag/helpers/injector";
 import {
+  CONVERSATION_CATEGORIES,
   getClaimedQueueRow,
   registerClaimedDigital,
   registerClaimedQueueRow,
   removeClaimedDigital,
+  setConversationCategories,
+  useCategoryOverrides,
   useClaimedDigitalIds,
 } from "./claimedDigitalStore";
 import { ActiveMessagesSidebar } from "./ActiveMessagesSidebar";
-import { EndMessageDialog } from "./ActiveMessagesDialogs";
+import {
+  EndMessageDialog,
+  RecategorizeDialog,
+} from "./ActiveMessagesDialogs";
 
 // Claimed-digital store, re-exported so the page's "Active messages" top tab
 // (count + tab content) shares the same source of truth through @proto.
@@ -655,6 +661,20 @@ export default function AgentTablePanel({
     engagementId: string;
     contactIdentity: string;
   } | null>(null);
+  // Digital Recategorize is URL-driven and limited to digital interactions:
+  // "1" targets the open preview; another value targets that queue row.
+  const [categorizeParam, setCategorizeParam] = useUrlParam("categorize");
+  const recategorizeOpen = categorizeParam === "1";
+  const recategorizeRowId =
+    categorizeParam && categorizeParam !== "1" ? categorizeParam : null;
+  const setRecategorizeOpen = useCallback(
+    (open: boolean) => setCategorizeParam(open ? "1" : null),
+    [setCategorizeParam],
+  );
+  const setRecategorizeRowId = useCallback(
+    (id: string | null) => setCategorizeParam(id),
+    [setCategorizeParam],
+  );
   // Active messages End message dialog.
   const [endMessageOpen, setEndMessageOpen] = useState(false);
   // Incrementing signal that asks the open take-over view to show its
@@ -1374,6 +1394,11 @@ export default function AgentTablePanel({
         if (uii) openModal("queue-requeue", undefined, uii);
         return;
       }
+      if (type === "queueRecategorize") {
+        const row = queueRows.find((r: any) => r.engagementId === uii) as any;
+        if (uii && row && !row.isVoiceInteraction) setRecategorizeRowId(uii);
+        return;
+      }
       // Transfer: voice rows open the phone-call modal with the Transfer
       // sheet already up; digital rows keep the Transfer message dialog.
       if (type === "queueTransfer") {
@@ -1634,7 +1659,8 @@ export default function AgentTablePanel({
         type === "queueClaim" ||
         type === "queueTransfer" ||
         type === "queueIgnore" ||
-        type === "queueRequeue"
+        type === "queueRequeue" ||
+        type === "queueRecategorize"
       ) {
         queueActionCallback(agentId, type, uii);
         return;
@@ -1786,6 +1812,35 @@ export default function AgentTablePanel({
         // the Active messages take-over view.
         getClaimedQueueRow(previewEngagementId)) as any)
     : null;
+  const recategorizeRow = recategorizeRowId
+    ? ((interactions.find(
+        (row: any) => row.engagementId === recategorizeRowId,
+      ) ??
+        queueRows.find(
+          (row: any) => row.engagementId === recategorizeRowId,
+        )) as any)
+    : null;
+  useEffect(() => {
+    if (
+      recategorizeOpen &&
+      (!previewRow || previewRow.isVoiceInteraction)
+    ) {
+      setRecategorizeOpen(false);
+    }
+    if (
+      recategorizeRowId &&
+      (!recategorizeRow || recategorizeRow.isVoiceInteraction)
+    ) {
+      setRecategorizeRowId(null);
+    }
+  }, [
+    previewRow,
+    recategorizeOpen,
+    recategorizeRow,
+    recategorizeRowId,
+    setRecategorizeOpen,
+    setRecategorizeRowId,
+  ]);
 
   // Claimed digital conversations backing the Active messages list panel.
   const claimedDigitalIds = useClaimedDigitalIds();
@@ -1816,12 +1871,25 @@ export default function AgentTablePanel({
     if (previewEngagementId && !previewRow) onPreviewClose?.();
   }, [previewEngagementId, previewRow, onPreviewClose]);
 
+  // Digital category overrides stay live across preview/take-over remounts.
+  const categoryOverrides = useCategoryOverrides();
   const previewData = useMemo(() => {
     if (!previewRow) return null;
-    return previewRow.isQueueRow
+    const base = previewRow.isQueueRow
       ? makeQueuePreview(previewRow)
       : makeInteractionPreview(previewRow);
-  }, [previewRow]);
+    const override = categoryOverrides[previewRow.engagementId];
+    return override
+      ? {
+          ...base,
+          tags: override.map((category) => ({
+            label: category.label,
+            bg: category.bg,
+            color: category.color,
+          })),
+        }
+      : base;
+  }, [previewRow, categoryOverrides]);
   const previewContextHops = useContextHops(
     previewData?.engagementId ?? null,
   );
@@ -1910,6 +1978,44 @@ export default function AgentTablePanel({
     <RcThemeProvider>
       <ThemeProvider theme={theme as any}>
         <PanelScope $readOnly={readOnly}>
+          {previewRow &&
+          !previewRow.isVoiceInteraction &&
+          recategorizeOpen ? (
+            <RecategorizeDialog
+              current={previewData?.tags ?? []}
+              onCancel={() => setRecategorizeOpen(false)}
+              onSave={(categories) => {
+                setConversationCategories(previewRow.engagementId, categories);
+                setRecategorizeOpen(false);
+                flashRef.current("Categories updated");
+              }}
+            />
+          ) : recategorizeRow &&
+            !recategorizeRow.isVoiceInteraction &&
+            recategorizeRowId ? (
+            <RecategorizeDialog
+              current={(() => {
+                const override = categoryOverrides[recategorizeRowId];
+                if (override) return override;
+                const ids = String(recategorizeRow.categoryIds ?? "")
+                  .split(",")
+                  .map((id: string) => id.trim())
+                  .filter(Boolean);
+                const names = ids
+                  .map((id: string) => CATEGORIES_MAP[id]?.name)
+                  .filter(Boolean) as string[];
+                return CONVERSATION_CATEGORIES.filter((category) =>
+                  names.includes(category.label),
+                );
+              })()}
+              onCancel={() => setRecategorizeRowId(null)}
+              onSave={(categories) => {
+                setConversationCategories(recategorizeRowId, categories);
+                setRecategorizeRowId(null);
+                flashRef.current("Categories updated");
+              }}
+            />
+          ) : null}
           {activeMessagesMode && previewRow && endMessageOpen ? (
             <EndMessageDialog
               onCancel={() => setEndMessageOpen(false)}
@@ -1964,6 +2070,11 @@ export default function AgentTablePanel({
                   onClose={() => onPreviewClose?.()}
                   onEnlarge={() => onPreviewModeChange?.("expanded")}
                   onTakeOver={handlePreviewTakeOver}
+                   onRecategorize={
+                     previewRow.isVoiceInteraction
+                       ? undefined
+                       : () => setRecategorizeOpen(true)
+                   }
                   onEndMessage={
                     activeMessagesMode
                       ? () => setEndMessageOpen(true)
@@ -2261,6 +2372,7 @@ export default function AgentTablePanel({
             onEnlarge={() => onPreviewModeChange?.("expanded")}
             onRestore={() => onPreviewModeChange?.("preview")}
             onTakeOver={handlePreviewTakeOver}
+            onRecategorize={() => setRecategorizeOpen(true)}
             overflowActions={
               // CP: Agent suggestion view — no Ignore in the
               // preview; Self-Assign (Take over) is the only available action.
@@ -2268,6 +2380,11 @@ export default function AgentTablePanel({
                 ? undefined
                 : previewRow.conversationState === "PENDING"
                   ? [
+                      {
+                        id: "recategorize",
+                        label: "Recategorize",
+                        onSelect: () => setRecategorizeOpen(true),
+                      },
                       {
                         id: "ignore",
                         label: "Ignore",
@@ -2410,6 +2527,7 @@ export default function AgentTablePanel({
         <Dialog
           open={!!ignoreConfirmRow}
           onClose={() => setIgnoreConfirmRow(null) as any}
+          style={{ zIndex: 10050 }}
           dialogTitle="Ignore conversation?"
           hideCloseWithX
           maxWidth="xs"

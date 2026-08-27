@@ -37,7 +37,7 @@ import {
     getDigitalInteractionHoveredItems,
 } from '../utils/DigitalInteractionRowRenderUtil';
 
-// 3-dot menu on pending digital queue rows: Ignore.
+// 3-dot menu on pending digital queue rows: Recategorize and Ignore.
 // Voice rows currently have no supported 3-dot actions, so their menu is
 // intentionally hidden until those actions are available.
 const QueueMoreMenu: FC<{
@@ -48,10 +48,16 @@ const QueueMoreMenu: FC<{
 }> = ({ engagementId, agentId, isVoice, onAction }) => {
     const [isOpen, setIsOpen] = useState(false);
 
-    // Ignore is the destructive-ish choice and stays last when more actions
-    // are added back to this menu.
+    // Recategorize leads; Ignore (the destructive-ish choice) stays last.
     const options = useMemo(
         () => [
+            {
+                id: `recategorize-${engagementId}`,
+                title: 'Recategorize',
+                action: () =>
+                    onAction(agentId, 'queueRecategorize', engagementId),
+                style: { color: 'var(--primary-text-color)' },
+            },
             {
                 id: `ignore-${engagementId}`,
                 title: 'Ignore',
@@ -203,10 +209,19 @@ export const DigitalInteractionTableRow: FC<{
     // showViewInsights flag (used below to enable/disable the icon itself).
     const showSupervisorAssist = shouldShowViewInsightsButton;
 
-    // Clicking anywhere on the row opens the AI Insights pane, but only for
-    // rows where the hover "AI insights" action is available and enabled —
-    // the row click must never bypass that gating.
+    // My Queues rows open their voice/digital preview from the full row.
+    // Non-queue rows retain the existing AI Insights row-click behavior.
     const canOpenInsights = showSupervisorAssist && showViewInsights;
+    const handleRowClick = isQueueRow
+        ? () =>
+              (monitorAgentCallback as any)(
+                  agentId,
+                  'queuePreview',
+                  engagementId
+              )
+        : canOpenInsights
+          ? () => viewInsight(agentId, engagementId)
+          : undefined;
 
     const supervisorRowHoverItems = useMemo(
         () =>
@@ -310,12 +325,8 @@ export const DigitalInteractionTableRow: FC<{
                 isInfoToolTipVisible={isInfoToolTipVisible}
                 isHighlighted={isHighlighted}
                 isSelected={isSelected}
-                onClick={
-                    canOpenInsights
-                        ? () => viewInsight(agentId, engagementId)
-                        : undefined
-                }
-                style={canOpenInsights ? { cursor: 'pointer' } : undefined}
+                onClick={handleRowClick}
+                style={handleRowClick ? { cursor: 'pointer' } : undefined}
             >
                 <SourceTypeIcon
                     channelType={engagementSource.initialEngagementSourceType}
