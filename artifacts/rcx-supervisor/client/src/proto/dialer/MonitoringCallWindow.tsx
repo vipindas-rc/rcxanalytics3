@@ -48,8 +48,6 @@ export type MonitoringCallWindowProps = {
   agentType: "Air" | "Human";
   /** Customer side of the monitored call (design shows a phone number). */
   customerPhone?: string;
-  /** Preview display name when contact data is available. */
-  customerName?: string;
   /** Preview variant: queue the call came in on ("To: <queue>" header line). */
   queueName?: string;
   avatarBg?: string;
@@ -366,7 +364,6 @@ function MonitorHeaderRow({
 
 function MonitorProfile({
   agentName,
-  customerName,
   customerPhone,
   queueName,
   avatarBg,
@@ -375,7 +372,6 @@ function MonitorProfile({
   assets,
 }: {
   agentName: string;
-  customerName?: string;
   customerPhone: string;
   queueName?: string;
   avatarBg: string;
@@ -1300,13 +1296,6 @@ export function MonitoringCallWindow({
   }
 
   const isHuman = agentType === "Human";
-  const displayCustomerName =
-    customerName &&
-    customerName !== customerPhone &&
-    !/^[+()\d\s.-]+$/.test(customerName)
-      ? customerName
-      : "Customer name";
-
   return (
     <TooltipPrimitive.Provider>
       <>
@@ -1382,22 +1371,27 @@ export function MonitoringCallWindow({
                           />
                         </button>
                       </div>
-                      <div className="flex items-center justify-center rounded-full size-[100px] bg-white">
-                        <span className="font-['Lato',sans-serif] text-[40px] leading-none font-normal text-[#0b76b2]">
-                          {initialsOf(displayCustomerName)}
-                        </span>
+                      <div className="flex items-center justify-center rounded-full size-[100px] bg-[#f3f3f3]">
+                        <svg
+                          width="44"
+                          height="44"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#0b76b2"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                        >
+                          <circle cx="12" cy="8" r="4" />
+                          <path d="M4.5 20c1.2-3.4 4.1-5 7.5-5s6.3 1.6 7.5 5" />
+                        </svg>
                       </div>
                     </div>
                     <div className="flex flex-col items-center gap-[6px] pt-[28px] px-[16px] w-full">
                       <p
-                        data-testid="text-preview-customer-name"
-                        className="font-['Lato',sans-serif] font-bold leading-[28px] text-[20px] text-[#121212] m-0 text-center"
-                      >
-                        {displayCustomerName}
-                      </p>
-                      <p
                         data-testid="text-preview-caller"
-                        className="font-['Lato',sans-serif] leading-[24px] text-[16px] text-[#121212] m-0 text-center"
+                        className="font-['Lato',sans-serif] font-bold leading-[28px] text-[20px] text-[#121212] m-0 text-center"
                       >
                         {customerPhone}
                       </p>
