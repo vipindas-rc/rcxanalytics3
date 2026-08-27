@@ -36,7 +36,7 @@ export interface IDigitalInteractionTable {
     // CP: Suggestion queue-row action gating:
     //   hideQueueTransferAndMore — hide the Transfer button and More (3-dot)
     //     menu on queue rows (Agent suggestion view only).
-    //   queueClaimLabel — button label for the claim action; "Self-Assign" in
+    //   queueClaimLabel — button label for the claim action.
     //     suggestion views, "Claim" (default) everywhere else.
     hideQueueTransferAndMore?: boolean;
     queueClaimLabel?: string;

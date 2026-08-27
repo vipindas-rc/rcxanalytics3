@@ -602,7 +602,7 @@ export const DigitalInteractionTableRow: FC<{
                 // !hideQueueViewInsights from AgentTablePanel). Transfer and
                 // the More menu are hidden when hideQueueTransferAndMore is
                 // true (Agent suggestion view). Claim is relabeled via
-                // queueClaimLabel ("Self-Assign" in suggestion views).
+                // queueClaimLabel ("Claim" in all views).
                 <SupervisorListHoverMenu role='gridcell'>
                     <StyledSupervisorCellWrapper>
                         {_getSupervisorAssistHoveredMenu({

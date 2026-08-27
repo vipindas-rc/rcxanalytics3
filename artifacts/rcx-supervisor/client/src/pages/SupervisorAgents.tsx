@@ -438,7 +438,7 @@ interface QueuePanelSharedProps {
   hideQueueViewInsights?: boolean;
   /** Hide Transfer + More menu on queue rows (Agent suggestion view). */
   hideQueueTransferAndMore?: boolean;
-  /** Label for the queue Claim button. Default "Claim"; "Self-Assign" in suggestion views. */
+  /** Label for the queue Claim button. */
   queueClaimLabel?: string;
   /** Use My Queues column set (renamed time labels) for the Queue tab. */
   useMyQueuesColumns?: boolean;
@@ -735,7 +735,7 @@ function QueuePanel(
       <QueueToolbar {...props} />
       <div className="min-h-0 flex-1 overflow-hidden" data-testid="queue-panel">
         {/* Not readOnly: queue rows have their own hover actions (AI insights /
-            Transfer / Self-Assign) available in both Agent and Supervisor views. */}
+            Transfer / Claim) available in both Agent and Supervisor views. */}
         <AgentTablePanel
           activeTab="Queue"
           extendedQueue={props.extendedQueue}
@@ -879,7 +879,7 @@ export const SupervisorAgents = (): JSX.Element => {
   const isAgent2View = viewParam === "agent-2";
   const isPaginationView = viewParam === "supervisor-pagination";
   // CP: Suggestion views: Supervisor and Agent suggestion — the two views that
-  // get the My Queues page, Self-Assign, and Phase 1 terminology renames.
+  // get the My Queues page, Claim, and Phase 1 terminology renames.
   const isSuggestionView = isSupervisor2View || isAgent2View;
   // Supervisor (Expected): a copy of Supervisor 1 (merged Interactions view)
   // with a high-volume table paginated at 10 rows per page.
@@ -2158,7 +2158,7 @@ export const SupervisorAgents = (): JSX.Element => {
               hideBreachedSla={true}
               hideQueueViewInsights={isSuggestionView}
               hideQueueTransferAndMore={isAgent2View}
-              queueClaimLabel={isSuggestionView ? "Self-Assign" : "Claim"}
+              queueClaimLabel="Claim"
               useMyQueuesColumns={isSuggestionView}
               onOpenSettings={
                 isSuggestionView ? () => openSettings(true) : undefined

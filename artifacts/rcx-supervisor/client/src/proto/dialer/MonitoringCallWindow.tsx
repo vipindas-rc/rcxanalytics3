@@ -75,11 +75,11 @@ export type MonitoringCallWindowProps = {
   initialTransferOpen?: boolean;
   /**
    * Preview variant (Agent suggestion view): hide Transfer and Requeue from
-   * the ringing footer so only Self-Assign + Close are available.
+   * the ringing footer so only Claim + Close are available.
    */
   hideTransferAndRequeue?: boolean;
   /**
-   * Preview variant: label for the Claim/Self-Assign button in the ringing
+   * Preview variant: label for the Claim button in the ringing
    * footer.  Defaults to "Claim".
    */
   previewClaimLabel?: string;
@@ -1648,7 +1648,7 @@ export function MonitoringCallWindow({
                 {ringing ? (
                   /* Preview call footer: Transfer · Requeue · Claim + Close.
                      In Agent suggestion view (hideTransferAndRequeue) only
-                     Self-Assign + Close are shown. */
+                     Claim + Close are shown. */
                   <div className="mt-auto flex flex-col gap-[24px] pb-[28px] w-full">
                     <div className="flex items-start justify-center gap-[16px] w-full">
                       {!hideTransferAndRequeue && (

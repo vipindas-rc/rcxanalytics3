@@ -406,9 +406,9 @@ interface AgentTablePanelProps {
   //   hideQueueViewInsights: hide the View Insights (SV Assist) hover action
   //     on queue rows in the My Queues tab (active rows keep it).
   //   hideQueueTransferAndMore: hide the Transfer button and the More (3-dot)
-  //     menu on queue rows (Agent suggestion view only; Self-Assign remains).
+  //     menu on queue rows (Agent suggestion view only; Claim remains).
   //   queueClaimLabel: button label for the claim action (default "Claim";
-  //     pass "Self-Assign" in suggestion views).
+  //     pass "Claim" in suggestion views).
   hideQueueViewInsights?: boolean;
   hideQueueTransferAndMore?: boolean;
   // CP: Agent suggestion view — hide the preview/Monitor eye on active
@@ -2375,7 +2375,7 @@ export default function AgentTablePanel({
             onRecategorize={() => setRecategorizeOpen(true)}
             overflowActions={
               // CP: Agent suggestion view — no Ignore in the
-              // preview; Self-Assign (Take over) is the only available action.
+              // preview; Claim (Take over) is the only available action.
               hideQueueTransferAndMore || previewRow.isVoiceInteraction
                 ? undefined
                 : previewRow.conversationState === "PENDING"

@@ -1406,11 +1406,11 @@ export interface InteractionPreviewProps {
   // Active messages / claimed conversation views — queue timing is not
   // relevant once an agent owns the conversation; hide the timing row.
   hideTiming?: boolean;
-  // CP: Agent suggestion view — hide the Transfer button so only Self-Assign
+  // CP: Agent suggestion view — hide the Transfer button so only Claim
   // (the Take over button) is available on queue-row previews.
   hideTransfer?: boolean;
   // CP: Suggestion views — override the primary action button label.
-  // Default "Claim"; pass "Self-Assign" for suggestion queue-row previews.
+  // Default "Claim" for suggestion queue-row previews.
   takeOverLabel?: string;
 }
 
@@ -2031,7 +2031,7 @@ export function InteractionPreview({
               style={{ zIndex: 10001 }}
             />
           )}
-          {/* CP: Agent suggestion view — Transfer is hidden; Self-Assign is the
+          {/* CP: Agent suggestion view — Transfer is hidden; Claim is the
               only footer action on queue-row previews. */}
           {!hideTransfer && (
             <button
