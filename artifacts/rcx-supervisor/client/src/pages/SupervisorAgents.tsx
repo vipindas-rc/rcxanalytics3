@@ -430,7 +430,7 @@ interface QueuePanelSharedProps {
   onDigitalTakeOverCommitted: (engagementId: string) => void;
   // CP: Suggestion view overrides — optional so PaginatedQueuePanel (which
   // is NOT a suggestion view) keeps working without them.
-  /** Toolbar heading text. Default "Queue"; pass "Pending interaction" for suggestion views. */
+  /** Toolbar heading text. Default "Queue"; pass "Pending interactions" for suggestion views. */
   queueTitle?: string;
   /** Hide the Breached SLA checkbox in the filter row (easy to re-enable). */
   hideBreachedSla?: boolean;
@@ -2079,7 +2079,7 @@ export const SupervisorAgents = (): JSX.Element => {
                       ? viewLabel
                       : tab === "Queue"
                         ? isSuggestionView
-                          ? `Pending interaction (${queuePendingCount})`
+                          ? `Pending interactions (${queuePendingCount})`
                           : `Queue (${queuePendingCount})`
                         : tab === "Active messages" &&
                             claimedDigitalIds.length > 0
@@ -2154,7 +2154,7 @@ export const SupervisorAgents = (): JSX.Element => {
               onPreviewClose={closeQueuePreview}
               onVoicePreviewAccepted={handleVoicePreviewAccepted}
               onDigitalTakeOverCommitted={handleDigitalTakeOverCommitted}
-              queueTitle={isSuggestionView ? "Pending interaction" : "Queue"}
+              queueTitle={isSuggestionView ? "Pending interactions" : "Queue"}
               hideBreachedSla={true}
               hideQueueViewInsights={isSuggestionView}
               hideQueueTransferAndMore={isAgent2View}
@@ -2528,7 +2528,7 @@ export const SupervisorAgents = (): JSX.Element => {
               <DialogHeader className="px-8 pt-7">
                 <DialogTitle className="text-xl font-semibold text-[#121212]">
                   {isMyQueuesSettings
-                    ? "Pending interaction table settings"
+                    ? "Pending interactions table settings"
                     : isInteractions
                       ? "Interactions table settings"
                       : "Agent table settings"}
