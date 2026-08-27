@@ -48,6 +48,8 @@ export type MonitoringCallWindowProps = {
   agentType: "Air" | "Human";
   /** Customer side of the monitored call (design shows a phone number). */
   customerPhone?: string;
+  /** Preview display name when contact data is available. */
+  customerName?: string;
   /** Preview variant: queue the call came in on ("To: <queue>" header line). */
   queueName?: string;
   avatarBg?: string;
@@ -259,11 +261,13 @@ function WindowTitleBar({
   onClose,
   onDragPointerDown,
   showTitle = true,
+  title = "RingCX phone call",
 }: {
   assets: MonitorAssets;
   onClose: () => void;
   onDragPointerDown: (e: React.PointerEvent<HTMLElement>) => void;
   showTitle?: boolean;
+  title?: string;
 }) {
   return (
     <div
@@ -300,7 +304,7 @@ function WindowTitleBar({
       </div>
       {showTitle && (
         <p className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-['Lato',sans-serif] font-bold text-[13px] text-[#121212] whitespace-nowrap select-none">
-          RingCX phone call
+          {title}
         </p>
       )}
     </div>
@@ -362,6 +366,7 @@ function MonitorHeaderRow({
 
 function MonitorProfile({
   agentName,
+  customerName,
   customerPhone,
   queueName,
   avatarBg,
@@ -370,6 +375,7 @@ function MonitorProfile({
   assets,
 }: {
   agentName: string;
+  customerName?: string;
   customerPhone: string;
   queueName?: string;
   avatarBg: string;
@@ -1078,6 +1084,7 @@ export function MonitoringCallWindow({
   agentName,
   agentType,
   customerPhone = DEFAULT_CUSTOMER_PHONE,
+  customerName,
   queueName,
   avatarBg = "#509ac4",
   onClose,
@@ -1132,7 +1139,7 @@ export function MonitoringCallWindow({
   // The incoming preview reference is a compact phone window; monitoring keeps
   // the notes panel open unless a transfer sheet explicitly collapsed it.
   const [panelCollapsed, setPanelCollapsed] = useState(
-    isPreview ? true : initialTransferOpen,
+    initialTransferOpen,
   );
   const [notesPreview, setNotesPreview] = useState<NotesPreviewState | null>(null);
   const [notesUpdatedAt, setNotesUpdatedAt] = useState("");
@@ -1293,6 +1300,12 @@ export function MonitoringCallWindow({
   }
 
   const isHuman = agentType === "Human";
+  const displayCustomerName =
+    customerName &&
+    customerName !== customerPhone &&
+    !/^[+()\d\s.-]+$/.test(customerName)
+      ? customerName
+      : "Customer name";
 
   return (
     <TooltipPrimitive.Provider>
@@ -1322,7 +1335,7 @@ export function MonitoringCallWindow({
               assets={assets}
               onClose={onClose}
               onDragPointerDown={onDragPointerDown}
-              showTitle={!isPreview}
+              title={isPreview ? "RingCentral Phone" : "RingCX phone call"}
             />
             <div className="flex flex-1 min-h-0 w-full">
               {/* ---------- LEFT: monitoring dialer ---------- */}
@@ -1337,7 +1350,7 @@ export function MonitoringCallWindow({
                      with avatar, then the caller number front and center. */
                   <>
                     {/* Figma: Top Container 280×212, fill #509ac4; avatar 100×100, fill #f3f3f3 */}
-                    <div className="relative flex items-center justify-center bg-[#509ac4] w-full h-[212px] shrink-0">
+                    <div className="relative flex items-center justify-center bg-[#0b76b2] w-full h-[212px] shrink-0">
                       <div className="absolute top-[10px] right-[12px] flex gap-[10px] items-center">
                         <button
                           type="button"
@@ -1369,27 +1382,22 @@ export function MonitoringCallWindow({
                           />
                         </button>
                       </div>
-                      <div className="flex items-center justify-center rounded-full size-[100px] bg-[#f3f3f3]">
-                        <svg
-                          width="44"
-                          height="44"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="#509ac4"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden
-                        >
-                          <circle cx="12" cy="8" r="4" />
-                          <path d="M4.5 20c1.2-3.4 4.1-5 7.5-5s6.3 1.6 7.5 5" />
-                        </svg>
+                      <div className="flex items-center justify-center rounded-full size-[100px] bg-white">
+                        <span className="font-['Lato',sans-serif] text-[40px] leading-none font-normal text-[#0b76b2]">
+                          {initialsOf(displayCustomerName)}
+                        </span>
                       </div>
                     </div>
                     <div className="flex flex-col items-center gap-[6px] pt-[28px] px-[16px] w-full">
                       <p
-                        data-testid="text-preview-caller"
+                        data-testid="text-preview-customer-name"
                         className="font-['Lato',sans-serif] font-bold leading-[28px] text-[20px] text-[#121212] m-0 text-center"
+                      >
+                        {displayCustomerName}
+                      </p>
+                      <p
+                        data-testid="text-preview-caller"
+                        className="font-['Lato',sans-serif] leading-[24px] text-[16px] text-[#121212] m-0 text-center"
                       >
                         {customerPhone}
                       </p>
@@ -1411,6 +1419,7 @@ export function MonitoringCallWindow({
                     />
                     <MonitorProfile
                       agentName={agentName}
+                      customerName={customerName}
                       customerPhone={customerPhone}
                       queueName={queueName}
                       avatarBg={avatarBg}
@@ -1703,17 +1712,17 @@ export function MonitoringCallWindow({
                             type="button"
                             onClick={handlePreviewVoicemail}
                             data-testid="button-preview-voicemail"
-                            aria-label="Voicemail"
-                            className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
+                            aria-label="To voicemail"
+                            className="bg-[#e6413c] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#d93a35] active:scale-95 transition-all"
                           >
                             <img
                               alt=""
-                              className="size-[16px] block"
+                              className="size-[16px] block [filter:brightness(0)_invert(1)]"
                               src={assets.voicemail}
                             />
                           </button>
                           <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
-                            Voicemail
+                            To voicemail
                           </p>
                         </div>
                       )}
@@ -1729,9 +1738,9 @@ export function MonitoringCallWindow({
                           }}
                           data-testid="button-preview-claim"
                           aria-label={previewClaimLabel ?? "Claim"}
-                          className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
+                          className="bg-[#35a853] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#2d9147] active:scale-95 transition-all"
                         >
-                          <img alt="" className="size-[16px] block" src={assets.takeOver} />
+                          <img alt="" className="size-[16px] block [filter:brightness(0)_invert(1)]" src={assets.phoneFilled} />
                         </button>
                         <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
                           {previewClaimLabel ?? "Claim"}

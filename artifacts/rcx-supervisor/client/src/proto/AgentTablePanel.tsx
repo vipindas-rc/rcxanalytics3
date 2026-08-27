@@ -2287,6 +2287,7 @@ export default function AgentTablePanel({
             variant="preview"
             agentName={previewRow.fullName ?? "Agent"}
             agentType={previewRow.agentType === "Air" ? "Air" : "Human"}
+            customerName={previewData.customerName}
             customerPhone={previewRow.contactIdentity || undefined}
             initialTransferOpen={voicePreviewInitialSheet === "transfer"}
             hideTransferAndRequeue={hideQueueTransferAndMore}
