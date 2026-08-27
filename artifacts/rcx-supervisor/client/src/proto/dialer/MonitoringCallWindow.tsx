@@ -258,10 +258,12 @@ function WindowTitleBar({
   assets,
   onClose,
   onDragPointerDown,
+  showTitle = true,
 }: {
   assets: MonitorAssets;
   onClose: () => void;
   onDragPointerDown: (e: React.PointerEvent<HTMLElement>) => void;
+  showTitle?: boolean;
 }) {
   return (
     <div
@@ -296,9 +298,11 @@ function WindowTitleBar({
           <img alt="" className="size-[12px] block" src={assets.controlGreen} />
         </button>
       </div>
-      <p className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-['Lato',sans-serif] font-bold text-[13px] text-[#121212] whitespace-nowrap select-none">
-        RingCX phone call
-      </p>
+      {showTitle && (
+        <p className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-['Lato',sans-serif] font-bold text-[13px] text-[#121212] whitespace-nowrap select-none">
+          RingCX phone call
+        </p>
+      )}
     </div>
   );
 }
@@ -1125,7 +1129,11 @@ export function MonitoringCallWindow({
     onToast?.(next ? "Call on hold" : "Call resumed");
   };
   const [activeTab, setActiveTab] = useState<PanelTab>("notes");
-  const [panelCollapsed, setPanelCollapsed] = useState(initialTransferOpen);
+  // The incoming preview reference is a compact phone window; monitoring keeps
+  // the notes panel open unless a transfer sheet explicitly collapsed it.
+  const [panelCollapsed, setPanelCollapsed] = useState(
+    isPreview ? true : initialTransferOpen,
+  );
   const [notesPreview, setNotesPreview] = useState<NotesPreviewState | null>(null);
   const [notesUpdatedAt, setNotesUpdatedAt] = useState("");
   // Transfer opens the dialer's transfer workflow ("Ask first" warm / blind)
@@ -1134,6 +1142,11 @@ export function MonitoringCallWindow({
   // Requeue opens the dialer's requeue workflow (queue list with wait
   // indicators) in the same in-window overlay pattern as Transfer.
   const [requeueOpen, setRequeueOpen] = useState(false);
+
+  const handlePreviewVoicemail = () => {
+    onToast?.("Call sent to voicemail");
+    onClose();
+  };
 
   useEffect(() => {
     if (notesPreview !== "loading") return;
@@ -1309,6 +1322,7 @@ export function MonitoringCallWindow({
               assets={assets}
               onClose={onClose}
               onDragPointerDown={onDragPointerDown}
+              showTitle={!isPreview}
             />
             <div className="flex flex-1 min-h-0 w-full">
               {/* ---------- LEFT: monitoring dialer ---------- */}
@@ -1680,6 +1694,26 @@ export function MonitoringCallWindow({
                           </button>
                           <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
                             Requeue
+                          </p>
+                        </div>
+                      )}
+                      {!hideTransferAndRequeue && (
+                        <div className="flex flex-col items-center gap-[6px]">
+                          <button
+                            type="button"
+                            onClick={handlePreviewVoicemail}
+                            data-testid="button-preview-voicemail"
+                            aria-label="Voicemail"
+                            className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
+                          >
+                            <img
+                              alt=""
+                              className="size-[16px] block"
+                              src={assets.voicemail}
+                            />
+                          </button>
+                          <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
+                            Voicemail
                           </p>
                         </div>
                       )}
