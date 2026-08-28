@@ -697,7 +697,7 @@ function TransferFooter({ dialed, onAskFirst, onTransfer, assets }: TransferFoot
     <div className="flex items-start justify-center gap-4 pb-5 pt-3 px-4">
       <FooterButton label="Ask first" iconSrc={assets.helpCircle} iconAlt="" disabled={!dialed} onClick={onAskFirst} testId="button-ask-first" />
       <FooterButton label="Transfer" iconSrc={assets.transfer} iconAlt="" disabled={!dialed} onClick={onTransfer} testId="button-transfer-confirm" />
-      <FooterButton label="To voicemail" iconSrc={assets.voicemail} iconAlt="" disabled testId="button-to-voicemail" />
+      <FooterButton label="Voicemail" iconSrc={assets.voicemail} iconAlt="" disabled testId="button-to-voicemail" />
     </div>
   );
 }
