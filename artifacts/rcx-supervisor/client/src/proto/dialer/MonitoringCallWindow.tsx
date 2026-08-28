@@ -1670,8 +1670,8 @@ export function MonitoringCallWindow({
                 )}
 
                 {ringing ? (
-                  /* Preview call actions: Transfer / Ignore / Requeue above
-                     Voicemail / Claim. */
+                  /* Preview call actions: Transfer / Voicemail / Requeue above
+                     Ignore / Claim. */
                   <div className="mt-auto flex flex-col items-center pb-[40px] w-full">
                     <div className="grid grid-cols-6 items-start justify-items-center gap-x-0 gap-y-[24px] w-[240px]">
                       {!hideTransferAndRequeue && (
@@ -1694,17 +1694,19 @@ export function MonitoringCallWindow({
                         <div className="col-span-2 flex flex-col items-center gap-[6px]">
                           <button
                             type="button"
-                            onClick={onPreviewIgnore}
-                            data-testid="button-preview-ignore"
-                            aria-label="Ignore"
+                            onClick={handlePreviewVoicemail}
+                            data-testid="button-preview-voicemail"
+                            aria-label="Voicemail"
                             className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
                           >
-                            <span className="font-['Lato',sans-serif] font-bold leading-none text-[18px] text-[#666666]">
-                              ×
-                            </span>
+                            <img
+                              alt=""
+                              className="size-[16px] block"
+                              src={assets.voicemail}
+                            />
                           </button>
                           <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
-                            Ignore
+                            Voicemail
                           </p>
                         </div>
                       )}
@@ -1728,19 +1730,17 @@ export function MonitoringCallWindow({
                         <div className="col-start-2 col-span-2 flex flex-col items-center gap-[6px]">
                           <button
                             type="button"
-                            onClick={handlePreviewVoicemail}
-                            data-testid="button-preview-voicemail"
-                            aria-label="Voicemail"
+                            onClick={onPreviewIgnore}
+                            data-testid="button-preview-ignore"
+                            aria-label="Ignore"
                             className="bg-[#e6413c] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#d93a35] active:scale-95 transition-all"
                           >
-                            <img
-                              alt=""
-                              className="size-[16px] block [filter:brightness(0)_invert(1)]"
-                              src={assets.voicemail}
-                            />
+                            <span className="font-['Lato',sans-serif] font-bold leading-none text-[18px] text-white">
+                              ×
+                            </span>
                           </button>
                           <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
-                            Voicemail
+                            Ignore
                           </p>
                         </div>
                       )}
