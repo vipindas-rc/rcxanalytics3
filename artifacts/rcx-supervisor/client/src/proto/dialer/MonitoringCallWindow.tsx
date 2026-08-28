@@ -1673,9 +1673,9 @@ export function MonitoringCallWindow({
                   /* Preview call actions: Transfer / Ignore / Requeue above
                      To voicemail / Claim. */
                   <div className="mt-auto flex flex-col items-center pb-[40px] w-full">
-                    <div className="grid grid-cols-3 items-start justify-items-center gap-x-0 gap-y-[24px] w-[240px]">
+                    <div className="grid grid-cols-6 items-start justify-items-center gap-x-0 gap-y-[24px] w-[240px]">
                       {!hideTransferAndRequeue && (
-                        <div className="flex flex-col items-center gap-[6px]">
+                        <div className="col-span-2 flex flex-col items-center gap-[6px]">
                           <button
                             type="button"
                             onClick={() => setTransferOpen(true)}
@@ -1691,7 +1691,7 @@ export function MonitoringCallWindow({
                         </div>
                       )}
                       {!hideTransferAndRequeue && (
-                        <div className="flex flex-col items-center gap-[6px]">
+                        <div className="col-span-2 flex flex-col items-center gap-[6px]">
                           <button
                             type="button"
                             onClick={onPreviewIgnore}
@@ -1709,7 +1709,7 @@ export function MonitoringCallWindow({
                         </div>
                       )}
                       {!hideTransferAndRequeue && (
-                        <div className="flex flex-col items-center gap-[6px]">
+                        <div className="col-span-2 flex flex-col items-center gap-[6px]">
                           <button
                             type="button"
                             onClick={() => setRequeueOpen(true)}
@@ -1725,7 +1725,7 @@ export function MonitoringCallWindow({
                         </div>
                       )}
                       {!hideTransferAndRequeue && (
-                        <div className="col-start-1 flex flex-col items-center gap-[6px]">
+                        <div className="col-start-2 col-span-2 flex flex-col items-center gap-[6px]">
                           <button
                             type="button"
                             onClick={handlePreviewVoicemail}
@@ -1744,7 +1744,13 @@ export function MonitoringCallWindow({
                           </p>
                         </div>
                       )}
-                      <div className="flex flex-col items-center gap-[6px]">
+                      <div
+                        className={`flex flex-col items-center gap-[6px] ${
+                          hideTransferAndRequeue
+                            ? "col-span-6"
+                            : "col-span-2"
+                        }`}
+                      >
                         <button
                           type="button"
                           onClick={() => {
