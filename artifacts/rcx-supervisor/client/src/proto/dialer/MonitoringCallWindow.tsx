@@ -65,6 +65,10 @@ export type MonitoringCallWindowProps = {
    * call, so the host can register the active call and route to Active calls.
    */
   onPreviewAccepted?: () => void;
+  /** Preview variant: remove the pending interaction after sending to voicemail. */
+  onPreviewVoicemail?: () => void;
+  /** Preview variant: open the host's Ignore confirmation dialog. */
+  onPreviewIgnore?: () => void;
   /**
    * Preview variant: when set, the call is already answered — the window
    * opens connected (no ringing state) with the timer counting from this
@@ -1087,6 +1091,8 @@ export function MonitoringCallWindow({
   onToast,
   onTakeOverCommitted,
   onPreviewAccepted,
+  onPreviewVoicemail,
+  onPreviewIgnore,
   connectedAtMs = null,
   initialTransferOpen = false,
   hideTransferAndRequeue = false,
@@ -1147,7 +1153,8 @@ export function MonitoringCallWindow({
   const [requeueOpen, setRequeueOpen] = useState(false);
 
   const handlePreviewVoicemail = () => {
-    onToast?.("Call sent to voicemail");
+    onToast?.("Call sent to voicemail.");
+    onPreviewVoicemail?.();
     onClose();
   };
 
@@ -1663,10 +1670,10 @@ export function MonitoringCallWindow({
                 )}
 
                 {ringing ? (
-                  /* Preview call actions follow the Figma 2x2 layout:
-                     Transfer/Requeue above To voicemail/Claim. */
+                  /* Preview call actions: Transfer / Ignore / Requeue above
+                     To voicemail / Claim. */
                   <div className="mt-auto flex flex-col items-center pb-[40px] w-full">
-                    <div className="grid grid-cols-2 items-start justify-items-center gap-x-[20px] gap-y-[24px] w-[180px]">
+                    <div className="grid grid-cols-3 items-start justify-items-center gap-x-0 gap-y-[24px] w-[240px]">
                       {!hideTransferAndRequeue && (
                         <div className="flex flex-col items-center gap-[6px]">
                           <button
@@ -1687,6 +1694,24 @@ export function MonitoringCallWindow({
                         <div className="flex flex-col items-center gap-[6px]">
                           <button
                             type="button"
+                            onClick={onPreviewIgnore}
+                            data-testid="button-preview-ignore"
+                            aria-label="Ignore"
+                            className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
+                          >
+                            <span className="font-['Lato',sans-serif] font-bold leading-none text-[18px] text-[#666666]">
+                              ×
+                            </span>
+                          </button>
+                          <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
+                            Ignore
+                          </p>
+                        </div>
+                      )}
+                      {!hideTransferAndRequeue && (
+                        <div className="flex flex-col items-center gap-[6px]">
+                          <button
+                            type="button"
                             onClick={() => setRequeueOpen(true)}
                             data-testid="button-preview-requeue"
                             aria-label="Requeue"
@@ -1700,7 +1725,7 @@ export function MonitoringCallWindow({
                         </div>
                       )}
                       {!hideTransferAndRequeue && (
-                        <div className="flex flex-col items-center gap-[6px]">
+                        <div className="col-start-1 flex flex-col items-center gap-[6px]">
                           <button
                             type="button"
                             onClick={handlePreviewVoicemail}

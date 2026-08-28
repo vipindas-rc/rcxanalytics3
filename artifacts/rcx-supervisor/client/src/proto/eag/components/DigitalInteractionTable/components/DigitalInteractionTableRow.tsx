@@ -37,8 +37,8 @@ import {
     getDigitalInteractionHoveredItems,
 } from '../utils/DigitalInteractionRowRenderUtil';
 
-// 3-dot menu on pending queue rows: digital rows support Recategorize and
-// Remove; voice rows support Remove.
+// 3-dot menu on pending queue rows: both voice and digital rows support
+// Recategorize and Ignore.
 const QueueMoreMenu: FC<{
     engagementId: string;
     agentId: string;
@@ -47,32 +47,28 @@ const QueueMoreMenu: FC<{
 }> = ({ engagementId, agentId, isVoice, onAction }) => {
     const [isOpen, setIsOpen] = useState(false);
 
-    // Recategorize is digital-only; Remove stays last for both channels.
+    // Ignore stays last for both channels.
     const options = useMemo(
         () => [
-            ...(!isVoice
-                ? [
-                      {
-                          id: `recategorize-${engagementId}`,
-                          title: 'Recategorize',
-                          action: () =>
-                              onAction(
-                                  agentId,
-                                  'queueRecategorize',
-                                  engagementId
-                              ),
-                          style: { color: 'var(--primary-text-color)' },
-                      },
-                  ]
-                : []),
             {
-                id: `remove-${engagementId}`,
-                title: 'Remove',
+                id: `recategorize-${engagementId}`,
+                title: 'Recategorize',
+                action: () =>
+                    onAction(
+                        agentId,
+                        'queueRecategorize',
+                        engagementId
+                    ),
+                style: { color: 'var(--primary-text-color)' },
+            },
+            {
+                id: `ignore-${engagementId}`,
+                title: 'Ignore',
                 action: () => onAction(agentId, 'queueRemove', engagementId),
                 style: { color: 'var(--primary-text-color)' },
             },
         ],
-        [agentId, engagementId, isVoice, onAction]
+        [agentId, engagementId, onAction]
     );
 
     const toggleComponent = (

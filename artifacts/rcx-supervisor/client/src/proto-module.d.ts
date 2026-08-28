@@ -51,6 +51,7 @@ declare module "@proto" {
     onInteractionCountChange?: (count: number) => void;
 
     onPreviewClose?: () => void;
+    closePreviewOnOutsideClick?: boolean;
 
     readOnly?: boolean;
 

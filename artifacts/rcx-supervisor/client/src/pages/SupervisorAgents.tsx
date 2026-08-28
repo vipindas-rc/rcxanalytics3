@@ -1010,12 +1010,27 @@ export const SupervisorAgents = (): JSX.Element => {
   // registered — MonitoringCallWindow calls startActivePreviewCall on mount so
   // activePreviewCall covers both cases without a separate store.
   const isEngaged = !!activePreviewCall;
+  const pendingInteractionsUrl = useCallback(() => {
+    const target = new URL(withView("/"), window.location.origin);
+    if (hasQueueTab) target.searchParams.set("nav", "queue");
+    else {
+      target.searchParams.delete("nav");
+      target.searchParams.delete("tab");
+    }
+    return `${target.pathname}${target.search}`;
+  }, [hasQueueTab, withView]);
+
   const handleEndPreviewCall = useCallback(() => {
     endActivePreviewCall();
     if (activeCallMatched && activeCallAgentId === "preview") {
-      navigate(withView("/"));
+      navigate(pendingInteractionsUrl());
     }
-  }, [activeCallMatched, activeCallAgentId, navigate, withView]);
+  }, [
+    activeCallMatched,
+    activeCallAgentId,
+    navigate,
+    pendingInteractionsUrl,
+  ]);
 
   // Digital take-over (Claim) commits land on the Active messages tab —
   // mirrors how voice take-overs land on Active calls.
@@ -1049,15 +1064,20 @@ export const SupervisorAgents = (): JSX.Element => {
     }
   }, [activeMessageEngagementId]);
 
-  // Closing the taken-over call window ends the Active calls context — the
-  // top tab bar returns to Supervisor automatically.
+  // Closing the taken-over call window ends the Active calls context and
+  // returns to pending interactions.
   const handleMonitoringWindowClosed = useCallback(
     (agentId: string) => {
       if (activeCallMatched && agentId === activeCallAgentId) {
-        navigate(withView("/"));
+        navigate(pendingInteractionsUrl());
       }
     },
-    [activeCallMatched, activeCallAgentId, navigate, withView],
+    [
+      activeCallMatched,
+      activeCallAgentId,
+      navigate,
+      pendingInteractionsUrl,
+    ],
   );
 
   const handleTopTabChange = useCallback(

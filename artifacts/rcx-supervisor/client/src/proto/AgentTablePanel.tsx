@@ -390,6 +390,9 @@ interface AgentTablePanelProps {
   onPreviewOpen?: (engagementId: string) => void;
   onPreviewModeChange?: (mode: InteractionPreviewMode) => void;
   onPreviewClose?: () => void;
+  // Prototype behavior flag: clicking outside a pending voice or digital
+  // preview closes the URL-driven preview.
+  closePreviewOnOutsideClick?: boolean;
   // Agent view: render the tables read-only (no monitoring, hover actions,
   // dialpads, or take over). Supervisor view passes false/omits it.
   readOnly?: boolean;
@@ -488,6 +491,7 @@ export default function AgentTablePanel({
   onPreviewOpen,
   onPreviewModeChange,
   onPreviewClose,
+  closePreviewOnOutsideClick = true,
   readOnly = false,
   showCurrentUser = false,
   interactionsVariant,
@@ -654,14 +658,14 @@ export default function AgentTablePanel({
   // Take over is immediate and permanent for the prototype — there is no
   // hand-back, so this only ever transitions from null to an engagement id.
   const [bargedId, setBargedId] = useState<string | null>(null);
-  // Pending Remove confirmation — set when the user picks "Remove" from the
+  // Pending Ignore confirmation — set when the user picks "Ignore" from the
   // 3-dot menu on a queue row; cleared on Cancel or Confirm.
   const [removeConfirmRow, setRemoveConfirmRow] = useState<{
     agentId: string;
     engagementId: string;
     contactIdentity: string;
   } | null>(null);
-  // Digital Recategorize is URL-driven and limited to digital interactions:
+  // Recategorize is URL-driven for pending voice and digital interactions:
   // "1" targets the open preview; another value targets that queue row.
   const [categorizeParam, setCategorizeParam] = useUrlParam("categorize");
   const recategorizeOpen = categorizeParam === "1";
@@ -744,6 +748,42 @@ export default function AgentTablePanel({
     if (activeTab === "Interactions" && !previewEngagementId) return;
     setInsightCtx(null);
   }, [activeTab, previewEngagementId]);
+
+  useEffect(() => {
+    if (
+      !closePreviewOnOutsideClick ||
+      !previewEngagementId ||
+      previewMode !== "preview" ||
+      removeConfirmRow
+    ) {
+      return;
+    }
+
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (
+        target.closest('[data-testid="monitoring-call-window"]') ||
+        target.closest('[data-testid="pane-interaction-preview"]') ||
+        target.closest('[role="dialog"]') ||
+        target.closest('[role="menu"]') ||
+        target.closest('[data-testid^="overlay-"]')
+      ) {
+        return;
+      }
+      onPreviewClose?.();
+    };
+
+    document.addEventListener("pointerdown", handleOutsidePointerDown);
+    return () =>
+      document.removeEventListener("pointerdown", handleOutsidePointerDown);
+  }, [
+    closePreviewOnOutsideClick,
+    onPreviewClose,
+    previewEngagementId,
+    previewMode,
+    removeConfirmRow,
+  ]);
 
   // Switching to the read-only Agent view closes every supervisor-only surface
   // that may still be open: monitoring dialpad, AI Insights panel and its
@@ -1396,7 +1436,7 @@ export default function AgentTablePanel({
       }
       if (type === "queueRecategorize") {
         const row = queueRows.find((r: any) => r.engagementId === uii) as any;
-        if (uii && row && !row.isVoiceInteraction) setRecategorizeRowId(uii);
+        if (uii && row) setRecategorizeRowId(uii);
         return;
       }
       // Transfer: voice rows open the phone-call modal with the Transfer
@@ -2313,6 +2353,21 @@ export default function AgentTablePanel({
               });
               onVoicePreviewAccepted?.();
             }}
+            onPreviewVoicemail={() => {
+              const row = removeQueueRow(previewRow.engagementId);
+              if (row) {
+                flashRef.current(
+                  `Conversation with ${row.contactIdentity} sent to voicemail.`,
+                );
+              }
+            }}
+            onPreviewIgnore={() =>
+              queueActionCallback(
+                previewRow.agentId,
+                "queueRemove",
+                previewRow.engagementId,
+              )
+            }
           />
         )}
 
@@ -2376,7 +2431,7 @@ export default function AgentTablePanel({
             onTakeOver={handlePreviewTakeOver}
             onRecategorize={() => setRecategorizeOpen(true)}
             overflowActions={
-              // CP: Agent suggestion view — no Remove in the
+              // CP: Agent suggestion view — no Ignore in the
               // preview; Claim (Take over) is the only available action.
               hideQueueTransferAndMore || previewRow.isVoiceInteraction
                 ? undefined
@@ -2388,8 +2443,8 @@ export default function AgentTablePanel({
                         onSelect: () => setRecategorizeOpen(true),
                       },
                       {
-                        id: "remove",
-                        label: "Remove",
+                        id: "ignore",
+                        label: "Ignore",
                         onSelect: () => {
                           // Routes through queueActionCallback which now shows
                           // the confirmation dialog before removing the row.
@@ -2524,13 +2579,13 @@ export default function AgentTablePanel({
           />
         )}
 
-        {/* Remove confirmation — uses the @ringcx/ui Dialog for correct
+        {/* Ignore confirmation — uses the @ringcx/ui Dialog for correct
             RingCX fonts, colours, and modal behaviour. */}
         <Dialog
           open={!!removeConfirmRow}
           onClose={() => setRemoveConfirmRow(null) as any}
           style={{ zIndex: 10050 }}
-          dialogTitle="Remove conversation?"
+          dialogTitle="Ignore conversation?"
           hideCloseWithX
           maxWidth="xs"
           fullWidth
@@ -2544,7 +2599,7 @@ export default function AgentTablePanel({
               <span style={{ fontSize: 14, lineHeight: "20px", color: "#616161" }}>
                 The conversation with{" "}
                 <strong style={{ color: "#121212" }}>{removeConfirmRow.contactIdentity}</strong>{" "}
-                will be removed from the queue. This action is irreversible.
+                will be ignored and removed from the queue. This action is irreversible.
               </span>
             ) : null
           }
@@ -2585,7 +2640,7 @@ export default function AgentTablePanel({
                         : ctx,
                     );
                     flashRef.current(
-                      `Conversation with ${row.contactIdentity} removed`,
+                      `Conversation with ${row.contactIdentity} ignored.`,
                     );
                   }
                   onPreviewClose?.();
@@ -2605,7 +2660,7 @@ export default function AgentTablePanel({
                 }}
                 data-testid="button-remove-confirm"
               >
-                Remove
+                Ignore
               </button>
             </div>
           }
