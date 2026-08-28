@@ -1701,7 +1701,7 @@ export function MonitoringCallWindow({
                           >
                             <img
                               alt=""
-                              className="size-[16px] block"
+                              className="size-[16px] block [filter:brightness(0)_saturate(100%)_opacity(0.6)]"
                               src={assets.voicemail}
                             />
                           </button>
