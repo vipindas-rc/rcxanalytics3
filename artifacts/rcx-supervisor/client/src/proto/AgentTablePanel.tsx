@@ -2272,7 +2272,6 @@ export default function AgentTablePanel({
         {previewRow &&
           previewData &&
           previewMode &&
-          !removeConfirmRow &&
           previewRow.isVoiceInteraction &&
           previewRow.conversationState === "ACTIVE" &&
           activePreviewCall?.engagementId !== previewRow.engagementId && (
@@ -2319,6 +2318,7 @@ export default function AgentTablePanel({
         {previewRow &&
           previewData &&
           previewMode &&
+          !removeConfirmRow &&
           previewRow.isVoiceInteraction &&
           previewRow.conversationState !== "ACTIVE" &&
           previewRow.agentType !== "Air" &&
