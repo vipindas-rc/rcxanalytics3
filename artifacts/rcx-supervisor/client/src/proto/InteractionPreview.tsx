@@ -12,8 +12,6 @@ import {
   Minimize2,
   MoreVertical,
   NotebookPen,
-  PanelRightClose,
-  PanelRightOpen,
   Paperclip,
   PhoneIncoming,
   PhoneOutgoing,
@@ -30,6 +28,7 @@ import { IconButton, Menu, More, Tooltip } from "@ringcx/ui";
 
 import { TypeIcon } from "./eag/containers/Chat/TypeIcon";
 import { SupervisorFilter } from "./SupervisorFilter";
+import { SidePanelToggleIcon } from "./SidePanelToggleIcon";
 import type {
   InsightNoteSection,
   InteractionContextData,
@@ -1376,6 +1375,8 @@ import { hhMmSsFilterFromMs } from "./eag/helpers/timeUtils";
 export interface InteractionPreviewProps {
   mode: InteractionPreviewMode;
   data: InteractionPreviewData;
+  /** State-accurate dialog title supplied by the host surface. */
+  title?: string;
   takeOverDisabled?: boolean;
   takeOverDisabledTooltip?: string;
   // Queue previews: nobody is handling the interaction yet, so there's no one
@@ -1417,6 +1418,7 @@ export interface InteractionPreviewProps {
 export function InteractionPreview({
   mode,
   data,
+  title = "Conversation preview",
   takeOverDisabled = false,
   takeOverDisabledTooltip,
   hideTakeOver = false,
@@ -1620,7 +1622,7 @@ export function InteractionPreview({
               }}
               data-testid="text-preview-title"
             >
-              Interaction preview
+              {title}
             </span>
             {mode === "expanded" ? (
               <button
@@ -1666,7 +1668,7 @@ export function InteractionPreview({
                 style={iconButtonStyle}
                 data-testid="button-expand-tabs"
               >
-                <PanelRightOpen size={16} strokeWidth={2} />
+                <SidePanelToggleIcon collapsed />
               </button>
             ) : null}
           </div>
@@ -1777,7 +1779,7 @@ export function InteractionPreview({
             }}
             data-testid="button-expand-tabs"
           >
-            <PanelRightOpen size={16} strokeWidth={2} />
+            <SidePanelToggleIcon collapsed />
           </button>
         ) : null}
       </div>
@@ -2091,7 +2093,7 @@ export function InteractionPreview({
       }}
       data-testid="button-collapse-tabs"
     >
-      <PanelRightClose size={16} strokeWidth={2} />
+      <SidePanelToggleIcon collapsed={false} />
     </button>
   );
 

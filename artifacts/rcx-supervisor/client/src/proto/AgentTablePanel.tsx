@@ -1221,6 +1221,14 @@ export default function AgentTablePanel({
     setMonitoredEngagementId(null);
   }, [agents]);
 
+  // Takeover transfers ownership to the persisted active-call store. Clear the
+  // source selection without showing an "ended" toast so ending/handing off
+  // the owned call cannot reveal the old monitoring window again.
+  const releaseMonitoringForTakeover = useCallback(() => {
+    setMonitoredId(null);
+    setMonitoredEngagementId(null);
+  }, []);
+
   useEffect(() => {
     if (activeTab === "Interactions") return; // grid reports its own count
     onInteractionCountChange?.(supervisor2Interactions.length);
@@ -1468,6 +1476,11 @@ export default function AgentTablePanel({
           number: claimRow.contactIdentity || "Unknown number",
           queueName: claimRow.queueName || "Voice queue",
           engagementId: uii,
+          origin: "preview",
+          detailsPath: "/active-call/preview",
+          agentId: "preview",
+          agentName: "Agent",
+          agentType: "Human",
         });
         onVoicePreviewAccepted?.();
         return;
@@ -2280,6 +2293,7 @@ export default function AgentTablePanel({
           activePreviewCall?.engagementId !== previewRow.engagementId && (
           <MonitoringCallWindow
             key={`voice-active-monitor-${previewRow.engagementId}`}
+            monitoringId={previewRow.engagementId}
             agentName={previewRow.fullName ?? "Agent"}
             agentType={previewRow.agentType === "Air" ? "Air" : "Human"}
             customerPhone={previewRow.contactIdentity || undefined}
@@ -2306,7 +2320,13 @@ export default function AgentTablePanel({
                 number: previewRow.contactIdentity || "Unknown number",
                 queueName: (previewRow as any).queueName || "Voice queue",
                 engagementId: previewRow.engagementId,
+                origin: "takeover",
+                detailsPath: `/active-call/${previewRow.agentId}`,
+                agentId: previewRow.agentId,
+                agentName: previewRow.fullName ?? "Agent",
+                agentType: previewRow.agentType === "Air" ? "Air" : "Human",
               });
+              onPreviewClose?.();
               onTakeOverCommitted?.(previewRow.agentId);
             }}
           />
@@ -2324,7 +2344,6 @@ export default function AgentTablePanel({
           !removeConfirmRow &&
           previewRow.isVoiceInteraction &&
           previewRow.conversationState !== "ACTIVE" &&
-          previewRow.agentType !== "Air" &&
           activePreviewCall?.engagementId !== previewRow.engagementId && (
           <MonitoringCallWindow
             key={`voice-preview-${previewRow.engagementId}`}
@@ -2354,6 +2373,11 @@ export default function AgentTablePanel({
                 queueName:
                   (previewRow as any).queueName || "Voice queue",
                 engagementId: previewRow.engagementId,
+                origin: "preview",
+                detailsPath: "/active-call/preview",
+                agentId: "preview",
+                agentName: "Agent",
+                agentType: "Human",
               });
               onVoicePreviewAccepted?.();
             }}
@@ -2376,13 +2400,10 @@ export default function AgentTablePanel({
         )}
 
         {/* Answered preview call: the same phone window, connected (in-call)
-            state. Mounted from the app-wide store so it survives the route
-            change to /active-call/preview and page refreshes.
-            Synthetic monitoring registrations (engagementId "monitor-…") are
-            excluded — they exist only to drive the header chip; the actual
-            monitoring window renders separately with the Whisper/Barge layout. */}
-        {activePreviewCall &&
-          !activePreviewCall.engagementId.startsWith("monitor-") && (
+            state. Mounted from the answered-call store so it survives the route
+            change to /active-call/preview and page refreshes. Monitoring header
+            state lives in a separate store slot and cannot render here. */}
+        {activePreviewCall?.origin === "preview" && (
           <MonitoringCallWindow
             key={`voice-preview-live-${activePreviewCall.engagementId}`}
             variant="preview"
@@ -2392,9 +2413,36 @@ export default function AgentTablePanel({
             customerPhone={activePreviewCall.number}
             queueName={activePreviewCall.queueName}
             onClose={() => {
-              endActivePreviewCall();
+              endActivePreviewCall(activePreviewCall.engagementId);
               onMonitoringWindowClosed?.("preview");
             }}
+            onToast={(m) => flashRef.current(m)}
+            contextData={activeCallContextData}
+            contextHops={activeCallHops}
+            onContextHop={(event) =>
+              appendContextHop(activePreviewCall.engagementId, event)
+            }
+          />
+        )}
+
+        {/* Taken-over call: store-backed dialer ownership survives both the
+            monitor-to-active route transition and a page refresh. */}
+        {activePreviewCall?.origin === "takeover" && (
+          <MonitoringCallWindow
+            key={`voice-takeover-live-${activePreviewCall.engagementId}`}
+            initialTakenOver
+            connectedAtMs={activePreviewCall.acceptedAtMs}
+            monitoringId={activePreviewCall.engagementId}
+            agentName={activePreviewCall.agentName}
+            agentType={activePreviewCall.agentType}
+            customerPhone={activePreviewCall.number}
+            queueName={activePreviewCall.queueName}
+            onClose={() =>
+              endActivePreviewCall(activePreviewCall.engagementId)
+            }
+            onTakenOverCallEnded={() =>
+              onMonitoringWindowClosed?.(activePreviewCall.agentId)
+            }
             onToast={(m) => flashRef.current(m)}
             contextData={activeCallContextData}
             contextHops={activeCallHops}
@@ -2413,6 +2461,11 @@ export default function AgentTablePanel({
           <InteractionPreview
             mode={previewMode}
             data={previewData}
+            title={
+              previewRow.conversationState === "ACTIVE"
+                ? "Monitoring conversation"
+                : "Conversation preview"
+            }
             hideTakeOver={
               // With a digital-claim route available, Claim behaves the same
               // from every preview surface (Queue tab and pending previews
@@ -2515,9 +2568,14 @@ export default function AgentTablePanel({
         {/* Agents-tab monitor: MonitoringCallWindow handles both Human and AI.
             Human → Whisper/Barge layout with header status chip.
             AI → full Listen/Coach/Barge/Claim/Transfer/Requeue layout. */}
-        {monitoredAgentRow && (
+        {monitoredAgentRow &&
+          activePreviewCall?.engagementId !==
+            (monitoredContextEngagementId ?? monitoredAgentRow.agentId) && (
           <MonitoringCallWindow
             key={monitoredAgentRow.agentId}
+            monitoringId={
+              monitoredContextEngagementId ?? monitoredAgentRow.agentId
+            }
             agentName={monitoredAgentRow.fullName}
             agentType={monitoredAgentRow.agentType === "Air" ? "Air" : "Human"}
             onClose={stopMonitoring}
@@ -2533,21 +2591,30 @@ export default function AgentTablePanel({
               }
             }}
             onTakeOverCommitted={() => {
+              const engagementId =
+                monitoredContextEngagementId ?? monitoredAgentRow.agentId;
               if (monitoredContextEngagementId) {
                 registerActiveCallContext(monitoredAgentRow.agentId, {
                   engagementId: monitoredContextEngagementId,
                   fullName: monitoredAgentRow.fullName,
                   agentType: monitoredAgentRow.agentType,
                 });
-                startActivePreviewCall({
-                  number:
-                    (monitoredAgentRow as any).contactIdentity ||
-                    "Unknown number",
-                  queueName:
-                    (monitoredAgentRow as any).queueName || "Voice queue",
-                  engagementId: monitoredContextEngagementId,
-                });
               }
+              startActivePreviewCall({
+                number:
+                  (monitoredAgentRow as any).contactIdentity ||
+                  "Unknown number",
+                queueName:
+                  (monitoredAgentRow as any).queueName || "Voice queue",
+                engagementId,
+                origin: "takeover",
+                detailsPath: `/active-call/${monitoredAgentRow.agentId}`,
+                agentId: monitoredAgentRow.agentId,
+                agentName: monitoredAgentRow.fullName,
+                agentType:
+                  monitoredAgentRow.agentType === "Air" ? "Air" : "Human",
+              });
+              releaseMonitoringForTakeover();
               onTakeOverCommitted?.(monitoredAgentRow.agentId);
             }}
           />

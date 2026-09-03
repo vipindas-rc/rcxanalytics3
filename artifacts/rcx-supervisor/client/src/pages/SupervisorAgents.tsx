@@ -2,9 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute, useSearch } from "wouter";
 import {
   endActivePreviewCall,
+  endMonitoringSession,
   toggleActivePreviewCallMute,
+  toggleMonitoringSessionMute,
   useActivePreviewCall,
   useElapsedSince,
+  useMonitoringSession,
 } from "@/proto/activePreviewCallStore";
 import {
   MODAL_IDS,
@@ -1006,10 +1009,20 @@ export const SupervisorAgents = (): JSX.Element => {
   const activePreviewElapsed = useElapsedSince(
     activePreviewCall?.acceptedAtMs ?? null,
   );
-  // "Engaged" whenever an active preview call OR human-monitoring session is
-  // registered — MonitoringCallWindow calls startActivePreviewCall on mount so
-  // activePreviewCall covers both cases without a separate store.
-  const isEngaged = !!activePreviewCall;
+  const monitoringSession = useMonitoringSession();
+  const monitoringElapsed = useElapsedSince(
+    monitoringSession?.startedAtMs ?? null,
+  );
+  // Answered calls take header priority if monitoring and a call overlap.
+  const headerSession = activePreviewCall ?? monitoringSession;
+  const headerSessionLabel =
+    activePreviewCall?.number ?? monitoringSession?.agentName ?? "";
+  const headerSessionMuted =
+    activePreviewCall?.muted ?? monitoringSession?.muted ?? false;
+  const headerSessionElapsed = activePreviewCall
+    ? activePreviewElapsed
+    : monitoringElapsed;
+  const isEngaged = !!headerSession;
   const pendingInteractionsUrl = useCallback(() => {
     const target = new URL(withView("/"), window.location.origin);
     if (hasQueueTab) target.searchParams.set("nav", "queue");
@@ -1021,13 +1034,29 @@ export const SupervisorAgents = (): JSX.Element => {
   }, [hasQueueTab, withView]);
 
   const handleEndPreviewCall = useCallback(() => {
-    endActivePreviewCall();
-    if (activeCallMatched && activeCallAgentId === "preview") {
+    endActivePreviewCall(activePreviewCall?.engagementId);
+    if (activeCallMatched) {
       navigate(pendingInteractionsUrl());
     }
   }, [
     activeCallMatched,
+    activePreviewCall?.engagementId,
+    navigate,
+    pendingInteractionsUrl,
+  ]);
+
+  useEffect(() => {
+    if (
+      activeCallMatched &&
+      activeCallAgentId === "preview" &&
+      !activePreviewCall
+    ) {
+      navigate(pendingInteractionsUrl(), { replace: true });
+    }
+  }, [
     activeCallAgentId,
+    activeCallMatched,
+    activePreviewCall,
     navigate,
     pendingInteractionsUrl,
   ]);
@@ -1835,22 +1864,23 @@ export const SupervisorAgents = (): JSX.Element => {
             </div>
           </div>
           <div className="flex items-center gap-2 self-stretch">
-            {activePreviewCall ? (
+            {headerSession ? (
               /* Active call chip: dark bar with the caller number, live timer,
                  mute toggle and hang-up (design ref: RingCX top-bar call). */
               <div
-                className="flex h-full items-center gap-3 bg-gradient-to-r from-[#1b3a4f] to-[#2c536e] px-4"
+                className="flex h-full min-w-[334px] max-w-[420px] shrink-0 items-center gap-3 bg-gradient-to-r from-[#1b3a4f] to-[#2c536e] px-4"
                 data-testid="chip-active-call"
               >
-                <button
-                  type="button"
-                  onClick={() =>
-                    navigate(withView("/active-call/preview"))
-                  }
-                  className="flex items-center gap-2 border-none bg-transparent p-0 text-left cursor-pointer"
-                  data-testid="button-active-call-details"
-                  aria-label="Open call details"
-                >
+                {activePreviewCall ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(withView(activePreviewCall.detailsPath))
+                    }
+                    className="flex min-w-0 flex-1 items-center gap-2 border-none bg-transparent p-0 text-left cursor-pointer"
+                    data-testid="button-active-call-details"
+                    aria-label={`Open call details for ${headerSessionLabel}`}
+                  >
                   <svg
                     width="20"
                     height="20"
@@ -1867,26 +1897,71 @@ export const SupervisorAgents = (): JSX.Element => {
                     <path d="M20 13v4a1.5 1.5 0 0 1-1.5 1.5H17V12h1.5A1.5 1.5 0 0 1 20 13.5" />
                     <path d="M17 18.5v.5a2 2 0 0 1-2 2h-2" />
                   </svg>
-                  <span className="flex flex-col leading-none">
-                    <span className="font-['Lato',sans-serif] text-[15px] font-bold text-white whitespace-nowrap">
-                      {activePreviewCall.number}
+                  <span className="flex min-w-0 flex-1 flex-col leading-none">
+                    <span
+                      className="block truncate font-['Lato',sans-serif] text-[15px] font-bold text-white"
+                      title={headerSessionLabel}
+                    >
+                      {headerSessionLabel}
                     </span>
                     <span
                       className="font-['Lato',sans-serif] text-[12px] text-[#d5dee5] tabular-nums"
                       data-testid="text-active-call-timer"
                     >
-                      {activePreviewElapsed}
+                      {headerSessionElapsed}
                     </span>
                   </span>
-                </button>
+                  </button>
+                ) : (
+                  <div
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    data-testid="monitoring-status-summary"
+                    aria-label={`Monitoring ${headerSessionLabel}`}
+                  >
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#ffffff"
+                      strokeWidth="1.7"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                    >
+                      <path d="M4 13a8 8 0 0 1 16 0" />
+                      <path d="M4 13v4a1.5 1.5 0 0 0 1.5 1.5H7V12H5.5A1.5 1.5 0 0 0 4 13.5" />
+                      <path d="M20 13v4a1.5 1.5 0 0 1-1.5 1.5H17V12h1.5A1.5 1.5 0 0 1 20 13.5" />
+                      <path d="M17 18.5v.5a2 2 0 0 1-2 2h-2" />
+                    </svg>
+                    <span className="flex min-w-0 flex-1 flex-col leading-none">
+                      <span
+                        className="block truncate font-['Lato',sans-serif] text-[15px] font-bold text-white"
+                        title={headerSessionLabel}
+                      >
+                        {headerSessionLabel}
+                      </span>
+                      <span
+                        className="font-['Lato',sans-serif] text-[12px] text-[#d5dee5] tabular-nums"
+                        data-testid="text-active-call-timer"
+                      >
+                        {headerSessionElapsed}
+                      </span>
+                    </span>
+                  </div>
+                )}
                 <button
                   type="button"
-                  onClick={toggleActivePreviewCallMute}
+                  onClick={
+                    activePreviewCall
+                      ? toggleActivePreviewCallMute
+                      : toggleMonitoringSessionMute
+                  }
                   data-testid="button-active-call-mute"
-                  aria-label={activePreviewCall.muted ? "Unmute" : "Mute"}
-                  aria-pressed={activePreviewCall.muted}
-                  className={`flex h-8 w-8 items-center justify-center rounded-full border-none cursor-pointer transition-colors ${
-                    activePreviewCall.muted
+                  aria-label={headerSessionMuted ? "Unmute" : "Mute"}
+                  aria-pressed={headerSessionMuted}
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-none cursor-pointer transition-colors ${
+                    headerSessionMuted
                       ? "bg-[#e6413c] hover:bg-[#d93a35]"
                       : "bg-white hover:bg-[#f0f0f0]"
                   }`}
@@ -1896,7 +1971,7 @@ export const SupervisorAgents = (): JSX.Element => {
                     height="14"
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke={activePreviewCall.muted ? "#ffffff" : "#121212"}
+                    stroke={headerSessionMuted ? "#ffffff" : "#121212"}
                     strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -1905,17 +1980,23 @@ export const SupervisorAgents = (): JSX.Element => {
                     <rect x="9" y="3" width="6" height="11" rx="3" />
                     <path d="M5 11a7 7 0 0 0 14 0" />
                     <line x1="12" y1="18" x2="12" y2="21" />
-                    {activePreviewCall.muted ? (
+                    {headerSessionMuted ? (
                       <line x1="4" y1="4" x2="20" y2="20" />
                     ) : null}
                   </svg>
                 </button>
                 <button
                   type="button"
-                  onClick={handleEndPreviewCall}
+                  onClick={
+                    activePreviewCall
+                      ? handleEndPreviewCall
+                      : () => endMonitoringSession(monitoringSession?.id)
+                  }
                   data-testid="button-active-call-hangup"
-                  aria-label="Hang up"
-                  className="flex h-8 w-8 items-center justify-center rounded-full border-none bg-[#e6413c] cursor-pointer hover:bg-[#d93a35]"
+                  aria-label={
+                    activePreviewCall ? "Hang up" : "End monitoring"
+                  }
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-none bg-[#e6413c] cursor-pointer hover:bg-[#d93a35]"
                 >
                   <svg
                     width="14"
@@ -1956,7 +2037,7 @@ export const SupervisorAgents = (): JSX.Element => {
                   {isEngaged ? "Engaged" : "Available"}
                 </span>
                 <span className="whitespace-nowrap font-caption-1 text-[length:var(--caption-1-font-size)] font-[number:var(--caption-1-font-weight)] leading-[var(--caption-1-line-height)] tracking-[var(--caption-1-letter-spacing)] text-[#121212] [font-style:var(--caption-1-font-style)]">
-                  {activePreviewCall ? activePreviewElapsed : "21:01"}
+                  {headerSession ? headerSessionElapsed : "21:01"}
                 </span>
               </div>
               <img
@@ -2392,7 +2473,8 @@ export const SupervisorAgents = (): JSX.Element => {
           )}
           </>
           )}
-          {activeCallMatched ? (
+          {activeCallMatched &&
+          (activeCallAgentId !== "preview" || activePreviewCall) ? (
             // Active calls view for the taken-over voice call. The supervisor
             // table below stays mounted (zero-height) so the floating take-over
             // dialer window and monitoring session survive the tab switch.

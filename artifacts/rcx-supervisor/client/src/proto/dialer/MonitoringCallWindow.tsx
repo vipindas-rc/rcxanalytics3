@@ -2,11 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { ActionButton, Dialer, NumericKeypad, buildAssets, type Assets } from "./Dialer";
 import {
-  startActivePreviewCall,
   endActivePreviewCall,
   toggleActivePreviewCallMute,
   useActivePreviewCall,
+  endMonitoringSession,
+  startMonitoringSession,
+  useMonitoringSession,
 } from "../activePreviewCallStore";
+import { SidePanelToggleIcon } from "../SidePanelToggleIcon";
 import {
   transcriptTurnAt,
   type TranscriptTurn,
@@ -46,6 +49,8 @@ export type MonitoringCallWindowProps = {
   variant?: "monitoring" | "preview";
   agentName: string;
   agentType: "Air" | "Human";
+  /** Stable identity for monitoring header ownership and cleanup. */
+  monitoringId?: string;
   /** Customer side of the monitored call (design shows a phone number). */
   customerPhone?: string;
   /** Preview variant: queue the call came in on ("To: <queue>" header line). */
@@ -75,6 +80,8 @@ export type MonitoringCallWindowProps = {
    * epoch-ms accept time.
    */
   connectedAtMs?: number | null;
+  /** Restore directly into the owned, taken-over call dialer. */
+  initialTakenOver?: boolean;
   /** Open the window with the Transfer sheet already up. */
   initialTransferOpen?: boolean;
   /**
@@ -350,13 +357,9 @@ function MonitorHeaderRow({
           data-testid="button-monitor-collapse"
           onClick={onTogglePanel}
           className="size-[16px] p-0 border-none bg-transparent cursor-pointer hover:opacity-70 active:scale-90 transition-all"
-          aria-label={panelCollapsed ? "Show side panel" : "Hide side panel"}
+          aria-label={panelCollapsed ? "Show details" : "Hide details"}
         >
-          <img
-            alt=""
-            className={`size-[16px] block transition-transform ${panelCollapsed ? "rotate-180" : ""}`}
-            src={assets.collapse}
-          />
+          <SidePanelToggleIcon collapsed={panelCollapsed} />
         </button>
       </div>
     </div>
@@ -1071,6 +1074,7 @@ export function MonitoringCallWindow({
   variant = "monitoring",
   agentName,
   agentType,
+  monitoringId,
   customerPhone = DEFAULT_CUSTOMER_PHONE,
   customerName,
   queueName,
@@ -1082,6 +1086,7 @@ export function MonitoringCallWindow({
   onPreviewVoicemail,
   onPreviewIgnore,
   connectedAtMs = null,
+  initialTakenOver = false,
   initialTransferOpen = false,
   hideTransferAndRequeue = false,
   previewClaimLabel = "Claim",
@@ -1094,8 +1099,15 @@ export function MonitoringCallWindow({
   const assets = buildMonitorAssets(assetBasePath);
   const isPreview = variant === "preview";
   const isHumanMonitoring = agentType === "Human" && !isPreview;
+  const monitoringSessionIdRef = useRef(
+    monitoringId ??
+      `monitor-${agentName.replace(/\s+/g, "-").toLowerCase()}-${Date.now()}`,
+  );
+  const monitoringStartedAtRef = useRef(Date.now());
   // Monitoring starts active. Preview calls remain passive until answered.
-  const [phase, setPhase] = useState<Phase>(isPreview ? "passive" : "listening");
+  const [phase, setPhase] = useState<Phase>(
+    initialTakenOver ? "takenOver" : isPreview ? "passive" : "listening",
+  );
   // Preview calls open in an incoming (ringing) state: Accept connects,
   // Decline closes the window.
   const [ringing, setRinging] = useState(isPreview && connectedAtMs == null);
@@ -1112,6 +1124,7 @@ export function MonitoringCallWindow({
   // In-progress preview call controls. Mute is shared with the top-bar call
   // chip via the app-wide store; Hold and Keypad are window-local.
   const activePreviewCall = useActivePreviewCall();
+  const monitoringSession = useMonitoringSession();
   const previewCallMuted = activePreviewCall?.muted ?? false;
   const handlePreviewMuteToggle = () => toggleActivePreviewCallMute();
   const [previewOnHold, setPreviewOnHold] = useState(false);
@@ -1206,36 +1219,34 @@ export function MonitoringCallWindow({
     onTakeOverCommitted?.();
   };
 
-  // Reuse the existing "active preview call" chip in the header for human
-  // monitoring — no separate chip needed.  On mount we register a synthetic
-  // active call (agent name as the "number"); on unmount we clear it.
+  // Monitoring owns a separate header session from answered preview calls.
+  // Stable IDs make cleanup conditional, so one window cannot end another.
   useEffect(() => {
-    if (!isHumanMonitoring) return;
-    startActivePreviewCall({
-      number: agentName,
-      queueName: "Monitoring call",
-      engagementId: `monitor-${agentName.replace(/\s+/g, "-").toLowerCase()}-${Date.now()}`,
+    if (isPreview || isTakenOver) return;
+    const sessionId = monitoringSessionIdRef.current;
+    startMonitoringSession({
+      id: sessionId,
+      agentName,
+      agentType,
+      startedAtMs: monitoringStartedAtRef.current,
     });
     return () => {
-      endActivePreviewCall();
+      endMonitoringSession(sessionId);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHumanMonitoring, agentName]);
+  }, [agentName, agentType, isPreview, isTakenOver]);
 
-  // If the chip's end button clears the store externally, close the window too.
-  // Use hadActiveCallRef so we only react after the store has been set at least
-  // once — avoids an immediate close from the first-render effect ordering
-  // (Effect 1 calls startActivePreviewCall but the store hasn't re-rendered yet
-  // when Effect 2 first runs, so activePreviewCall would still read as null).
-  const hadActiveCallRef = useRef(false);
+  // If header End monitoring clears this window's session, close its route too.
+  const hadMonitoringSessionRef = useRef(false);
   useEffect(() => {
-    if (!isHumanMonitoring) return;
-    if (activePreviewCall) {
-      hadActiveCallRef.current = true;
-    } else if (hadActiveCallRef.current) {
+    if (isPreview || isTakenOver) return;
+    const ownsSession =
+      monitoringSession?.id === monitoringSessionIdRef.current;
+    if (ownsSession) {
+      hadMonitoringSessionRef.current = true;
+    } else if (hadMonitoringSessionRef.current) {
       onClose();
     }
-  }, [isHumanMonitoring, activePreviewCall, onClose]);
+  }, [isPreview, isTakenOver, monitoringSession, onClose]);
 
   /* ---------- taken-over: swap to the existing active-call dialpad ---------- */
   if (isTakenOver) {
@@ -1265,13 +1276,20 @@ export function MonitoringCallWindow({
             // Ending the call closes the popout AND leaves the Active calls
             // context — the page returns to the Supervisor tab.
             onCallEnd={() => {
+              endActivePreviewCall(monitoringSessionIdRef.current);
               onClose();
               onTakenOverCallEnded?.();
             }}
             // Completing a transfer or requeue hands the call off: close the
             // popout but leave the page's Active calls context (route) untouched.
-            onTransferComplete={onClose}
-            onRequeueComplete={onClose}
+            onTransferComplete={() => {
+              endActivePreviewCall(monitoringSessionIdRef.current);
+              onClose();
+            }}
+            onRequeueComplete={() => {
+              endActivePreviewCall(monitoringSessionIdRef.current);
+              onClose();
+            }}
           />
         </div>
       </div>
@@ -1342,15 +1360,13 @@ export function MonitoringCallWindow({
                           onClick={() => setPanelCollapsed((v) => !v)}
                           data-testid="button-preview-collapse"
                           aria-label={
-                            panelCollapsed ? "Show side panel" : "Hide side panel"
+                            panelCollapsed ? "Show details" : "Hide details"
                           }
                           className="size-[16px] p-0 border-none bg-transparent cursor-pointer opacity-90 hover:opacity-100 active:scale-90 transition-all"
                         >
-                          <img
-                            alt=""
-                            className={`size-[16px] block transition-transform ${panelCollapsed ? "rotate-180" : ""}`}
-                            style={{ filter: "brightness(0) invert(1)" }}
-                            src={assets.collapse}
+                          <SidePanelToggleIcon
+                            collapsed={panelCollapsed}
+                            inverted
                           />
                         </button>
                       </div>
@@ -1698,11 +1714,10 @@ export function MonitoringCallWindow({
                         <button
                           type="button"
                           onClick={() => {
+                            setRinging(false);
                             if (onPreviewAccepted) {
                               onPreviewAccepted();
-                              return;
                             }
-                            setRinging(false);
                           }}
                           data-testid="button-preview-claim"
                           aria-label={previewClaimLabel ?? "Claim"}
