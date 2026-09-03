@@ -1199,7 +1199,9 @@ export default function AgentTablePanel({
       const isStopping = monitoredId === agentId;
       setMonitoredId(isStopping ? null : agentId);
       if (isStopping) {
-        flashRef.current(`Stopped monitoring ${a?.fullName ?? agentId}`);
+        flashRef.current(`Call ended with ${a?.fullName ?? agentId}.`);
+      } else {
+        setInsightCtx(null);
       }
       return {} as any;
     },
@@ -1212,7 +1214,7 @@ export default function AgentTablePanel({
     setMonitoredId((cur) => {
       if (cur) {
         const a = agents.find((x: any) => x.agentId === cur);
-        flashRef.current(`Stopped monitoring ${a?.fullName ?? cur}`);
+        flashRef.current(`Call ended with ${a?.fullName ?? cur}.`);
       }
       return null;
     });
@@ -1642,8 +1644,9 @@ export default function AgentTablePanel({
         if (isStopping) {
           setMonitoredId(null);
           setMonitoredEngagementId(null);
-          flashRef.current(`Stopped monitoring ${row?.fullName ?? agentId}`);
+          flashRef.current(`Call ended with ${row?.fullName ?? agentId}.`);
         } else {
+          setInsightCtx(null);
           setMonitoredId(agentId);
           setMonitoredEngagementId(uii ?? null);
         }

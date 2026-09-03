@@ -27,9 +27,9 @@ import {
  * Replaces the old MonitoringDialpad popup for voice monitoring.
  *
  * States (carried over from MonitoringDialpad):
- * - AI (Air) agent listening   -> Coach/Barge unavailable, Take over enabled
- * - Human agent listen-only    -> Mute disabled + tooltip, Coach/Barge/Take over
- * - Human agent barged         -> Mute toggles, Barge active, snackbar
+ * - AI (Air) agent monitoring  -> Audio/Transfer/Requeue/Take over
+ * - Human agent listen-only    -> Mute/Dialpad disabled, Audio/Whisper/Barge
+ * - Human agent barged         -> conference view, Barge active, snackbar
  * - Taken over                 -> swaps to the existing active-call dialpad (Dialer)
  *
  * Non-modal (no backdrop) so the agent table stays clickable and the existing
@@ -104,9 +104,6 @@ type PanelTab = "contact" | "notes" | "context";
 
 const DEFAULT_CUSTOMER_PHONE = "(360) 765-2456";
 const MONITORING_TOOLTIP = "Unavailable when monitoring";
-// Coach (whisper) and Barge exist to support a human agent mid-call — they
-// don't apply when an AI agent is handling the conversation (use Take over).
-const AI_AGENT_TOOLTIP = "Not available for AI agents";
 const WINDOW_W = 800;
 const WINDOW_H = 534;
 const LEFT_W = 280;
@@ -887,6 +884,8 @@ function NotesTranscriptPanel({
   avatarBg,
   onPreviewNotes,
   ivrMessages,
+  title,
+  showTranscribingBanner = true,
 }: {
   assets: MonitorAssets;
   agentName: string;
@@ -896,6 +895,8 @@ function NotesTranscriptPanel({
   // pre-queue IVR transcript instead of the live call feed — there is no
   // active call to transcribe yet.
   ivrMessages?: PreviewMessage[] | null;
+  title?: string;
+  showTranscribingBanner?: boolean;
 }) {
   const feed = useTranscriptFeed(agentName);
   const isIvr = !!ivrMessages;
@@ -935,7 +936,7 @@ function NotesTranscriptPanel({
     <div className="flex flex-col flex-1 min-h-0 w-full px-[16px] pt-[12px] pb-[12px] gap-[10px]">
       <div className="flex items-center justify-between w-full shrink-0">
         <h2 className="font-['Lato',sans-serif] font-bold text-[16px] leading-[24px] text-[#121212] m-0">
-          {isIvr ? "IVR transcript" : "Notes and transcript"}
+          {isIvr ? "IVR transcript" : (title ?? "Notes and transcript")}
         </h2>
         <div className="flex items-center gap-[8px]">
           <button
@@ -959,7 +960,7 @@ function NotesTranscriptPanel({
 
       {/* No live transcription before the call is accepted — the AI banner
           only appears for an active call. */}
-      {!isIvr && (
+      {!isIvr && showTranscribingBanner && (
         <AiTranscribingBanner
           assets={assets}
           paused={paused}
@@ -1038,40 +1039,27 @@ function ContactInfoPanel({
 
 /* -------------------- MONITORING CONTROL HELPERS -------------------- */
 
-/**
- * "Stop monitoring" exit button — closes the supervisor window without ending
- * the agent's call. Neutral styling; eye-with-slash icon matches the table's
- * monitor/preview eye glyph.
- */
-function StopMonitoringButton({ onStop }: { onStop: () => void }) {
+/** End the current supervisor call session. */
+function EndCallButton({
+  onEnd,
+  iconSrc,
+}: {
+  onEnd: () => void;
+  iconSrc: string;
+}) {
   return (
     <div className="flex flex-col items-center gap-[8px]">
       <button
         type="button"
-        onClick={onStop}
-        data-testid="button-stop-monitoring"
-        aria-label="Stop monitoring"
-        className="flex items-center justify-center rounded-full size-[56px] bg-[#f3f3f3] border-none cursor-pointer hover:bg-[#e8e8e8] active:scale-95 transition-all"
+        onClick={onEnd}
+        data-testid="button-monitor-end-call"
+        aria-label="End call"
+        className="flex items-center justify-center rounded-full size-[56px] bg-[#e6413c] border-none cursor-pointer hover:bg-[#d93a35] active:scale-95 transition-all"
       >
-        {/* Eye with diagonal slash — same eye glyph as the table monitor action */}
-        <svg
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="#121212"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
-          <circle cx="12" cy="12" r="3" />
-          <line x1="3" y1="3" x2="21" y2="21" />
-        </svg>
+        <img alt="" className="size-[28px] block" src={iconSrc} />
       </button>
       <p className="font-['Lato',sans-serif] font-bold leading-[16px] text-[12px] text-[#666666] m-0">
-        Stop monitoring
+        End call
       </p>
     </div>
   );
@@ -1106,9 +1094,8 @@ export function MonitoringCallWindow({
   const assets = buildMonitorAssets(assetBasePath);
   const isPreview = variant === "preview";
   const isHumanMonitoring = agentType === "Human" && !isPreview;
-  // Human monitoring starts directly in listening mode (no passive/listen-toggle step).
-  // AI monitoring and preview calls start passive / ringing as before.
-  const [phase, setPhase] = useState<Phase>(isHumanMonitoring ? "listening" : "passive");
+  // Monitoring starts active. Preview calls remain passive until answered.
+  const [phase, setPhase] = useState<Phase>(isPreview ? "passive" : "listening");
   // Preview calls open in an incoming (ringing) state: Accept connects,
   // Decline closes the window.
   const [ringing, setRinging] = useState(isPreview && connectedAtMs == null);
@@ -1122,8 +1109,6 @@ export function MonitoringCallWindow({
   const [snackbarVisible, setSnackbarVisible] = useState(false);
   // Whisper (coaching) snackbar — "Only [agent] can hear you".
   const [whisperSnackbarVisible, setWhisperSnackbarVisible] = useState(false);
-  const [supervisorMuted, setSupervisorMuted] = useState(false);
-
   // In-progress preview call controls. Mute is shared with the top-bar call
   // chip via the app-wide store; Hold and Keypad are window-local.
   const activePreviewCall = useActivePreviewCall();
@@ -1170,7 +1155,6 @@ export function MonitoringCallWindow({
   }, [notesPreview]);
   const { offset, onDragPointerDown } = useDragPosition();
 
-  const isPassive   = phase === "passive";
   const isListening = phase === "listening";
   const isCoaching  = phase === "coaching";
   const isBarged    = phase === "barged";
@@ -1194,30 +1178,20 @@ export function MonitoringCallWindow({
     return () => window.clearTimeout(id);
   }, [whisperSnackbarVisible]);
 
-  const handleListen = () => setPhase("listening");
-
-  const handleCoach = () => {
-    setPhase("coaching");
-    setSupervisorMuted(false);
-  };
-
   /** Human monitoring: enter Whisper (coaching) mode — only the agent can hear the supervisor. */
   const handleWhisper = () => {
     setPhase("coaching");
-    setSupervisorMuted(false);
     setWhisperSnackbarVisible(true);
   };
 
   const handleBarge = () => {
     setPhase("barged");
-    setSupervisorMuted(false);
     setSnackbarVisible(true);
     setWhisperSnackbarVisible(false);
   };
 
   const handleStopBarge = () => {
     setPhase("listening");
-    setSupervisorMuted(false);
     setSnackbarVisible(false);
   };
 
@@ -1442,15 +1416,11 @@ export function MonitoringCallWindow({
                   )}
                   <div className="flex flex-wrap justify-start gap-y-[12px] w-[240px]">
                     {/* Row 1: Mute / Dialpad (always disabled) / Audio */}
-                    {/* Mute is synced to the header chip (activePreviewCall.muted).
-                        Disabled in listening-only mode; enabled in whisper/barge. */}
                     <ActionButton
                       imgSrc={assets.mute}
                       imgAlt=""
-                      label={activePreviewCall?.muted ? "Unmute" : "Mute"}
-                      disabled={isListening}
-                      active={(isCoaching || isBarged) && (activePreviewCall?.muted ?? false)}
-                      onClick={isCoaching || isBarged ? toggleActivePreviewCallMute : undefined}
+                      label="Mute"
+                      disabled
                       testId="button-monitor-mute"
                     />
                     <UnavailableTooltip>
@@ -1507,41 +1477,15 @@ export function MonitoringCallWindow({
 
                 {!isPreview && !isHuman && (
                 <div className="flex flex-col gap-[12px] items-center pt-[20px] px-[10px] w-full">
-                  {/* ── AI agent: Listen / Coach / Barge / Transfer / Requeue / Claim ── */}
+                  {/* ── AI agent: Audio / Transfer / Requeue / Take over ── */}
                   {isBarged ? null : (
                     <div className="flex flex-wrap justify-start gap-y-[12px] w-[240px]">
-                      <ActionButton
-                        imgSrc={assets.headset}
-                        imgAlt=""
-                        label="Listen"
-                        active={!isPassive}
-                        onClick={() => (isPassive ? handleListen() : setPhase("passive"))}
-                        testId="button-monitor-listen"
-                      />
                       <ActionButton
                         imgSrc={assets.audio}
                         imgAlt=""
                         label="Audio"
-                        disabled={isPassive}
                         testId="button-monitor-audio"
                       />
-                      {!isPassive && (
-                        <>
-                          <ActionButton
-                            imgSrc={assets.mute}
-                            imgAlt=""
-                            label="Mute"
-                            disabled={!isCoaching}
-                            active={isCoaching && supervisorMuted}
-                            onClick={
-                              isCoaching
-                                ? () => setSupervisorMuted((v) => !v)
-                                : undefined
-                            }
-                            testId="button-monitor-mute"
-                          />
-                        </>
-                      )}
                       <ActionButton
                         imgSrc={assets.transfer}
                         imgAlt=""
@@ -1556,15 +1500,13 @@ export function MonitoringCallWindow({
                         onClick={() => setRequeueOpen(true)}
                         testId="button-monitor-requeue"
                       />
-                      {!isPassive && (
-                        <ActionButton
-                          imgSrc={assets.takeOver}
-                          imgAlt=""
-                          label="Claim"
-                          onClick={handleTakeOver}
-                          testId="button-monitor-take-over"
-                        />
-                      )}
+                      <ActionButton
+                        imgSrc={assets.takeOver}
+                        imgAlt=""
+                        label="Take over"
+                        onClick={handleTakeOver}
+                        testId="button-monitor-take-over"
+                      />
                     </div>
                   )}
                 </div>
@@ -1786,8 +1728,7 @@ export function MonitoringCallWindow({
                         <img alt="" className="size-[28px] block" src={assets.hangUp} />
                       </button>
                     ) : (
-                      /* Monitoring: Stop monitoring exits without ending the agent's call */
-                      <StopMonitoringButton onStop={onClose} />
+                      <EndCallButton onEnd={onClose} iconSrc={assets.hangUp} />
                     )}
                   </div>
                 )}
@@ -1896,10 +1837,8 @@ export function MonitoringCallWindow({
                         if (queueName) onContextHop?.({ kind: "queue", name: queueName });
                         setRequeueOpen(false);
                         onClose();
-                        // Re-emit after the host finishes closing (its close path
-                        // flashes "Stopped monitoring" during the next render, which
-                        // would overwrite the requeue confirmation), so the requeue
-                        // toast is the one the supervisor actually sees.
+                        // Re-emit after the host finishes closing so the requeue
+                        // confirmation remains the final message shown.
                         if (queueName) {
                           window.setTimeout(() => {
                             onToast?.(
@@ -1927,37 +1866,50 @@ export function MonitoringCallWindow({
                   className="relative flex flex-col flex-1 min-w-0 h-full"
                   data-testid="monitoring-notes-panel"
                 >
-                  <PanelTabBar
-                    assets={assets}
-                    activeTab={activeTab}
-                    onTabChange={setActiveTab}
-                    showContext={!!contextData && !isPreview}
-                    showNotesTab={!isTakenOver}
-                    notesLabel={
-                      isPreview && ringing
-                        ? "IVR transcript"
-                        : "Notes and transcript"
-                    }
-                  />
-                  {activeTab === "notes" && (
+                    {!isPreview && !isHuman ? (
                     <NotesTranscriptPanel
                       assets={assets}
                       agentName={agentName}
                       avatarBg={avatarBg}
                       onPreviewNotes={() => setNotesPreview("loading")}
-                      ivrMessages={
-                        isPreview && ringing ? contextData?.messages : null
-                      }
+                        title="Transcripts"
+                        showTranscribingBanner={false}
                     />
-                  )}
-                  {activeTab === "contact" && (
-                    <ContactInfoPanel
-                      customerPhone={customerPhone}
-                      contextData={contextData}
-                    />
-                  )}
-                  {activeTab === "context" && contextData && (
-                    <ContextTabContent data={contextData} extraHops={contextHops} />
+                    ) : (
+                      <>
+                        <PanelTabBar
+                          assets={assets}
+                          activeTab={activeTab}
+                          onTabChange={setActiveTab}
+                          showContext={!!contextData && !isPreview}
+                          showNotesTab={!isTakenOver}
+                          notesLabel={
+                            isPreview && ringing
+                              ? "IVR transcript"
+                              : "Notes and transcript"
+                          }
+                        />
+                        {activeTab === "notes" && (
+                          <NotesTranscriptPanel
+                            assets={assets}
+                            agentName={agentName}
+                            avatarBg={avatarBg}
+                            onPreviewNotes={() => setNotesPreview("loading")}
+                            ivrMessages={
+                              isPreview && ringing ? contextData?.messages : null
+                            }
+                          />
+                        )}
+                        {activeTab === "contact" && (
+                          <ContactInfoPanel
+                            customerPhone={customerPhone}
+                            contextData={contextData}
+                          />
+                        )}
+                        {activeTab === "context" && contextData && (
+                          <ContextTabContent data={contextData} extraHops={contextHops} />
+                        )}
+                      </>
                   )}
                   {notesPreview && (
                     <NotesPreviewSheet
