@@ -1122,7 +1122,9 @@ export function MonitoringCallWindow({
     setPreviewOnHold(next);
     onToast?.(next ? "Call on hold" : "Call resumed");
   };
-  const [activeTab, setActiveTab] = useState<PanelTab>("notes");
+  const [activeTab, setActiveTab] = useState<PanelTab>(
+    isHumanMonitoring ? "contact" : "notes",
+  );
   // The incoming preview reference is a compact phone window; monitoring keeps
   // the notes panel open unless a transfer sheet explicitly collapsed it.
   const [panelCollapsed, setPanelCollapsed] = useState(
@@ -1882,7 +1884,7 @@ export function MonitoringCallWindow({
                           activeTab={activeTab}
                           onTabChange={setActiveTab}
                           showContext={!!contextData && !isPreview}
-                          showNotesTab={!isTakenOver}
+                          showNotesTab={!isTakenOver && !isHumanMonitoring}
                           notesLabel={
                             isPreview && ringing
                               ? "IVR transcript"
