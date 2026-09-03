@@ -1,0 +1,366 @@
+# Interaction Lab — Claude Code Prompt
+
+Turn this app into an **Interaction Lab**: a Figma-style infinite canvas that hosts multiple _fully interactive_ app screens. Zoom out and see every prototype at once, pan around freely, then lock into any screen and use it like a real running app. The existing polaroid physics teams page becomes the first screen on the canvas. Figma's canvas feel, tldraw's DOM architecture, live React content.
+
+Decisions already made (do not re-litigate): the lab **becomes the app shell** (canvas is the root of `App.tsx`), screens come from a **code registry**, interaction uses **explicit lock-in** (explore mode is inert by default), and layout/camera **persist to localStorage** with registry positions as defaults plus a reset.
+
+---
+
+## Tech Stack & Conventions
+
+- **The lab is a general-purpose tool; projects (like Sage Bank) live _inside_ it as screens.** Lab chrome uses **CSS modules** (`src/lab/lab.module.css`), **Inter**, and a neutral skin (Figma-blue `#0d99ff` accent, `#1c1c1c` pills, `#f1f1f1` default canvas) — zero project tokens, zero Tailwind in lab code. Screens style themselves however they like (Sage screens keep Tailwind v4 + Lausanne).
+- React 19 + Vite + TypeScript (strict habits: no `any`, `verbatimModuleSyntax`).
+- Match the existing house patterns: per-frame mutation lives in refs and writes DOM styles imperatively; React state only for things that change rendered structure. CSS in `@layer components`, kebab-case files, function components + hooks only.
+- **No new dependencies.** No tldraw, no react-zoom-pan-pinch, no state library. The camera is ~100 lines of math; own it.
+
+---
+
+## File Structure
+
+```
+src/lab/
+  interaction-lab.tsx    // canvas host — rendered by App.tsx as the shell
+  camera.ts              // camera store (plain module, ref-based) + pure math helpers
+  use-canvas-input.ts    // wheel / pointer / keyboard bindings for explore mode
+  screen-frame.tsx       // frame chrome: shield, label, selection ring, culling
+  screen-context.tsx     // ScreenContext provider + useScreen() hook
+  screens.ts             // the registry
+  persistence.ts         // localStorage load/save (debounced 300ms), versioned key
+src/screens/
+  teams/teams-screen.tsx // the existing team page (sections + physics board) adapted
+  playground/playground-screen.tsx // trivial second screen to prove multi-screen works
+```
+
+`App.tsx` becomes: render `<InteractionLab />`. The old page composition (sections, physics board, grid/color-mode hooks) moves into `teams-screen.tsx`.
+
+---
+
+## The Registry
+
+```ts
+export type ScreenDef = {
+  id: string;
+  name: string; // shown in the frame label
+  width: number; // frame viewport size in page units (canvas units at zoom 1)
+  height: number;
+  defaultPosition: { x: number; y: number }; // top-left, page units
+  component: React.ComponentType;
+};
+
+export const SCREENS: ScreenDef[] = [
+  {
+    id: "teams",
+    name: "Team — Physics Board",
+    width: 1440,
+    height: 900,
+    defaultPosition: { x: 0, y: 0 },
+    component: TeamsScreen,
+  },
+  {
+    id: "playground",
+    name: "Playground",
+    width: 1440,
+    height: 900,
+    defaultPosition: { x: 1640, y: 0 },
+    component: PlaygroundScreen,
+  },
+];
+```
+
+- Frames are **fixed-size viewports** (like a device frame); screen content taller than the frame scrolls inside its own scroll container. This is what preserves the physics board's scroll-driven feel.
+- Adding a screen = write a component + one registry entry. Nothing else.
+- Keep frame widths `>= 1000` so screens that branch on width (the board's mobile mode) stay in desktop behavior.
+
+---
+
+## Camera System
+
+Camera is `{ x, y, z }` where `z` is zoom. One DOM layer holds every frame; children are absolutely positioned at their page coordinates.
+
+- **Transform**: the layer gets `transform: scale(z) translate(x, y)` with `transform-origin: 0 0` (translate is in pre-scale page units). Page point at the viewport's top-left is `(-x, -y)`.
+- **Conversions**: `screenToPage(p) = p / z - camera` per axis (after subtracting the canvas element's origin); `pageToScreen(p) = (p + camera) * z`.
+- **Pan**: `camera.x += dx / z` for a screen-space drag delta `dx` (same for y).
+- **Zoom to a screen point `p`** (the fixed-point formula — the point under the cursor must not move): `c2 = c1 + p / z2 - p / z1` per axis.
+- **Wheel zoom**: normalize `delta = clamp(deltaY, -10, 10) / 100` (handle `deltaMode` lines→pixels ×~16), then multiplicative `z2 = z1 * (1 - delta)`, anchored at the cursor. Multiplicative, never additive — zoom must feel uniform at every scale.
+- **Zoom steps** for keyboard `+`/`-` and snapping: `[0.05, 0.1, 0.25, 0.5, 1, 2, 4]`. First/last are the interactive min/max clamp.
+- **Zoom to bounds** (fit-all, zoom-to-selection, lock-in): `inset = min(96, viewportWidth * 0.28)`, `z = clamp(min((vw - inset*2) / bw, (vh - inset*2) / bh), 0.02, 1)` — fit never zooms past 100%, and its floor (`0.02`) sits BELOW the interactive minimum (`0.05`): when the canvas is wide and the window narrow (DevTools docked), showing everything wins over the gesture floor. Center the bounds.
+- **Camera animation**: `320ms` `cubic-bezier(0.22, 1, 0.36, 1)`, driven by rAF interpolating camera values (never CSS-transition the layer transform — it must stay imperative). Interpolate `z` in log space so zoom animations feel linear. Under `prefers-reduced-motion: reduce`, jump instantly.
+- After any programmatic camera change, recompute hover state (the page point under a stationary cursor changed).
+
+### Input routing (explore mode)
+
+- `wheel` listener on the canvas root with `{ passive: false }` + `preventDefault()`. `ctrlKey`/`metaKey` wheel (this is also how trackpad pinch arrives) = zoom to cursor; plain wheel = pan (`deltaX`/`deltaY`); `shiftKey` wheel = horizontal pan.
+- `touch-action: none` and `overflow: clip` on the canvas root. Two-pointer touch = pinch zoom + pan (midpoint-anchored).
+- Space+drag = temporary hand tool (cursor `grab`/`grabbing`); middle-mouse drag also pans. Plain drag on empty canvas = pan too (nothing else to do there; no marquee needed in v1).
+
+---
+
+## Keyboard & Mouse Map
+
+| Input                                      | Explore mode                                                                             | Locked-in                                                                                   |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Click screen                               | Select it                                                                                | — (goes to the app)                                                                         |
+| Drag screen                                | Move it (persisted)                                                                      | —                                                                                           |
+| Double-click screen                        | **Lock in**                                                                              | —                                                                                           |
+| `Enter`                                    | Lock into selected screen                                                                | —                                                                                           |
+| `Esc`                                      | Deselect                                                                                 | **Exit lock-in** (screen gets first refusal — see below)                                    |
+| `Shift 1`                                  | Zoom to fit all screens                                                                  | Exit lock-in, then fit all                                                                  |
+| `Shift 2`                                  | Zoom to selected screen (no lock)                                                        | —                                                                                           |
+| `Shift 0`                                  | Zoom to 100% at cursor                                                                   | —                                                                                           |
+| `Shift F`                                  | Fill mode on selected (or first) screen                                                  | Toggle fill mode                                                                            |
+| `Cmd D`                                    | Duplicate selected screen (copies its folder)                                            | —                                                                                           |
+| `Delete` / `Backspace`                     | Delete selected screen (to `.lab-trash`)                                                 | —                                                                                           |
+| `Cmd Z`                                    | Restore last deleted screen                                                              | —                                                                                           |
+| Double-click label                         | Rename screen (writes the manifest)                                                      | —                                                                                           |
+| `+` / `-` (with/without Cmd)               | Zoom step in/out at viewport center                                                      | Zoom step (focus only; fill has nothing to zoom)                                            |
+| `Tab` / `Shift Tab`                        | Cycle selection without moving camera                                                    | Shift focus to next/previous screen (camera glides; in fill, swaps the filled screen)       |
+| Space+drag / middle drag                   | Pan                                                                                      | —                                                                                           |
+| `Cmd/Ctrl + scroll`, pinch                 | Zoom to cursor                                                                           | Zoom to cursor (focus); in fill, steps back to focus first — the continued pinch then zooms |
+| Scroll                                     | Pan canvas                                                                               | Scrolls the screen's content                                                                |
+| Drag edge/corner handles                   | Resize frame (live reflow)                                                               | —                                                                                           |
+| `Shift R`                                  | Toggle canvas rulers & guides (see `CANVAS_RULER_MODE.md`)                               | —                                                                                           |
+| `Ctrl Shift R`                             | Hide/show rulers while staying in ruler mode                                             | —                                                                                           |
+| Hold `Alt` + hover a screen (one selected) | Figma-style distance measurement between the two                                         | —                                                                                           |
+| Arrow keys                                 | Nudge selected screen 1px (`Shift` = 10px, Figma amounts)                                | —                                                                                           |
+| Hold `⌘/Ctrl` while dragging               | Bypass snapping (Figma's snap override)                                                  | —                                                                                           |
+| `Ctrl C` (no ⌘)                            | Cleanup mode: distribute screens in one evenly-spaced row + write positions to manifests | —                                                                                           |
+
+While locked in, the lab listens for **only** `Esc` and `Shift 1`; everything else reaches the screen untouched. All lab shortcuts ignore events whose target is an input/textarea/contenteditable.
+
+---
+
+## Modes
+
+**Explore (default).** Screens are inert. Every frame is covered by a transparent **shield** div (`position: absolute; inset: 0`) that captures all pointer events for select/drag/double-click; screen content additionally gets `pointer-events: none` (belt and braces — and if a screen is ever an iframe, also drop its `z-index` to `-1`, since Safari hit-tests iframes through `pointer-events: none`). Selection shows an accent ring drawn at constant screen thickness: set `--inv-zoom` (a CSS var = `1/z`) on the layer at each camera write and use `outline-width: calc(2px * var(--inv-zoom))`.
+
+**Lock-in.** Entering: store the current camera, animate zoom-to-bounds on the frame, and only after the animation settles remove that frame's shield, restore its `pointer-events`, and hand it focus. The active frame gets the accent ring; every other frame gets a dim overlay (a canvas-background-colored div at ~60% opacity on top of its shield — never `filter`, it forces expensive layers). A small mode badge (bottom-center HUD) shows the screen name + "Esc to exit".
+
+**Exiting.** `Esc` animates back to the stored explore camera and re-arms the shield _immediately_ (interaction cut off at exit, not after the animation). Clicking the dimmed area outside the active frame also exits.
+
+**Esc arbitration.** The teams screen already uses `Escape` (closing edit mode) — the app must win when it has something to close. `ScreenContext` exposes `setEscapeInterceptor(fn: () => boolean)`; on `Esc` while locked in, the lab calls the active screen's interceptor first and only exits lock-in if it returns `false`. Keep the lab's `Esc` listener on `window` in capture phase so iframe/focus quirks can't eat it.
+
+---
+
+## The Screen Contract
+
+Every screen renders inside a frame and consumes `useScreen()`:
+
+```ts
+type ScreenState = {
+  screenId: string;
+  active: boolean; // locked-in right now
+  visible: boolean; // false when culled offscreen
+  frameSize: { width: number; height: number };
+  zoom: number; // current camera z (coarse, throttled)
+  clientToFrame: (p: { clientX: number; clientY: number }) => {
+    x: number;
+    y: number;
+  };
+  setEscapeInterceptor: (fn: (() => boolean) | null) => void;
+};
+```
+
+Rules every screen must obey:
+
+- **No window/document coordinate math.** Pointer positions come from `clientToFrame` (which divides by the cached canvas rect + zoom); sizes come from `frameSize` or the frame's scroll container — never `window.innerWidth/scrollY/document.documentElement`.
+- **Scope your listeners.** Global `keydown`/shortcut listeners must gate on `active`. Pointer `move/up` tracking may stay on `window` (correct for drags that leave the frame) but must convert through `clientToFrame`.
+- **Pause when hidden.** Gate rAF loops / physics runners on `visible && active-or-settling` in addition to `document.visibilityState`.
+- **Own your scroll.** The frame provides one scroll container (`overflow-y: auto`, scrollbar styled thin); use its `scrollTop`, not `window.scrollY`.
+- **No document-global selectors** (`document.querySelector`) — query within your own root ref.
+
+---
+
+## Adapting the Polaroid Physics Screen
+
+The board (`src/components/polaroid-physics-board.tsx`) is hard-coupled to real document space. Specific surgery, keeping the physics feel byte-identical:
+
+- `pointerToDoc` (`clientX + window.scrollX`) → `clientToFrame(e)` plus the frame scroll container's `scrollTop/Left`. All drag, rotate, scale, detach-distance, and reattach hit-tests flow through this one function — fix it there.
+- `getViewportWidth()` in `src/lib/board-scale.ts` reads `document.documentElement.clientWidth` → take width from `frameSize` (pass it in; keep the pure math untouched). At `1440` frame width the board keeps its desktop physics mode permanently.
+- The floor lookup `document.querySelector(".cta-block")` → a ref scoped to the screen root; measure it in **frame-local** coordinates (element offset within the scroll container — do not use `getBoundingClientRect`, it returns canvas-transformed values).
+- `killLineRef` (`window.innerHeight + scrollY`) → frame height + container `scrollTop`.
+- Window `resize` listener → `ResizeObserver` on the frame content (frames are fixed-size, so this fires ~never; that's fine).
+- The global `R` reset, `Escape`, grid toggle, color-mode toggle, and shortcut-hint toasts move into `teams-screen.tsx` and gate on `active`. Escape wires through `setEscapeInterceptor` (return `true` when an edit mode was open and consumed it).
+- Runner gating: add `visible` (culling) and `active` to the existing `ensureRunning`/`maybeStop`/`visibilitychange` logic — a culled or background screen must cost zero CPU, exactly like the current tab-hidden behavior.
+- `html:has(.app-shell)` scrollbar hiding is obsolete (no window scroll anymore) — the lab root is `position: fixed; inset: 0; overflow: clip`.
+
+---
+
+## Performance (non-negotiable)
+
+- **One transform write per frame.** Camera lives in a ref inside a tiny store (`get / set / subscribe`); pan/zoom writes `layer.style.transform` (and `--inv-zoom`) directly in rAF. React never re-renders during a gesture. HUD zoom % and LOD-ish concerns subscribe with a ~100ms throttle.
+- **Cache rects.** The canvas root's `getBoundingClientRect` is read once and on resize (ResizeObserver) — never inside `pointermove`/`wheel`.
+- **Containment + culling.** Each frame: `contain: strict` (fixed size makes size containment safe) so screen-internal layout can never invalidate the canvas. Frames fully outside the viewport page-bounds (expanded by a 25% margin) get `display: none` **while staying mounted** — React state survives, physics pauses via `visible`. Selected and locked frames are never culled. One subscriber flips all culling states per camera settle, not per rAF tick.
+- **Crisp text.** No persistent `will-change`/`translateZ(0)` on the layer — a promoted layer re-uses its stale raster and text goes blurry when zoomed. Optionally add `will-change: transform` on gesture start and remove it ~200ms after the last wheel/pointer event to force a sharp re-raster. When the camera is idle, round the effective translate to device pixels (`round(v * dpr) / dpr`).
+- **Frame labels** render at constant screen size via `transform: scale(var(--inv-zoom))`, `transform-origin: 0 100%`, positioned above the frame. Label click selects; label drag moves; double-click is still lock-in.
+- Idle canvas = zero work: no rAF loop runs unless a camera animation or gesture is live (same philosophy as the board's Runner gating).
+
+---
+
+## Persistence
+
+- Key `interaction-lab:v1`, JSON: `{ camera: {x,y,z}, screens: { [id]: { x, y } } }`. Screen positions are overrides on top of `defaultPosition`; unknown ids are dropped on load.
+- Save debounced `300ms` after camera settle or a screen drag ends.
+- First load (or invalid data): zoom to fit all.
+- **Reset layout**: a small HUD action (and `Cmd/Ctrl Shift Backspace`) clears overrides, restores registry positions, zooms to fit.
+
+---
+
+## Canvas Chrome & Feel
+
+- Background: a flat token color slightly darker than screen surfaces (add a token in `@theme`, e.g. `--color-canvas`) — no dot grid in v1 (perf, and screens read better on flat).
+- HUD: bottom-center pill — zoom % (click = zoom to fit), mode badge when locked in, reset layout. Reuse the existing toast system for hints (e.g. first visit: "Double-click a screen to use it").
+- Frames: screen-colored surface, `--shadow-polaroid-drop-shadow`-family soft shadow, `8px`-ish radius scaled in page units (it may zoom — that's correct, Figma-like).
+- Cursors: default arrow; `grab/grabbing` for space/middle pan; plain arrow inside a locked screen (the app owns its own cursors).
+
+---
+
+## As-Built Notes (v8, 2026-07-26) — grid, snapping, arrow nudge
+
+The "free drag misalignment" fix, copied from how Figma actually does it (which is NOT a literal grid snap): three features behind two **feature toggles at the top of `interaction-lab.tsx`** — `SHOW_PIXEL_GRID` and `SNAP_TO_GRID` — plus tunables (`SNAP_TOLERANCE_PX`, `NUDGE_SMALL`/`NUDGE_BIG`, `NUDGE_COMMIT_MS`) right next to them.
+
+**Background pixel grid** (`SHOW_PIXEL_GRID`): a screen-space canvas rendered as the root's FIRST child so it paints under the frame layer, repainted rAF-coalesced per camera write. **ONE uniform tier** at `PIXEL_GRID_STEP` page units (default 10 — a "10px grid" at 100% zoom), alpha `PIXEL_GRID_ALPHA`; it fades out when its screen period drops under ~8px (zoomed way out) the way Figma's pixel grid does. A first version layered a coarser "major" tier on top (tldraw-style hierarchy) — explicitly rejected: the grid must read as a single texture, never two overlaid grids. Line color flips with canvas luminance; `applyColor` pokes `gridScheduleRef` so recoloring the canvas repaints the grid. Hidden in fill mode via CSS (`[data-mode="fill"]`).
+
+**Drag snapping** (`SNAP_TO_GRID`) — Figma's mechanism is two preferences working together, and we copy both:
+
+- _Snap to geometry_: while dragging (shield drag, label drag, ⌥-ghost), the moving box's edges AND centers snap to the other frames' edges/centers and to **ruler guides** (Figma snaps objects to guides; `CanvasRulerHandle.getGuides` feeds them in) within `SNAP_TOLERANCE_PX / zoom`. Red 1px alignment lines (two screen-space divs, placed imperatively, `#f24822`) span the moving box and the matched target.
+- _Snap to pixel grid_: any axis no geometry snap claims rounds to whole page px — this is what actually kills fractional-position drift from free dragging.
+- `⌘/Ctrl` held mid-drag bypasses all snapping (Figma's override). Resizes get the pixel-rounding half only (edge smart-snap during resize deliberately not built). Pure geometry lives in `core/snapping.ts` (`snapMovingBox`); the lab's `snapFrame` filter is threaded into `ScreenFrame` as the `snapPosition`/`snapBox` props so every gesture path shares one snapper.
+
+**Cleanup mode** (`Ctrl+C`, explore): distributes ALL screens into one horizontal row — sorted by current x, top-aligned to the topmost screen, even `CLEANUP_GAP` between frames, sizes untouched. Pushes one undoable layout command (reuses the `reset` command shape), fits the camera to the row, then calls the dev-server's `/set-positions` endpoint (`vite-plugin-lab-fs.ts`) which rewrites `position: { x, y }` in every screen's `screen.tsx` — canvas and files agree afterwards. All state (layout, history, camera) is persisted BEFORE the fetch, so the watcher-triggered reload can land at any time safely. Undo restores the canvas layout but not the manifests (they're defaults; the live layout always overrides). Prod builds have no fs plugin — tidying still works, only the file write is skipped.
+
+**Arrow-key nudge**: explore mode, selected screen — arrows move 1px, `Shift` = 10px (Figma's defaults). Routed AFTER `rulerKey` so a selected ruler guide keeps its arrows (Figma's own precedence). Per-press writes are imperative (refs + group transform + `syncChrome`); React state, persistence, and ONE coalesced `move` history command commit after a `NUDGE_COMMIT_MS` quiet gap — so ⌘Z undoes the whole burst, not one keypress. Everything that pushes its own history (drag select, delete, duplicate, reset, undo/redo, pagehide) calls `commitNudge()` first so command order stays truthful; undo-right-after-nudge undoes the nudge. Nudges intentionally do NOT snap (Figma moves by exact amounts).
+
+Research round citations (source read directly, 2026-07-26 — don't re-derive these):
+
+- **8 screen px / zoom snap tolerance is the field consensus**: tldraw `snapThreshold: 8` (`packages/editor/src/lib/options.ts`, applied as `/zoom` in `SnapManager.ts`); Excalidraw `SNAP_DISTANCE = 8` (`packages/excalidraw/snapping.ts`); Penpot is the outlier at 10 (`snap-accuracy`, `frontend/src/app/main/snap.cljs`). Ours: `SNAP_TOLERANCE_PX = 8`.
+- **Candidates**: bbox corners + center is the tldraw/Excalidraw baseline (per axis that reduces to start/center/end — what `snapping.ts` uses). Both solve X and Y independently and keep equal-distance ties for multi-point guide lines (we take the first tie — fine at our frame counts). Penpot adds edge midpoints for frames; noted, not built.
+- **Ctrl disables snapping in Figma** (not ⌘ — Control on both platforms); Excalidraw treats Ctrl/Cmd as the toggle-polarity modifier. Our ⌘/Ctrl bypass covers both mental models.
+- **Ruler guides as snap targets confirmed** in Penpot source (`guide->snap-points`, gated by `:snap-ruler-guides`) — mirrors Figma's documented guide snapping. Ours reads them via `CanvasRulerHandle.getGuides`.
+- **Nudge**: tldraw `MINOR/MAJOR_NUDGE_FACTOR = 1/10`; Excalidraw diverges (Shift = 5). Neither re-runs object snapping on nudge. tldraw coalesces via `markHistoryStoppingPoint` on first keydown + `ephemeral` on OS key-repeats (`SelectTool/childStates/Idle.ts`, verified in `nudge.test.ts`); our time-debounced burst commit is equivalent in effect and also coalesces rapid separate presses.
+- **Snap guide color**: Figma's exact overlay hex is unpublished; `#f24822` is Figma's danger red per its plugin CSS variables (first research round), tldraw ships `hsl(0,76%,60%)` in both themes, Excalidraw `#ff6b6b`/dark `#ff0000`, Penpot uses PINK (`--color-accent-quaternary`). Ours: `#f24822`, one value both themes (tldraw's single-value approach).
+- **Future levers, deliberately not built**: equal-gap/distribute-while-dragging snapping (port tldraw `collectGapSnaps`/`getVisibleGaps` or Excalidraw `getGapSnaps` near-verbatim rather than re-deriving — both are subtle); Penpot's web-worker range-tree snap index if screen counts ever get large; Excalidraw's dashed-minor-line grid style.
+
+## As-Built Notes (v7, 2026-07-26) — canvas rulers + distance measurement
+
+Research-validated against Figma's help docs/blog and live-read Penpot source (Penpot independently reimplements both features and is open source — the strongest reference available; file paths in `CANVAS_RULER_MODE.md`):
+
+**Canvas rulers & guides** (`core/canvas-ruler-mode.tsx` + `canvas-ruler.module.css`): the vendor `src/vendor/ruler-mode` was a VIEWPORT ruler (ticks/guides in window px — pan or zoom and guides drift off the content). Replaced in the lab by a canvas-true mode: tick values are page units re-derived from the camera per write, guides are stored in page units and positioned in screen space at `(pos + camera) * z`, so everything stays glued to content at every zoom, like Figma. `main.tsx` no longer mounts the vendor overlay; the vendor folder itself is untouched. Full spec + vendor diff table in `prompts/CANVAS_RULER_MODE.md`. Key integration points:
+
+- `CanvasActions.rulerKey(e)` gives the ruler first refusal on explore-mode keys (Shift+R toggle; Delete/Esc/arrows while a guide is selected) — WITHOUT it the lab's window-capture keydown would delete the selected SCREEN when the user meant the guide. Same layering idea as the screens' Esc interceptor. Locked modes never route ruler keys (the app owns the keyboard).
+- The lab's `syncChrome` calls `ruler.refresh()` so the rulers' selection band tracks frame drags mid-gesture (positions move imperatively during drags — React state only commits at gesture end, so a render-driven band would lag).
+- Rulers hide (not unmount) in fill mode; guides persist to `interaction-lab:guides:v1` (page units, debounced 150ms).
+- Zoom-adaptive ticks: smallest nice step (`1/2/5 × 10^n`) spanning ≥ 56 screen px. Penpot ships a hand-tuned table instead (with 25 in place of 20); d3's `tickStep` thresholds (`√2, √10, √50`) are the canonical runtime derivation — ours follows d3's shape.
+
+**Distance measurement — Figma's Alt-hover "red lines"** (`core/measurements.ts` pure geometry + a screen-space `<canvas>` overlay in the shell): explore mode, frame selected, hold `Alt`/`⌥`, hover another frame → red gap/padding lines with page-unit labels. Implementation notes:
+
+- The geometry is a **verbatim port of Penpot's `calculate-distance-lines`** (`frontend/src/app/main/ui/measurements.cljs`): a 1-D interval sign-ladder per axis emits 0–2 segments — disjoint → the gap (nearest edges), partial overlap → the protruding side only, containment → start+end padding (both axes contained = Figma's 4-edge padding display). No explicit case branches; don't "simplify" it back into cases. Lines sit on the hovered box's center-line (the selected box's own center when it's fully inside the hovered one — Penpot's `fully-contained?` flip).
+- On top of Penpot we draw Figma's **dashed extension lines** when a segment's cross position misses the selected box (visible in Figma screenshots; Penpot skips them via center-anchoring alone).
+- Painted on one screen-space canvas: 1px lines (`#f24822` — Figma's danger red per its published CSS variables), 11px white labels in `#f24822` pills radius 2 (Penpot's sourced constants; Figma's own are undocumented), values in page units rounded to 2 decimals with zeros stripped (Penpot's `formats.cljs` rule). Constant screen size at every zoom; VALUES are design units.
+- Wiring is all imperative refs: one window `pointermove` (capture) resolves the hovered frame via `closest("[data-screen-id]")` — buttons-down means a drag (move/resize/⌥-ghost) and clears the hover so measurements never fight the ⌥-drag duplicate gesture, which shares the Alt key. Alt keydown/keyup + window blur toggle; camera writes repaint through a store subscription; `scheduleMeasure` fast-paths to zero work when Alt is up and the canvas is clear. Zero React renders while measuring.
+- Figma nuances deliberately not built: measuring to a PARENT frame's edges when hovering empty canvas (lab screens are all top-level — no parent), `⌘⌥` deep-target hover (no nested targets), and the persistent Shift+M measurement annotations.
+
+## As-Built Notes (v6, 2026-07-20) — true undo
+
+Research-validated against Figma's multiplayer blog, tldraw's HistoryManager source, Excalidraw's delta-based history (PR #7348), and VS Code's cross-session undo:
+
+- **Serializable command history** (`core/history.ts`): plain JSON descriptors (never closures) in **sessionStorage** — per-tab, survives the reloads fs ops trigger, dies with the tab. Two stacks, 50-entry cap, redo cleared on every new action. Commands: `move`/`resize` (from/to), `reset` (before/after layout maps), `canvas` (from/to color), `delete`/`duplicate`/`rename` (dir + trash tokens + layout entries).
+- **Coalescing by construction**: one entry per completed drag (pushed at gesture end with captured start values); color coalesces per picker session (open→close = one entry); rename per commit. Matches tldraw's mark/flush and Excalidraw's ephemeral-drag semantics.
+- **Excluded**: camera and selection — universal across tools (tldraw runs camera writes with `history: 'ignore'`). But undo of move/resize **selects and reveals** the affected frame (scroll-into-view only if offscreen) — the documented tldraw/Excalidraw selection-restore semantics.
+- **fs inverses**: undo-delete = restore from trash token + `upsertScreenEntry` re-seeds its exact layout; redo-delete re-trashes (token refreshed in place). Undo-duplicate trashes the copy; redo restores it. Rename swaps from/to. Stacks are shifted + saved SYNCHRONOUSLY before `location.reload()` — never rely on beforeunload.
+- **Stale-entry discard (the VS Code rule)**: a failed fs inverse means the target changed on disk outside the lab — the entry is dropped with a "skipped — changed on disk" toast instead of blocking the stack forever.
+- Figma's deeper multiplayer nuance (undo _writes_ redo history against current state) is single-user-irrelevant here; noted for if the lab ever goes multiplayer. No mainstream canvas tool persists undo across reloads — ours does (VS Code precedent), because fs ops force reloads constantly.
+- Deferred: Esc-bails-gesture (drags always commit on pointer-up); byte-budget eviction (50-entry cap suffices at these payload sizes).
+
+## As-Built Notes (v5, 2026-07-20) — camera performance pass
+
+Research-validated (Chrome input-pipeline docs, event-loop semantics, LoAF):
+
+- **rAF-coalesced camera writes.** Input events can outpace frames (hi-res wheels; Safari never rAF-aligns wheel like Chrome does). The store's camera VALUE updates per event (input math exact); DOM application (transform + chrome + culling) runs at most once per frame via rAF scheduled from the handler — which lands in the _same_ frame's rendering update, so latency is unchanged (rAF-from-handler ≠ rAF-from-rAF). Redundant in Chrome (already aligns input), essential for Safari, free everywhere.
+- **One self-rescheduling idle timer** keyed off a `lastMove` timestamp — no clearTimeout/setTimeout pair per input event. Idle does: crisp re-raster (drop `will-change`), pixel snap, persist.
+- **Per-frame culling** (N box tests + bail-out setter) instead of idle-only — frames pop in _as_ you pan toward them, not 160ms after you stop. **Gotcha (was a shipped bug)**: culling must refuse to run against the unmeasured 1×1 placeholder rect — the layer's ref attaches before the root measures, so a mount-time cull would hide every screen not touching the camera's corner point. Symptom: reload restores camera + zoom perfectly but the screen you were looking at is invisible until the camera next moves, inconsistently by stopping point. The root's measurement pass (and every window resize) re-culls with real dimensions, so the first painted frame is correct.
+- **Culled frames use `content-visibility: hidden`** (+ `pointer-events: none` — the empty group box would otherwise still hit-test and block canvas panning). Beats `display: none`: the browser preserves the subtree's rendering state so re-show skips full re-layout. React state survives either way; the zero-size RO guards still apply.
+- **Explore-mode hover shield**: `[data-gesturing]` on the root while the camera moves → `pointer-events: none` on layer + chrome, killing hover/hit-test work over live screens mid-gesture. Focus/fill exempt so app interactivity is never interrupted.
+- **Cached chrome-item map** maintained by ref callbacks — `syncChrome` iterates a Map, zero DOM queries/allocations per tick.
+- **Measured**: 150-event rapid zoom stress → 0 long animation frames (LoAF). Note for future measurement: Event Timing/INP _never_ report wheel/pointermove — self-instrument or use LoAF (Chrome) / rAF-delta counting (everywhere).
+- Skipped deliberately: `getCoalescedEvents` / `pointerrawupdate` (for stroke fidelity, not cameras — having a rawupdate listener registered costs by itself).
+
+Rendering-internals research round (Chromium docs, WebKit bugzilla, specs — sources in git history):
+
+- **Re-raster sequencing**: Chrome re-rasters on the frame AFTER `will-change` removal — so idle commits the final snapped transform first, then drops `will-change` one rAF later (guarded against a new gesture starting in between). One crisp re-raster, no stale-stretch flash. The add/remove dance itself is still the canonical 2026 Chrome technique — Chrome deliberately avoids re-rastering `will-change: transform` layers at new scales.
+- **Safari hazard (open since 2009, WebKit bug 27684)**: WebKit gives no guarantee of crisp re-raster after scale changes; blur can persist at idle. Removing `will-change` (nothing else must force compositing on the layer) is the best-practice baseline; `translate3d` hacks are documented-unreliable. If WebKit blur reports come in, the escape hatch is a paint-invalidating property toggle on frame contents at idle.
+- **`content-visibility: hidden` hardening** (verified against spec): JS is NOT paused in skipped subtrees — screens must pause themselves via env `visible` (the physics board does). ResizeObservers inside skipped content don't fire and sizes are retained — which is exactly why cull/uncull needs no re-measure pass under c-v (no bogus zero-size phase, unlike display:none). Never read layout (`getBoundingClientRect`) from a hidden frame — it forces the skipped work. Culled frames are never the focused frame, so the unfocusable-content rule never bites.
+- **Do NOT migrate to individual `translate:`/`scale:` properties**: zero win for main-thread JS writes, an open Safari compositing z-order bug (276281), and the fixed application order would invert our camera math.
+- **Hover-shield confirmation**: tldraw v4.4 shipped the same idea ("hover hit-testing skipped during camera movement", 0.91ms → 0.25ms/frame). Ours toggles once per gesture on scoped rules (never body-wide — the toggle itself costs a subtree recalc).
+- **Layer memory**: Chrome/WebKit tile rasterization (visible + skewport priority) means the big scaled layer costs nearer viewport-sized raster than full-content-sized; keep promotion transient anyway (done), and mind iOS's ~300-450MB process ceiling if this ever runs there.
+- **Containment blast radius** (documented in README porting rules): `contain: strict` makes frames the containing block — `position: fixed` inside screens pins to the frame; top-layer dialog/popover escapes.
+
+Production canvas-apps research round (tldraw/Excalidraw/AFFiNE/Miro/Figma/Lucid engineering artifacts):
+
+- **Architecture confirmed as the field's convergent end-state**: single imperative container transform (AFFiNE _retreated_ to it after per-block transforms crashed WKWebView; xyflow's store-routed camera is the documented-janky counterexample); keep-mounted culling (tldraw shipped unmount-culling and reverted it); camera outside React stores (uSES/zustand at gesture frequency permanently de-opts concurrent rendering per the React WG); labels + layer written in the same rAF (Lucid hit a one-frame desync doing otherwise — we don't).
+- **Applied from this round**: bare `translate()` when `z === 1` — WebKit treats any transform containing `scale()` as non-trivial and re-rasterizes per frame; pure translate rides the cheap layer-move path (AFFiNE's finding). Fill mode always runs at z=1 → fills pan on the fast path. Plus 4-decimal transform precision (tldraw's `toDomPrecision`).
+- **`content-visibility: hidden` is ahead of the field**: tldraw uses display:none (state-destroying for heavy content), AFFiNE visibility:hidden; web.dev cites up to 250ms faster restores for c-v (Facebook).
+- **Scale thresholds** (when to revisit): linear culling is unambiguously fine to ~500-1000 boxes (brute force beats trees below that; Excalidraw declines quadtrees, tldraw added an R-tree only for 5-10k-shape rooms). At our N the real scaling cost is compositor layers + screen CPU, not culling math. First upgrade if ever needed: uniform spatial hash (BlockSuite's 3000-unit grid), not an R-tree.
+- **Future levers, deliberately not built yet**: postMessage cull/visible pause protocol for iframe screens (browser throttling only covers cross-origin, Chromium-only); Miro-style demote-to-snapshot at rest / live-on-intent for heavy screens; chunked un-cull admission (BlockSuite mounts 2/frame + 800ms post-gesture settle); debounced-zoom LOD (tldraw activates at 500+ shapes); `editor.performance`-style p95/max frame-time telemetry per gesture (max frame time catches hitches that FPS averages hide); `Node.moveBefore` for any future frame reordering with iframes.
+- **Standing rule reaffirmed**: `will-change` lives on the ONE camera layer, transiently — AFFiNE measured ~100ms stalls from will-change on ~100 hidden blocks.
+- **First-load boot**: the very first visit computes its camera SYNCHRONOUSLY at store creation (fit-all of resolved default positions — "layout reset" framing; the fixed inset-0 root means window size == canvas size, no measurement wait), so the first painted frame is already correct — never a default-camera flash. Ref-order matters here: the layer's ref callback runs before the root's, so a root-measured fit would land one frame late. Reloads restore the saved camera; a `pagehide` saveNow guarantees "where you stopped" survives even instant reloads (restored translate may differ by sub-screen-pixel snap). Inter is self-hosted (`public/fonts/inter/inter-var.woff2`, variable 400–600) — the Google Fonts stylesheet was render-blocking first paint; the lab now makes zero network requests.
+
+## As-Built Notes (v4, 2026-07-20) — dependency-free, effect-free, core/ split
+
+- **Folder shape**: `src/lab/` root holds what you touch — `screens.ts` (registry), `screen-context.tsx` (the contract), `index.ts` (public surface). `src/lab/core/` is the engine (camera, shell, frames, input, persistence, fs client, toasts, module css) — rarely opened. Import the lab as `import { InteractionLab, useScreen } from "./lab"`.
+- **Dependency-free**: lab code imports only `react` + its own modules (+ node/vite built-ins in the dev-only fs plugin). The lab grew its own ~50-line toast store (`core/lab-toasts.tsx`); Sage's Base-UI toast provider moved into the Sage screen where it belongs. Both toast systems coexist.
+- **Zero `useEffect`/`useLayoutEffect` in the lab.** Replacements, by pattern:
+  - **React 19 ref callbacks with cleanups** for all element-scoped wiring — root ref: rect cache + ResizeObserver + first-visit fit + input binding; layer ref: the camera subscription; frame scroll ref: the per-frame ResizeObserver; chrome item refs place themselves at `(pos + camera) * z` on render.
+  - **`useSyncExternalStore`** for store reads (zoom % label, toast list). A toast fired before the renderer mounts just waits in the module store — no queue, no race.
+  - **Event-driven focus**: lock/cycle/fill handlers focus the frame's scroll container directly; no state-watching effect.
+- **Tab cycles the focused screen** (Shift+Tab reverse) in focus mode — the camera glides frame to frame; in fill mode Tab swaps which screen fills, instantly. `lockInto` only snapshots the explore camera when actually entering from explore, so cycling never corrupts the Esc-return view.
+- **Window-size tracking is fill-only by design**: explore/focus frames have fixed page-space sizes, so opening devtools (or any window resize) can never reflow them; only the filled screen tracks the viewport. No `vw`/`vh` units exist anywhere in lab or screen styles.
+- **Identity = manifest `id`** (optional, falls back to folder name; duplicate ids warn and fall back). `ScreenDef.dir` is the folder — fs-plugin ops target `dir`, everything on canvas keys to `id`, so folder renames keep position/size overrides and manifest edits (name, etc.) sync to open tabs on save. The fs plugin watches `src/screens/` for directory-level changes (Vite's glob misses folder renames) and pushes invalidate+reload; duplicating patches both `name` and `id` in the copy's manifest. A fingerprint (`WxH@x,y`) on each persisted entry remains as silent rename-adoption for id-less screens. **Gotcha: an editor with a deleted/renamed file open can resurrect its folder on auto-save — ghost folders with a colliding id.**
+
+## As-Built Notes (v3, 2026-07-20) — de-branding + chrome overlay
+
+- **Screen-space chrome (the Figma way).** Frame labels and the focus play button do NOT live in the transformed layer — anything in there is a GPU raster that visibly stretches during zoom gestures before re-rasterizing. They render in an untransformed `chromeLayer`; each item is placed imperatively at `(pos + camera) * z` on every camera write and sized to `frameWidth * z` so the play button right-aligns. Verified: label height is identical at every zoom. Chrome items also carry `data-screen-id` so clicking a label in focus mode doesn't read as "outside → exit".
+- **Adaptive black/white chrome.** Label color flips with canvas luminance (`0.299r+0.587g+0.114b < 0.5` → light text) via `data-canvas-theme` on the root. No brand color on text; the accent is only ring/handles/ghost.
+- **Browser-zoom kill.** While locked, the wheel handler must still `preventDefault()` ctrl/meta wheel (trackpad pinch arrives that way) — otherwise the BROWSER's page zoom engages, fights the canvas zoom, and shoves the fixed HUD around. This was the "zoom controls keep disappearing" bug.
+- **Focus is interactive immediately.** No settle-gate on the shield: it drops the instant lock-in starts, so a click right after focusing lands in the app (pointer math reads the live camera mid-animation, so coordinates stay exact).
+- **⌥-drag duplicates** (with or without ⌘): original stays, a dashed accent ghost tracks the pointer in page space, drop copies the folder and places the copy exactly there. ⌘D still duplicates at +32/+32.
+- **Colors are hex-first**: popover = native picker + hex field + **Save**; saved colors become the swatch row (persisted, max 10, deduped). No preset swatches.
+- Lab font is Inter via a Google Fonts link in `index.html`; the lab never touches the screens' fonts.
+
+## As-Built Notes (v2, 2026-07-20)
+
+All verified headless — zero console errors. Deviations and additions on top of the spec above:
+
+**Three modes.** `explore` → `focus` (lock-in) → `fill`. Fill (`Shift+F`, or the play button pinned above the focused frame's top-right corner, Figma-badge style) temporarily makes the frame the real window size and the screen **reflows at true viewport width** — the manifest width is only a default. Esc walks back one mode at a time; the screen's Esc interceptor always gets first refusal.
+
+**Figma-frame resizing.** Selected frames get 4 invisible edge strips + 4 white corner squares (constant screen size via `--inv-zoom`), all 8 directions; W/N drags keep the opposite edge pinned. Live reflow while dragging — the physics board flips into its mobile gallery when width crosses `1000`. A dark size badge (`1440 × 900`) tracks under the frame. Width = responsive testing; height = how much of the page the clipping frame shows. Min `320×240`. Sizes persist as overrides; Reset clears them. **Gotcha: handles live on the GROUP, not the frame — the frame's `overflow: clip` + `contain: strict` swallows any hit area straddling its edge.** The group carries position AND size; the frame fills it 100%.
+
+**Screens are folders.** The registry is `import.meta.glob("../screens/*/screen.tsx")` — a folder with a `screen.tsx` manifest (name, width, height, position, component) IS a screen; folder name = id. A dev-server Vite plugin (`vite-plugin-lab-fs.ts`) does real disk ops behind `/__lab-fs/*`: **⌘D** copies the folder (`-copy` suffix, name patched, +32/+32 offset), **Delete/Backspace** moves it to `.lab-trash/` (gitignored), **⌘Z** moves it back, **double-click the label** renames (rewrites the manifest's `name:`). Ops `saveNow` persistence, set a reload-surviving notice toast, then `location.reload()`.
+
+**Canvas background** — HUD swatch opens preset swatches + a native color input + a hex field (3/6-digit, normalized). Stored value drives `--color-canvas` on the root so the dim overlays match. Persisted.
+
+**Perf posture** (validated): camera writes are pure DOM (`transform` + `--inv-zoom`) — the shell does **zero React renders during pan/zoom**; the HUD zoom % is its own store subscriber (`ZoomLabel`). Culling, pixel-snap, `will-change` removal, and persistence all ride the 160ms idle debounce. Screens re-render on resize only via the env's reactive `frameSize` (RO-driven); frame chrome churn never re-renders screen subtrees (env memo excludes selection; content element is memoized on the component).
+
+- Camera easing is `easeOutQuint` (`1 − (1−t)⁵`), the JS twin of `cubic-bezier(0.22, 1, 0.36, 1)`; animations interpolate the viewport-center page point with `z` in log space.
+- Screens' page-level shortcut hooks (`C`, `ctrl+G`, `H`) took an `enabled` param instead of moving; `use-viewport-layout` was deleted.
+- The board's cull/uncull re-measure rides the env's `ResizeObserver` (display:none → block fires it), so no separate uncull path exists.
+- **Deferred**: two-pointer touch pinch (trackpad pinch works via ctrlKey wheel); marquee select; resize-undo (⌘Z is reserved for delete-undo); a fill-mode entrance transition (currently an instant snap, like Figma present).
+
+**Hard-won gotchas** (encode these in any future screen work):
+
+- **React attaches refs bottom-up.** A screen's `useLayoutEffect` runs before its ancestor frame's `scrollRef` exists — so the env's `screenRoot()`/measurers return null/zero during screen setup. The frame owns ONE ResizeObserver wired in the frame's own layout effect, dispatching to an `onFrameResize` listener registry; its guaranteed initial delivery gives every screen one post-ref measurement pass. This is why the physics floor builds on that pass, not at setup. Never create the observer from inside the screen.
+- **`frameRectOf` derives scale from the DOM** (`scrollEl.getBoundingClientRect().width / scrollEl.clientWidth`), never from the camera store — around mount the store already holds the persisted zoom while the layer transform hasn't been written yet, and the mismatch once placed the floor ~3× too low.
+- A zero measured rect (culled frame) must never build boundaries — guard and let the uncull resize pass rebuild.
+
+---
+
+## What Not To Do
+
+- No new dependencies (no tldraw, no zoom libraries, no state managers).
+- No `any`, no hardcoded colors — tokens only.
+- Never CSS-transition or React-render the camera transform.
+- Never leave `will-change` on the zoom layer at rest.
+- Never call `getBoundingClientRect` in a per-move handler.
+- Don't unmount culled screens (state must survive) and don't let culled screens burn CPU.
+- Don't alter the physics feel, constants, or interactions of the polaroid board — coordinate-source surgery only.
+- Don't add iframes in v1; the contract above leaves room for them later.
+- Don't rebuild the teams page — move it.
