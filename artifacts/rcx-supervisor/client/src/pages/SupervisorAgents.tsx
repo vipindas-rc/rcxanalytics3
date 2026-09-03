@@ -2124,7 +2124,7 @@ export const SupervisorAgents = (): JSX.Element => {
           <div className="shrink-0 border-b border-neutral-200 bg-white">
             <div className="flex h-[60px] items-center px-3 py-0.5">
               <div className="flex flex-1 items-center gap-2 pr-3">
-                <span className="font-descriptor-mini text-[length:var(--descriptor-mini-font-size)] font-[number:var(--descriptor-mini-font-weight)] leading-[var(--descriptor-mini-line-height)] tracking-[var(--descriptor-mini-letter-spacing)] text-neutralf-06 [font-style:var(--descriptor-mini-font-style)]">
+                <span className="font-descriptor-mini tracking-[var(--descriptor-mini-letter-spacing)] text-neutralf-06 [font-style:var(--descriptor-mini-font-style)] focus-visible text-[18px] font-semibold">
                   RingCX Agent
                 </span>
               </div>
