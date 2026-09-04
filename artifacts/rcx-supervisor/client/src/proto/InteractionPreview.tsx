@@ -72,12 +72,12 @@ const ChannelActionGroup = styled.div`
   .preview-channel-actions {
     position: absolute;
     top: 50%;
-    right: calc(100% + 24px);
+    right: calc(100% + 16px);
     transform: translateY(-50%);
     display: inline-flex;
     align-items: center;
     gap: 16px;
-    width: 64px;
+    width: max-content;
     opacity: 0;
     pointer-events: none;
     transition: opacity 120ms ease;
@@ -87,7 +87,7 @@ const ChannelActionGroup = styled.div`
       position: absolute;
       top: 0;
       left: 100%;
-      width: 24px;
+      width: 16px;
       height: 100%;
     }
   }
