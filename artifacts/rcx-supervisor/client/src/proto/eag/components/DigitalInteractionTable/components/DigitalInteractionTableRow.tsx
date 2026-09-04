@@ -37,8 +37,8 @@ import {
     getDigitalInteractionHoveredItems,
 } from '../utils/DigitalInteractionRowRenderUtil';
 
-// 3-dot menu on pending queue rows: both voice and digital rows support
-// Recategorize and Ignore.
+// 3-dot menu on pending queue rows: digital rows support Recategorize;
+// both voice and digital rows support Ignore.
 const QueueMoreMenu: FC<{
     engagementId: string;
     agentId: string;
@@ -47,28 +47,37 @@ const QueueMoreMenu: FC<{
 }> = ({ engagementId, agentId, isVoice, onAction }) => {
     const [isOpen, setIsOpen] = useState(false);
 
-    // Ignore stays last for both channels.
+    // Recategorize is digital-only; Ignore stays last for both channels.
     const options = useMemo(
         () => [
-            {
-                id: `recategorize-${engagementId}`,
-                title: 'Recategorise',
-                action: () =>
-                    onAction(
-                        agentId,
-                        'queueRecategorize',
-                        engagementId
-                    ),
-                style: { color: 'var(--primary-text-color)' },
-            },
+            ...(!isVoice
+                ? [
+                      {
+                          id: `recategorize-${engagementId}`,
+                          title: 'Recategorize',
+                          action: () => {
+                              setIsOpen(false);
+                              onAction(
+                                  agentId,
+                                  'queueRecategorize',
+                                  engagementId
+                              );
+                          },
+                          style: { color: 'var(--primary-text-color)' },
+                      },
+                  ]
+                : []),
             {
                 id: `ignore-${engagementId}`,
                 title: 'Ignore',
-                action: () => onAction(agentId, 'queueRemove', engagementId),
+                action: () => {
+                    setIsOpen(false);
+                    onAction(agentId, 'queueRemove', engagementId);
+                },
                 style: { color: 'var(--primary-text-color)' },
             },
         ],
-        [agentId, engagementId, onAction]
+        [agentId, engagementId, isVoice, onAction]
     );
 
     const toggleComponent = (
@@ -78,7 +87,10 @@ const QueueMoreMenu: FC<{
                     disableRipple: true,
                     size: 'medium',
                     'aria-label': 'More',
-                    onClick: () => setIsOpen(true),
+                    onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
+                        event.stopPropagation();
+                        setIsOpen(true);
+                    },
                     tabindex: '-1',
                 }}
                 data-testid={`button-queue-more-${engagementId}`}
@@ -90,7 +102,10 @@ const QueueMoreMenu: FC<{
     return (
         // data-menu-open lets the row CSS pin its hover state (background +
         // action buttons) while the flyout is open, matching the Agents tab.
-        <span data-menu-open={isOpen ? 'true' : undefined}>
+        <span
+            data-menu-open={isOpen ? 'true' : undefined}
+            onClick={(event) => event.stopPropagation()}
+        >
             <StyledMenu
                 {...{
                     options,
@@ -626,12 +641,16 @@ export const DigitalInteractionTableRow: FC<{
                                         'aria-label': isVoiceInteraction
                                             ? 'Preview call'
                                             : 'Preview interaction',
-                                        onClick: () =>
+                                        onClick: (
+                                            event: React.MouseEvent<HTMLButtonElement>
+                                        ) => {
+                                            event.stopPropagation();
                                             (monitorAgentCallback as any)(
                                                 agentId,
                                                 'queuePreview',
                                                 engagementId
-                                            ),
+                                            );
+                                        },
                                     }}
                                     data-testid={`button-queue-preview-${engagementId}`}
                                 >
@@ -656,13 +675,14 @@ export const DigitalInteractionTableRow: FC<{
                         {!hideQueueTransferAndMore && (
                             <button
                                 type='button'
-                                onClick={() =>
+                                onClick={(event) => {
+                                    event.stopPropagation();
                                     (monitorAgentCallback as any)(
                                         agentId,
                                         'queueTransfer',
                                         engagementId
-                                    )
-                                }
+                                    );
+                                }}
                                 style={{
                                     height: 28,
                                     padding: '0 12px',
@@ -681,13 +701,14 @@ export const DigitalInteractionTableRow: FC<{
                         )}
                         <button
                             type='button'
-                            onClick={() =>
+                            onClick={(event) => {
+                                event.stopPropagation();
                                 (monitorAgentCallback as any)(
                                     agentId,
                                     'queueClaim',
                                     engagementId
-                                )
-                            }
+                                );
+                            }}
                             style={{
                                 height: 28,
                                 padding: '0 12px',

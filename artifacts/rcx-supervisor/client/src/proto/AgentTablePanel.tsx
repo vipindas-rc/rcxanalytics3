@@ -2585,7 +2585,7 @@ export default function AgentTablePanel({
                   ? [
                       {
                         id: "recategorize",
-                        label: "Recategorise",
+                        label: "Recategorize",
                         onSelect: () => setRecategorizeOpen(true),
                       },
                       {

@@ -1289,7 +1289,7 @@ export function ContactInfoSections({
             }
             data-testid="menuitem-recategorize"
           >
-            Recategorise thread
+            Recategorize
           </button>
         ) : null}
         {onEndMessage ? (
