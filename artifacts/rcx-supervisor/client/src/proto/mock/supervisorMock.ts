@@ -1055,6 +1055,7 @@ export function makeQueueInteractions(
 // IVR / pre-chat bot before landing in queue. These are discrete sessions —
 // not a continuous live conversation — so there's no live script and no agent.
 export function makeQueuePreview(row: any): InteractionPreviewData {
+  const engagementId = String(row?.engagementId ?? '');
   const waitTimeMs =
     typeof row?.waitTimeMs === 'number' ? row.waitTimeMs : undefined;
   const timeInQueueMs =
@@ -1090,6 +1091,7 @@ export function makeQueuePreview(row: any): InteractionPreviewData {
   };
 
   return {
+    engagementId,
     context: queueContext,
     waitTimeMs,
     timeInQueueMs,

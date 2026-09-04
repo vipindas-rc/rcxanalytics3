@@ -4,3 +4,4 @@
 - [Upstream ports via synthetic merge base](upstream-port-merge.md) — sibling GitHub repo has unrelated history; graft local tree onto the matching upstream commit and merge.
 - [Figma design access](figma-access.md) — no Figma connector; use FIGMA_ACCESS_TOKEN with the REST images API to export frames (share links need login).
 - [Git authentication on Replit](git-auth-replit-askpass.md) — stale GIT_ASKPASS can override valid GitHub CLI credentials; SSH is the reliable fallback.
+- [Interaction modal URL cleanup](interaction-modal-url-cleanup.md) — invalid targets replace the full route; malformed optional modal state removes only that optional parameter.

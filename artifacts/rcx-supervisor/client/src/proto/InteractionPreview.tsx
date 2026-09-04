@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   Headset,
+  History,
   Mail,
   Maximize2,
   MessageSquareMore,
@@ -24,8 +26,22 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { IconButton, Menu, More, Tooltip } from "@ringcx/ui";
+import {
+  Copy,
+  Dialog,
+  IconButton,
+  ListLogs,
+  Menu,
+  More,
+  Tooltip,
+} from "@ringcx/ui";
+import styled from "styled-components";
 
+import {
+  clearAuditLogParams,
+  useUrlParam,
+  useUrlSearchUpdater,
+} from "../hooks/useUrlState";
 import { TypeIcon } from "./eag/containers/Chat/TypeIcon";
 import { SupervisorFilter } from "./SupervisorFilter";
 import { SidePanelToggleIcon } from "./SidePanelToggleIcon";
@@ -45,6 +61,247 @@ export type InteractionPreviewMode = "preview" | "expanded" | "takeover";
 
 const RC_BLUE = "#066fac";
 const FONT = "'Roboto', sans-serif";
+
+const ChannelActionGroup = styled.div`
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+
+  .preview-channel-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    width: 66px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+  }
+
+  &:hover .preview-channel-actions,
+  &:focus-within .preview-channel-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+`;
+
+type AuditPosition = { x: number; y: number };
+
+const AUDIT_DIALOG_WIDTH = 560;
+const AUDIT_DIALOG_HEIGHT = 430;
+
+function boundAuditPosition(position: AuditPosition): AuditPosition {
+  if (typeof window === "undefined") return position;
+  return {
+    x: Math.max(8, Math.min(position.x, window.innerWidth - AUDIT_DIALOG_WIDTH - 8)),
+    y: Math.max(8, Math.min(position.y, window.innerHeight - AUDIT_DIALOG_HEIGHT - 8)),
+  };
+}
+
+function parseAuditPosition(raw: string | null): AuditPosition | null {
+  if (!raw || !/^-?\d+,-?\d+$/.test(raw)) return null;
+  const [x, y] = raw.split(",").map(Number);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return boundAuditPosition({ x, y });
+}
+
+function defaultAuditPosition(): AuditPosition {
+  if (typeof window === "undefined") return { x: 80, y: 80 };
+  return boundAuditPosition({
+    x: Math.round((window.innerWidth - AUDIT_DIALOG_WIDTH) / 2),
+    y: Math.round((window.innerHeight - AUDIT_DIALOG_HEIGHT) / 2),
+  });
+}
+
+function auditEventsFor(engagementId: string, queueName: string) {
+  let seed = 0;
+  for (const char of engagementId) seed = (seed * 31 + char.charCodeAt(0)) >>> 0;
+  const minute = 10 + (seed % 35);
+  const at = (offset: number) => {
+    const value = minute + offset;
+    const hour = 9 + Math.floor(value / 60);
+    return `${String(hour).padStart(2, "0")}:${String(value % 60).padStart(2, "0")} AM`;
+  };
+  return [
+    {
+      icon: History,
+      description: "The interaction was created.",
+      time: at(0),
+    },
+    {
+      icon: Bot,
+      description: "The virtual assistant collected the customer's details.",
+      time: at(1),
+    },
+    {
+      icon: CheckCircle2,
+      description: `The interaction entered the ${queueName} queue.`,
+      time: at(3),
+    },
+  ];
+}
+
+function AuditLogDialog({
+  engagementId,
+  queueName,
+  open,
+  position,
+  onPositionChange,
+  onPositionCommit,
+  onClose,
+}: {
+  engagementId: string;
+  queueName: string;
+  open: boolean;
+  position: AuditPosition;
+  onPositionChange: (position: AuditPosition) => void;
+  onPositionCommit: (position: AuditPosition) => void;
+  onClose: () => void;
+}) {
+  const dragRef = useRef<{
+    pointerX: number;
+    pointerY: number;
+    origin: AuditPosition;
+  } | null>(null);
+  const latestPositionRef = useRef(position);
+  latestPositionRef.current = position;
+  const events = useMemo(
+    () => auditEventsFor(engagementId, queueName),
+    [engagementId, queueName],
+  );
+
+  useEffect(() => {
+    const move = (event: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      onPositionChange(
+        boundAuditPosition({
+          x: drag.origin.x + event.clientX - drag.pointerX,
+          y: drag.origin.y + event.clientY - drag.pointerY,
+        }),
+      );
+    };
+    const end = () => {
+      if (!dragRef.current) return;
+      dragRef.current = null;
+      onPositionCommit(latestPositionRef.current);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
+  }, [onPositionChange, onPositionCommit]);
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      dialogTitle="Audit log"
+      closeButtonText="Close"
+      maxWidth={false}
+      scrollable
+      style={{ zIndex: 10020 }}
+      PaperProps={{
+        "data-testid": "dialog-audit-log",
+        onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => {
+          const target = event.target as Element;
+          if (!target.closest('[data-aid="eui-dialog-title"]')) return;
+          event.preventDefault();
+          dragRef.current = {
+            pointerX: event.clientX,
+            pointerY: event.clientY,
+            origin: latestPositionRef.current,
+          };
+        },
+        style: {
+          position: "fixed",
+          left: position.x,
+          top: position.y,
+          width: AUDIT_DIALOG_WIDTH,
+          height: AUDIT_DIALOG_HEIGHT,
+          margin: 0,
+        },
+      }}
+      content={
+        <div
+          style={{ paddingTop: 4, fontFamily: FONT }}
+          data-testid="audit-log-timeline"
+        >
+          <div
+            style={{
+              marginBottom: 18,
+              color: "#616161",
+              fontSize: 13,
+            }}
+          >
+            Thread ID: {engagementId}
+          </div>
+          {events.map((event, index) => {
+            const EventIcon = event.icon;
+            return (
+              <div
+                key={`${event.time}-${event.description}`}
+                style={{
+                  position: "relative",
+                  display: "grid",
+                  gridTemplateColumns: "32px minmax(0, 1fr) 76px",
+                  gap: 12,
+                  minHeight: 74,
+                }}
+              >
+                {index < events.length - 1 ? (
+                  <span
+                    aria-hidden
+                    style={{
+                      position: "absolute",
+                      left: 15,
+                      top: 30,
+                      bottom: 0,
+                      width: 1,
+                      background: "#d7d7d7",
+                    }}
+                  />
+                ) : null}
+                <span
+                  style={{
+                    zIndex: 1,
+                    width: 32,
+                    height: 32,
+                    borderRadius: "50%",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: RC_BLUE,
+                    background: "#e8f4fb",
+                  }}
+                >
+                  <EventIcon size={16} strokeWidth={2} />
+                </span>
+                <span style={{ color: "#212121", fontSize: 14, lineHeight: "20px" }}>
+                  {event.description}
+                </span>
+                <time
+                  style={{
+                    color: "#757575",
+                    fontSize: 12,
+                    lineHeight: "20px",
+                    textAlign: "right",
+                  }}
+                >
+                  {event.time}
+                </time>
+              </div>
+            );
+          })}
+        </div>
+      }
+    />
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Transfer Message Dialog (Figma node 88-27901)
@@ -1413,6 +1670,8 @@ export interface InteractionPreviewProps {
   // CP: Suggestion views — override the primary action button label.
   // Default "Claim" for suggestion queue-row previews.
   takeOverLabel?: string;
+  /** Nonblocking host notification, used by preview utility actions. */
+  onToast?: (message: string) => void;
 }
 
 export function InteractionPreview({
@@ -1434,9 +1693,105 @@ export function InteractionPreview({
   hideTiming = false,
   hideTransfer = false,
   takeOverLabel = "Claim",
+  onToast,
 }: InteractionPreviewProps) {
   const isFullPage = mode !== "preview";
   const isTakeover = mode === "takeover";
+  const [modalParam] = useUrlParam("modal");
+  const [modalEngagementId] = useUrlParam("engagementId");
+  const [auditPositionParam] = useUrlParam("auditPos");
+  const updateSearch = useUrlSearchUpdater();
+  const auditOpen =
+    modalParam === "audit-log" &&
+    modalEngagementId === data.engagementId &&
+    Boolean(data.pending) &&
+    !isTakeover;
+  const [auditPosition, setAuditPosition] = useState<AuditPosition>(
+    () => parseAuditPosition(auditPositionParam) ?? defaultAuditPosition(),
+  );
+
+  useEffect(() => {
+    if (modalParam !== "audit-log") return;
+    if (
+      !data.pending ||
+      isTakeover ||
+      !modalEngagementId ||
+      modalEngagementId !== data.engagementId
+    ) {
+      updateSearch(
+        clearAuditLogParams,
+        { replace: true },
+      );
+    }
+  }, [
+    data.engagementId,
+    data.pending,
+    isTakeover,
+    modalEngagementId,
+    modalParam,
+    updateSearch,
+  ]);
+
+  useEffect(() => {
+    if (!auditOpen) return;
+    const parsed = parseAuditPosition(auditPositionParam);
+    if (parsed) setAuditPosition(parsed);
+    else if (auditPositionParam) {
+      setAuditPosition(defaultAuditPosition());
+      updateSearch((params) => params.delete("auditPos"), { replace: true });
+    }
+  }, [auditOpen, auditPositionParam, updateSearch]);
+
+  const openAuditLog = useCallback(() => {
+    updateSearch((params) => {
+      params.set("modal", "audit-log");
+      params.set("engagementId", data.engagementId);
+      params.delete("agentId");
+    });
+  }, [data.engagementId, updateSearch]);
+
+  const closeAuditLog = useCallback(() => {
+    updateSearch(clearAuditLogParams);
+  }, [updateSearch]);
+
+  const commitAuditPosition = useCallback(
+    (position: AuditPosition) => {
+      updateSearch(
+        (params) => params.set("auditPos", `${position.x},${position.y}`),
+        { replace: true },
+      );
+    },
+    [updateSearch],
+  );
+
+  const copyThreadId = useCallback(async () => {
+    const value = data.engagementId;
+    let copied = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+        copied = true;
+      }
+    } catch {
+      // Restricted browser contexts fall through to the legacy selection path.
+    }
+    if (!copied) {
+      const textarea = document.createElement("textarea");
+      textarea.value = value;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        copied = document.execCommand("copy");
+      } catch {
+        copied = false;
+      }
+      textarea.remove();
+    }
+    onToast?.(copied ? "Thread ID copied" : "Unable to copy thread ID");
+  }, [data.engagementId, onToast]);
 
   // Collapsible tabs pane (Contact Info / Notes / Context). Collapsing hides
   // the whole pane, leaving only the interaction preview; a slim rail with a
@@ -1729,33 +2084,68 @@ export function InteractionPreview({
             ))}
           </div>
         </div>
-        {/* Same channel tooltip as the table's Channel column (ringcx
-            Tooltip); wraps the bordered square so hover anywhere shows it. */}
-        <Tooltip
-          title={data.channelLabel}
-          placement="top"
-          // The preview window sits at zIndex 9990/10000; the tooltip popper
-          // defaults to MUI's 1500, so lift it above the popup explicitly.
-          PopperProps={{ style: { zIndex: 10001 } }}
+        <ChannelActionGroup
+          tabIndex={0}
+          role="group"
+          aria-label={`${data.channelLabel} channel actions`}
         >
-          <span
-            style={{
-              flexShrink: 0,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 36,
-              height: 36,
-              borderRadius: 6,
-              border: "1px solid #d9d9d9",
-              background: "#fff",
-              fontSize: 18,
-            }}
-            data-testid="icon-channel"
+          <Tooltip
+            title={data.channelLabel}
+            placement="top"
+            PopperProps={{ style: { zIndex: 10001 } }}
           >
-            <TypeIcon source={data.sourceType as any} showTip={false} />
-          </span>
-        </Tooltip>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 36,
+                height: 36,
+                borderRadius: 6,
+                border: "1px solid #d9d9d9",
+                background: "#fff",
+                fontSize: 18,
+              }}
+              data-testid="icon-channel"
+            >
+              <TypeIcon source={data.sourceType as any} showTip={false} />
+            </span>
+          </Tooltip>
+          {data.pending && !isTakeover ? (
+            <span className="preview-channel-actions">
+              <Tooltip
+                title="Copy thread ID"
+                placement="top"
+                PopperProps={{ style: { zIndex: 10001 } }}
+              >
+                <button
+                  type="button"
+                  aria-label="Copy thread ID"
+                  onClick={copyThreadId}
+                  style={{ ...iconButtonStyle, width: 32, height: 32 }}
+                  data-testid="button-copy-thread-id"
+                >
+                  <Copy width="16px" height="16px" />
+                </button>
+              </Tooltip>
+              <Tooltip
+                title="View audit log"
+                placement="top"
+                PopperProps={{ style: { zIndex: 10001 } }}
+              >
+                <button
+                  type="button"
+                  aria-label="View audit log"
+                  onClick={openAuditLog}
+                  style={{ ...iconButtonStyle, width: 32, height: 32 }}
+                  data-testid="button-view-audit-log"
+                >
+                  <ListLogs />
+                </button>
+              </Tooltip>
+            </span>
+          ) : null}
+        </ChannelActionGroup>
         {/* Take-over has no window header, so when the details pane is
             hidden its reopen affordance sits inline at the end of the
             subject row instead of a separate side rail. */}
@@ -1807,13 +2197,6 @@ export function InteractionPreview({
             <span>
               Total waiting time:{" "}
               <span
-                style={
-                  data.waitTimeMs > 10 * 60 * 1000
-                    ? { color: "#d32f2f", fontWeight: 500 }
-                    : data.waitTimeMs > 5 * 60 * 1000
-                      ? { color: "#b26205", fontWeight: 500 }
-                      : undefined
-                }
                 data-testid="text-total-waiting-time"
               >
                 {hhMmSsFilterFromMs(data.waitTimeMs)}
@@ -1824,15 +2207,6 @@ export function InteractionPreview({
             <span>
               Time in queue:{" "}
               <span
-                style={
-                  !data.pending
-                    ? undefined
-                    : data.timeInQueueMs > 10 * 60 * 1000
-                      ? { color: "#d32f2f", fontWeight: 500 }
-                      : data.timeInQueueMs > 5 * 60 * 1000
-                        ? { color: "#b26205", fontWeight: 500 }
-                        : undefined
-                }
                 data-testid="text-time-in-queue"
               >
                 {hhMmSsFilterFromMs(data.timeInQueueMs)}
@@ -2150,6 +2524,17 @@ export function InteractionPreview({
       onTransfer={handleTransferComplete}
     />
   ) : null;
+  const auditDialog = auditOpen ? (
+    <AuditLogDialog
+      engagementId={data.engagementId}
+      queueName={data.queueName}
+      open
+      position={auditPosition}
+      onPositionChange={setAuditPosition}
+      onPositionCommit={commitAuditPosition}
+      onClose={closeAuditLog}
+    />
+  ) : null;
 
   // Take-over renders embedded under the Supervisor tab (the page shows a
   // "← Supervisor" back row above it) — no fixed overlay.
@@ -2190,6 +2575,7 @@ export function InteractionPreview({
           {rightPane}
         </div>
         {transferDialog}
+        {auditDialog}
       </>
 
     );
@@ -2244,6 +2630,7 @@ export function InteractionPreview({
       </div>
     </div>
     {transferDialog}
+    {auditDialog}
   </>
   );
 }

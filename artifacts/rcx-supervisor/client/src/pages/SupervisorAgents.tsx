@@ -10,6 +10,7 @@ import {
   useMonitoringSession,
 } from "@/proto/activePreviewCallStore";
 import {
+  clearAuditLogParams,
   MODAL_IDS,
   useUrlFlag,
   useUrlParam,
@@ -431,7 +432,7 @@ interface QueuePanelSharedProps {
   previewMode: InteractionPreviewMode | null;
   onPreviewOpen: (engagementId: string) => void;
   onPreviewModeChange: (mode: InteractionPreviewMode) => void;
-  onPreviewClose: () => void;
+  onPreviewClose: (options?: { replace?: boolean }) => void;
   onVoicePreviewAccepted?: () => void;
   onDigitalTakeOverCommitted: (engagementId: string) => void;
   // CP: Suggestion view overrides — optional so PaginatedQueuePanel (which
@@ -955,6 +956,7 @@ export const SupervisorAgents = (): JSX.Element => {
           p.delete("modal");
           p.delete("agentId");
           p.delete("engagementId");
+          p.delete("auditPos");
         },
         { replace: true },
       );
@@ -1060,6 +1062,16 @@ export const SupervisorAgents = (): JSX.Element => {
       ? (queuePreviewParams?.engagementId ?? null)
       : null;
 
+  // Audit position is namespaced to the audit dialog. A target-bearing audit
+  // link is validated by AgentTablePanel, which can replace an invalid preview
+  // route with the correct owning table route.
+  const auditPositionParam = new URLSearchParams(search).get("auditPos");
+  useEffect(() => {
+    if (modalParam !== "audit-log" && auditPositionParam != null) {
+      updateSearch((params) => params.delete("auditPos"), { replace: true });
+    }
+  }, [auditPositionParam, modalParam, updateSearch]);
+
   // URL-driven top tab (deep-linkable / refresh-safe): the Supervisor/My team
   // tab is the default (clean URL); the Queue tab exists only in the
   // Supervisor 2 / Agent 2 flows and is addressable via ?nav=queue (and by
@@ -1117,6 +1129,7 @@ export const SupervisorAgents = (): JSX.Element => {
       params.delete("modal");
       params.delete("agentId");
       params.delete("engagementId");
+      params.delete("auditPos");
       // Pin the current flow (Supervisor 1 owns the clean URL).
       if (rawViewParam) params.set("view", rawViewParam);
       else params.delete("view");
@@ -1523,6 +1536,9 @@ export const SupervisorAgents = (): JSX.Element => {
         (params) => {
           if (value === "Agents") params.set("tab", "agents");
           else params.delete("tab");
+          if (params.get("modal") === "audit-log") {
+            clearAuditLogParams(params);
+          }
         },
         // Leaving from a preview deep link returns to the plain table URL.
         { path: previewRouteMatched ? "/" : pathname },
@@ -1552,7 +1568,8 @@ export const SupervisorAgents = (): JSX.Element => {
     [previewEngagementId, navigate, withView],
   );
   const closePreview = useCallback(
-    () => navigate(withView("/")),
+    (options?: { replace?: boolean }) =>
+      navigate(withView("/"), { replace: options?.replace ?? false }),
     [navigate, withView],
   );
   // Closing the claimed conversation releases it (the count drops) and
@@ -1605,7 +1622,8 @@ export const SupervisorAgents = (): JSX.Element => {
     [queuePreviewEngagementId, navigate, withView],
   );
   const closeQueuePreview = useCallback(
-    () => navigate(queueTabUrl()),
+    (options?: { replace?: boolean }) =>
+      navigate(queueTabUrl(), { replace: options?.replace ?? false }),
     [navigate, queueTabUrl],
   );
 

@@ -394,7 +394,7 @@ interface AgentTablePanelProps {
   previewMode?: InteractionPreviewMode | null;
   onPreviewOpen?: (engagementId: string) => void;
   onPreviewModeChange?: (mode: InteractionPreviewMode) => void;
-  onPreviewClose?: () => void;
+  onPreviewClose?: (options?: { replace?: boolean }) => void;
   // Prototype behavior flag: clicking outside a pending voice or digital
   // preview closes the URL-driven preview.
   closePreviewOnOutsideClick?: boolean;
@@ -717,6 +717,7 @@ export default function AgentTablePanel({
         p.delete("modal");
         p.delete("agentId");
         p.delete("engagementId");
+        p.delete("auditPos");
       }, options);
     },
     [updateSearch],
@@ -1891,6 +1892,26 @@ export default function AgentTablePanel({
         // the Active messages take-over view.
         getClaimedQueueRow(previewEngagementId)) as any)
     : null;
+  // The page-level registry handles malformed audit URLs; this data-aware
+  // guard also rejects missing, active, and voice targets. Replace avoids
+  // adding a stale state that browser Back would immediately revisit.
+  useEffect(() => {
+    if (
+      modalParam === "audit-log" &&
+      (!modalEngagementIdParam ||
+        !previewRow ||
+        previewRow.engagementId !== modalEngagementIdParam ||
+        previewRow.isVoiceInteraction ||
+        previewRow.conversationState !== "PENDING")
+    ) {
+      onPreviewClose?.({ replace: true });
+    }
+  }, [
+    modalEngagementIdParam,
+    modalParam,
+    onPreviewClose,
+    previewRow,
+  ]);
   const recategorizeRow = recategorizeRowId
     ? ((interactions.find(
         (row: any) => row.engagementId === recategorizeRowId,
@@ -1946,8 +1967,15 @@ export default function AgentTablePanel({
 
   // Deep link points at an engagement that doesn't exist -> restore the table URL.
   useEffect(() => {
-    if (previewEngagementId && !previewRow) onPreviewClose?.();
-  }, [previewEngagementId, previewRow, onPreviewClose]);
+    if (previewEngagementId && !previewRow) {
+      // Audit links own an additional URL namespace, so an invalid target must
+      // replace rather than append the table route. Other stale previews keep
+      // their established close/navigation behavior.
+      onPreviewClose?.(
+        modalParam === "audit-log" ? { replace: true } : undefined,
+      );
+    }
+  }, [modalParam, previewEngagementId, previewRow, onPreviewClose]);
 
   // Digital category overrides stay live across preview/take-over remounts.
   const categoryOverrides = useCategoryOverrides();
@@ -2500,9 +2528,12 @@ export default function AgentTablePanel({
             mode={previewMode}
             data={previewData}
             title={
-              previewRow.conversationState === "ACTIVE"
-                ? "Monitoring conversation"
-                : "Conversation preview"
+              previewRow.isQueueRow ||
+              previewRow.conversationState === "PENDING"
+                ? "Interaction preview"
+                : previewRow.conversationState === "ACTIVE"
+                  ? "Monitoring conversation"
+                  : "Conversation preview"
             }
             hideTakeOver={
               // With a digital-claim route available, Claim behaves the same
@@ -2556,6 +2587,7 @@ export default function AgentTablePanel({
             }
             hideTransfer={hideQueueTransferAndMore}
             takeOverLabel={queueClaimLabel}
+            onToast={(message) => flashRef.current(message)}
           />
         )}
 
@@ -2831,6 +2863,8 @@ export default function AgentTablePanel({
 
         {toast && (
           <div
+            role="status"
+            aria-live="polite"
             style={{
               position: "fixed",
               bottom: 20,

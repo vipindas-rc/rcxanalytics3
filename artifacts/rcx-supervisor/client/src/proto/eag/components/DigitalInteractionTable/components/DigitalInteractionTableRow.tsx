@@ -186,12 +186,9 @@ export const DigitalInteractionTableRow: FC<{
     // clicked on the Agents tab blink to signal they are the selected set.
     const isHighlighted = !!highlightAgentId && agentId === highlightAgentId;
 
-    // SLA colors on the wait columns are state-aware: red/orange only while
-    // the interaction is still Pending (not yet assigned). Once the state
-    // moves to Reserved/Active the values render in the normal color — the
-    // Breached SLA filter still matches such rows (breach detection is on
-    // the raw time in queue, not the color).
-    const isSlaColorActive = conversationState === 'PENDING';
+    // Active rows retain their existing SLA presentation. Pending rows
+    // use neutral table text; breach filtering still reads the raw duration.
+    const isPendingInteraction = conversationState === 'PENDING';
 
     // The interaction whose AI Insights panel is open is kept visually selected
     // (steady blue/grey tint) for as long as the panel is showing.
@@ -412,7 +409,9 @@ export const DigitalInteractionTableRow: FC<{
                                 {typeof waitTimeMs === 'number' ? (
                                     <span
                                         style={
-                                            waitTimeMs > 15 * 60 * 1000
+                                            isPendingInteraction
+                                                ? undefined
+                                                : waitTimeMs > 15 * 60 * 1000
                                                 ? { color: '#d32f2f', fontWeight: 500 }
                                                 : waitTimeMs > 10 * 60 * 1000
                                                   ? { color: '#b26205', fontWeight: 500 }
@@ -442,19 +441,7 @@ export const DigitalInteractionTableRow: FC<{
                                 role='gridcell'
                             >
                                 {typeof timeInQueueMs === 'number' ? (
-                                    // Time-in-queue SLA colors: red past 10
-                                    // minutes, orange between 5 and 10 —
-                                    // only while the row is still Pending.
                                     <span
-                                        style={
-                                            !isSlaColorActive
-                                                ? undefined
-                                                : timeInQueueMs > 10 * 60 * 1000
-                                                ? { color: '#d32f2f', fontWeight: 500 }
-                                                : timeInQueueMs > 5 * 60 * 1000
-                                                  ? { color: '#b26205', fontWeight: 500 }
-                                                  : undefined
-                                        }
                                         data-testid={`text-time-in-queue-${engagementId}`}
                                     >
                                         {filterTime(
