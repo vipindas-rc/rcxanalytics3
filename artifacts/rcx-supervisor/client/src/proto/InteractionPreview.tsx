@@ -5,6 +5,8 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
+  Copy,
+  FileClock,
   Headset,
   History,
   Mail,
@@ -27,10 +29,8 @@ import {
   X,
 } from "lucide-react";
 import {
-  Copy,
   Dialog,
   IconButton,
-  ListLogs,
   Menu,
   More,
   Tooltip,
@@ -67,6 +67,26 @@ const ChannelActionGroup = styled.div`
   display: inline-flex;
   align-items: center;
   gap: 4px;
+
+  .preview-channel-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    width: 0;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      width 140ms ease,
+      opacity 120ms ease;
+  }
+
+  &:hover .preview-channel-actions,
+  &:focus-within .preview-channel-actions {
+    width: 100px;
+    opacity: 1;
+    pointer-events: auto;
+  }
 `;
 
 const ToolbarButton = styled.button`
@@ -94,13 +114,18 @@ const ToolbarButton = styled.button`
 type AuditPosition = { x: number; y: number };
 
 const AUDIT_DIALOG_WIDTH = 830;
-const AUDIT_MAX_HEIGHT = 600;
+const AUDIT_DIALOG_HEIGHT = 760;
+
+function auditDialogHeight() {
+  if (typeof window === "undefined") return AUDIT_DIALOG_HEIGHT;
+  return Math.min(AUDIT_DIALOG_HEIGHT, window.innerHeight - 16);
+}
 
 function boundAuditPosition(position: AuditPosition): AuditPosition {
   if (typeof window === "undefined") return position;
   return {
     x: Math.max(8, Math.min(position.x, window.innerWidth - AUDIT_DIALOG_WIDTH - 8)),
-    y: Math.max(8, Math.min(position.y, window.innerHeight - AUDIT_MAX_HEIGHT - 8)),
+    y: Math.max(8, Math.min(position.y, window.innerHeight - auditDialogHeight() - 8)),
   };
 }
 
@@ -115,7 +140,7 @@ function defaultAuditPosition(): AuditPosition {
   if (typeof window === "undefined") return { x: 80, y: 80 };
   return boundAuditPosition({
     x: Math.round((window.innerWidth - AUDIT_DIALOG_WIDTH) / 2),
-    y: Math.round((window.innerHeight - AUDIT_MAX_HEIGHT) / 2),
+    y: Math.round((window.innerHeight - auditDialogHeight()) / 2),
   });
 }
 
@@ -227,7 +252,6 @@ function AuditLogDialog({
       dialogTitle={<span style={{ fontSize: 24, fontWeight: 400 }}>Audit log</span>}
       closeButtonText="Close"
       maxWidth={false}
-      scrollable
       style={{ zIndex: 10020 }}
       PaperProps={{
         "data-testid": "dialog-audit-log",
@@ -246,7 +270,7 @@ function AuditLogDialog({
           left: position.x,
           top: position.y,
           width: AUDIT_DIALOG_WIDTH,
-          maxHeight: AUDIT_MAX_HEIGHT,
+          maxHeight: "calc(100vh - 16px)",
           margin: 0,
           display: "flex",
           flexDirection: "column",
@@ -2111,6 +2135,38 @@ export function InteractionPreview({
           role="group"
           aria-label={`${data.channelLabel} channel actions`}
         >
+          {isPendingDigital ? (
+            <span className="preview-channel-actions">
+              <Tooltip
+                title="Copy thread ID"
+                placement="top"
+                PopperProps={{ style: { zIndex: 10001 } }}
+              >
+                <ToolbarButton
+                  type="button"
+                  aria-label="Copy thread ID"
+                  onClick={copyThreadId}
+                  data-testid="button-copy-thread-id"
+                >
+                  <Copy size={24} strokeWidth={1.75} aria-hidden />
+                </ToolbarButton>
+              </Tooltip>
+              <Tooltip
+                title="View audit log"
+                placement="top"
+                PopperProps={{ style: { zIndex: 10001 } }}
+              >
+                <ToolbarButton
+                  type="button"
+                  aria-label="View audit log"
+                  onClick={openAuditLog}
+                  data-testid="button-view-audit-log"
+                >
+                  <FileClock size={24} strokeWidth={1.75} aria-hidden />
+                </ToolbarButton>
+              </Tooltip>
+            </span>
+          ) : null}
           <Tooltip
             title={data.channelLabel}
             placement="top"
@@ -2161,49 +2217,6 @@ export function InteractionPreview({
           </button>
         ) : null}
       </div>
-      {/* Pending actions toolbar */}
-      {isPendingDigital ? (
-        <div
-          style={{
-            flexShrink: 0,
-            display: "flex",
-            alignItems: "center",
-            padding: "8px 24px",
-            borderBottom: "1px solid #efeff0",
-            gap: 8,
-          }}
-          data-testid="row-pending-toolbar"
-        >
-          <Tooltip
-            title="Copy thread ID"
-            placement="top"
-            PopperProps={{ style: { zIndex: 10001 } }}
-          >
-            <ToolbarButton
-              type="button"
-              aria-label="Copy thread ID"
-              onClick={copyThreadId}
-              data-testid="button-copy-thread-id"
-            >
-              <Copy width="24px" height="24px" />
-            </ToolbarButton>
-          </Tooltip>
-          <Tooltip
-            title="View audit log"
-            placement="top"
-            PopperProps={{ style: { zIndex: 10001 } }}
-          >
-            <ToolbarButton
-              type="button"
-              aria-label="View audit log"
-              onClick={openAuditLog}
-              data-testid="button-view-audit-log"
-            >
-              <ListLogs width="24px" height="24px" />
-            </ToolbarButton>
-          </Tooltip>
-        </div>
-      ) : null}
       {/* Queue timing — only for pending (queue) previews; hidden when the
           parent marks this as a claimed / active-messages view. */}
       {!hideTiming &&
