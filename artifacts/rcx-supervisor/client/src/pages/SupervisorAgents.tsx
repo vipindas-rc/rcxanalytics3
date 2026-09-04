@@ -28,6 +28,7 @@ import AgentTablePanel, {
   supervisor3InteractionColumnMeta,
   suggestionInteractionColumnMeta,
   myQueuesColumnMeta,
+  queueColumnMeta,
   agentStateOptions,
   interactionFilterRows,
   useQueuePendingCount,
@@ -256,6 +257,8 @@ const COLS_STORAGE_KEYS = {
   // CP: Suggestion views — My Queues tab table settings.
   myQueuesVisible: "rcx-supervisor.myQueuesCols.visible.v1",
   myQueuesOrder: "rcx-supervisor.myQueuesCols.order.v1",
+  queueVisible: "rcx-supervisor.queueCols.visible.v1",
+  queueOrder: "rcx-supervisor.queueCols.order.v1",
 } as const;
 
 // Columns that exist (and can be re-enabled in Settings) but start hidden in
@@ -681,6 +684,53 @@ function PaginatedQueuePanel({
   // what the current page actually shows. Seeded null so a deep-linked page
   // isn't clamped away before the first count report lands.
   const [filteredCount, setFilteredCount] = useState<number | null>(null);
+  const [queueSettingsOpen, setQueueSettingsOpen] = useUrlFlag(
+    "modal",
+    "queue-settings",
+  );
+  const queueIds = useMemo(() => queueColumnMeta.map((column) => column.id), []);
+  const queueLabels = useMemo(
+    () => Object.fromEntries(queueColumnMeta.map((column) => [column.id, column.label])),
+    [],
+  );
+  const [visibleQueueCols, setVisibleQueueCols] = useState<Record<string, boolean>>(
+    () => loadStoredVisibility(COLS_STORAGE_KEYS.queueVisible, queueIds),
+  );
+  const [queueColOrder, setQueueColOrder] = useState<string[]>(() =>
+    loadStoredOrder(COLS_STORAGE_KEYS.queueOrder, queueIds),
+  );
+  const [draftQueueCols, setDraftQueueCols] = useState(visibleQueueCols);
+  const [draftQueueOrder, setDraftQueueOrder] = useState(queueColOrder);
+  const [queueDragId, setQueueDragId] = useState<string | null>(null);
+  const lockedQueueCol = "sourceName";
+
+  useEffect(() => {
+    saveStored(COLS_STORAGE_KEYS.queueVisible, visibleQueueCols);
+  }, [visibleQueueCols]);
+  useEffect(() => {
+    saveStored(COLS_STORAGE_KEYS.queueOrder, queueColOrder);
+  }, [queueColOrder]);
+  useEffect(() => {
+    if (!queueSettingsOpen) return;
+    setDraftQueueCols(visibleQueueCols);
+    setDraftQueueOrder(queueColOrder);
+  }, [queueSettingsOpen, visibleQueueCols, queueColOrder]);
+
+  const visibleQueueColumnIds = queueColOrder.filter(
+    (id) => id === lockedQueueCol || visibleQueueCols[id],
+  );
+  const moveQueueColumn = (fromId: string, toId: string) => {
+    if (fromId === toId || fromId === lockedQueueCol || toId === lockedQueueCol) return;
+    setDraftQueueOrder((current) => {
+      const next = [...current];
+      const from = next.indexOf(fromId);
+      const to = next.indexOf(toId);
+      if (from < 0 || to < 0) return current;
+      next.splice(from, 1);
+      next.splice(to, 0, fromId);
+      return next;
+    });
+  };
 
   const pageCount =
     filteredCount === null
@@ -695,7 +745,10 @@ function PaginatedQueuePanel({
 
   return (
     <>
-      <QueueToolbar {...shared} />
+      <QueueToolbar
+        {...shared}
+        onOpenSettings={() => setQueueSettingsOpen(true)}
+      />
       <div className="min-h-0 flex-1 overflow-hidden" data-testid="queue-panel-paginated">
         <AgentTablePanel
           activeTab="Queue"
@@ -713,6 +766,7 @@ function PaginatedQueuePanel({
           onDigitalTakeOverCommitted={shared.onDigitalTakeOverCommitted}
           queuePageSlice={{ page: clampedPage, pageSize: QUEUE_PAGE_SIZE }}
           onQueueFilteredCount={setFilteredCount}
+          visibleQueueColumnIds={visibleQueueColumnIds}
         />
       </div>
       <PaginationFooter
@@ -723,6 +777,101 @@ function PaginatedQueuePanel({
         emptyLabel="No items in queue"
         testIdPrefix="queue"
       />
+      <Dialog open={queueSettingsOpen} onOpenChange={setQueueSettingsOpen}>
+        <DialogContent
+          className="max-w-3xl gap-0 p-0"
+          data-testid="dialog-queue-settings"
+        >
+          <DialogHeader className="px-8 pt-7">
+            <DialogTitle className="text-xl font-semibold text-[#121212]">
+              Queue table settings
+            </DialogTitle>
+          </DialogHeader>
+          <div className="px-8 pb-2 pt-4">
+            <p className="mb-4 text-sm text-[#666666]">
+              For more information, visit{" "}
+              <a
+                href="https://support.ringcentral.com"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-medium"
+                style={{ color: RC_BLUE }}
+              >
+                RingCentral Support
+                <ExternalLink className="h-4 w-4" />
+              </a>
+            </p>
+            <p className="mb-3 text-sm text-[#666666]">
+              Drag the handle to reorder columns. Changes apply to the table when you save.
+            </p>
+            <div className="grid grid-cols-3 gap-3">
+              {draftQueueOrder.map((colId) => {
+                const locked = colId === lockedQueueCol;
+                return (
+                  <label
+                    key={colId}
+                    htmlFor={`queue-col-${colId}`}
+                    draggable={!locked}
+                    onDragStart={() => !locked && setQueueDragId(colId)}
+                    onDragOver={(event) => !locked && queueDragId && event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      if (queueDragId) moveQueueColumn(queueDragId, colId);
+                      setQueueDragId(null);
+                    }}
+                    onDragEnd={() => setQueueDragId(null)}
+                    className={`flex items-center justify-between gap-2 rounded-md bg-[#f4f5f7] px-3 py-2.5 text-sm ${
+                      locked ? "cursor-default text-[#9aa0a6]" : "cursor-pointer text-[#121212]"
+                    } ${queueDragId === colId ? "opacity-40 ring-2 ring-[#066fac]" : ""}`}
+                    data-testid={`queue-col-row-${colId}`}
+                  >
+                    <span className="flex min-w-0 items-center gap-3">
+                      <Checkbox
+                        id={`queue-col-${colId}`}
+                        checked={locked || !!draftQueueCols[colId]}
+                        disabled={locked}
+                        onCheckedChange={(checked) =>
+                          setDraftQueueCols((current) => ({
+                            ...current,
+                            [colId]: checked === true,
+                          }))
+                        }
+                        className="h-5 w-5 rounded border-[#c4c8cd] disabled:opacity-100 data-[state=checked]:border-[#066fac] data-[state=checked]:bg-[#066fac]"
+                        data-testid={`checkbox-queue-col-${colId}`}
+                      />
+                      <span className="truncate">{queueLabels[colId]}</span>
+                    </span>
+                    <DragHandleIcon className="h-4 w-4 shrink-0 text-[#9aa0a6]" />
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+          <DialogFooter className="items-center gap-2 px-8 pb-7 pt-6 sm:justify-end">
+            <Button
+              variant="ghost"
+              onClick={() => setQueueSettingsOpen(false)}
+              className="px-4 text-[15px] font-semibold hover:bg-transparent"
+              style={{ color: RC_BLUE }}
+              data-testid="button-queue-settings-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setVisibleQueueCols(draftQueueCols);
+                setQueueColOrder(draftQueueOrder);
+                setQueueSettingsOpen(false);
+              }}
+              className="rounded-md px-6 text-[15px] font-semibold text-white hover:opacity-90"
+              style={{ backgroundColor: RC_BLUE }}
+              data-testid="button-queue-settings-save"
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

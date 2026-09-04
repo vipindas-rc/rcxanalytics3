@@ -26,6 +26,9 @@ declare module "@proto" {
     selectedInteractionStates?: string[];
 
     visibleInteractionColumnIds?: string[];
+    // Queue-tab column visibility/order from the paginated queue's settings
+    // dialog. When omitted every queue column renders in its default order.
+    visibleQueueColumnIds?: string[];
     // Interactions-tab "Breached SLA" toggle: only rows whose Time in queue
     // is past the 10-minute SLA remain.
 
@@ -100,6 +103,7 @@ declare module "@proto" {
   export default AgentTablePanel;
   export const agentColumnMeta: { id: string; label: string }[];
   export const interactionColumnMeta: { id: string; label: string }[];
+  export const queueColumnMeta: { id: string; label: string }[];
   export const supervisor2InteractionColumnMeta: {
     id: string;
     label: string;

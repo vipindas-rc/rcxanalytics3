@@ -194,6 +194,9 @@ const makeArrival = (i: number, idPrefix: string): any => {
     // Routing priority on some live arrivals (1.0, 2.0, 3.0 — lower = more
     // urgent); the rest have none and render the em dash.
     priority: i % 3 === 0 ? (Math.floor(i / 3) % 3) + 1 : null,
+    // Live arrivals are always fresh (never previously handled), so
+    // Previous agent is blank.
+    lastAgentName: '',
     isQueueRow: true,
     // Every queued conversation can be previewed: digital rows open the
     // Interaction preview; voice rows open the preview-call window.
@@ -229,11 +232,20 @@ const advanceClocks = (rows: any[]): any[] =>
 
 // Uneven rhythm (2 arrivals for every departure) so the counter visibly
 // drifts instead of ping-ponging around one value.
+//
+// preferLongest controls departure strategy:
+//   false (compact queue): remove shortest-waiting row — long (orange/red)
+//         SLA rows stay visible in the demo.
+//   true  (extended/paginated queue): remove longest-waiting row — breached
+//         rows cycle out as fresh arrivals join at 0 ms, keeping the SLA-
+//         breach count stable near the seeded level (~15) instead of
+//         letting clocks push nearly every row into the red band over time.
 const churn = (
   rows: any[],
   cap: number,
   floor: number,
   nextArrival: () => any,
+  preferLongest = false,
 ): any[] => {
   if (churnBeat % 3 !== 0) {
     // A new customer joins the queue (cap so it can't grow unbounded).
@@ -247,13 +259,20 @@ const churn = (
     return rows;
   }
   if (rows.length > floor) {
-    // Another agent picks up an interaction. Take the shortest-waiting row
-    // so the long (orange/red SLA) waiters stay visible in the demo.
-    const shortest = rows.reduce(
-      (min, r) => (r.waitTimeMs < min.waitTimeMs ? r : min),
-      rows[0],
-    );
-    return rows.filter((r) => r !== shortest);
+    // Another agent picks up an interaction. Which row to retire depends on
+    // the queue set: compact keeps the long waiters visible (removes
+    // shortest); extended retires the most-breached row so the red band
+    // stays near the seeded count rather than growing unbounded.
+    const target = preferLongest
+      ? rows.reduce(
+          (max, r) => (r.timeInQueueMs > max.timeInQueueMs ? r : max),
+          rows[0],
+        )
+      : rows.reduce(
+          (min, r) => (r.waitTimeMs < min.waitTimeMs ? r : min),
+          rows[0],
+        );
+    return rows.filter((r) => r !== target);
   }
   return rows;
 };
@@ -275,6 +294,7 @@ export const startQueueSimulation = (): void => {
     );
     extendedRows = churn(extendedRows, EXTENDED_CAP, EXTENDED_FLOOR, () =>
       makeArrival(extendedArrivalSeq++, 'queue-live-p-'),
+      true, // preferLongest: retire most-breached rows so the red band stays ~15
     );
     emit();
   }, TIMER_TICK_MS);

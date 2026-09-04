@@ -772,11 +772,16 @@ export const queueColumns: ISupervisorTableCol[] = interactionColumns
   .flatMap((c) =>
     c.id === 'productName'
       ? [
-          { ...c },
+          // Queue name column: relabeled from "Product" to "Queue" here
+          // because pending rows carry the queue name, not a product name.
+          { ...c, content: 'Queue' },
           // Split time columns: total customer wait (plain) vs. time
           // attributable to the current queue segment (SLA-colored).
           { id: 'waitTimeMs', content: 'Total waiting time', sortAs: SortType.NUMBER, visible: true, width: 130 },
           { id: 'timeInQueueMs', content: 'Time in queue', sortAs: SortType.NUMBER, visible: true, width: 120 },
+          // Previous agent: populated for conversations returned to queue
+          // after being picked up; blank for fresh (never-handled) arrivals.
+          { id: 'lastAgentName', content: 'Previous agent', sortAs: SortType.STRING, visible: true, width: 160 },
         ]
       : [{ ...c }],
   );

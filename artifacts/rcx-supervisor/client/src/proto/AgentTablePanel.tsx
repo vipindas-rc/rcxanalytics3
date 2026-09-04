@@ -137,6 +137,10 @@ export const agentColumnMeta: { id: string; label: string }[] = columns.map(
   (c) => ({ id: c.id, label: String(c.content) }),
 );
 
+// Paginated Queue settings derive from the exact standard queue column set.
+export const queueColumnMeta: { id: string; label: string }[] =
+  queueColumns.map((c) => ({ id: c.id, label: String(c.content) }));
+
 // Same single-source-of-truth treatment for the Interactions table, derived from
 // the real interaction column definitions so the settings dialog list can never
 // drift from the columns actually rendered in the table.
