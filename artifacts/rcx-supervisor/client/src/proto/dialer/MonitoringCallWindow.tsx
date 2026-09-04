@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import { ArrowRight, Phone, RotateCcw, Voicemail } from "lucide-react";
 import { ActionButton, Dialer, NumericKeypad, buildAssets, type Assets } from "./Dialer";
 import {
   endActivePreviewCall,
@@ -1643,7 +1644,11 @@ export function MonitoringCallWindow({
                             aria-label="Transfer"
                             className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
                           >
-                            <img alt="" className="size-[16px] block" src={assets.transfer} />
+                            <ArrowRight
+                              size={18}
+                              strokeWidth={2}
+                              aria-hidden
+                            />
                           </button>
                           <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
                             Transfer
@@ -1659,10 +1664,11 @@ export function MonitoringCallWindow({
                             aria-label="Voicemail"
                             className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
                           >
-                            <img
-                              alt=""
-                              className="size-[16px] block [filter:brightness(0)_saturate(100%)_opacity(0.6)]"
-                              src={assets.voicemail}
+                            <Voicemail
+                              size={18}
+                              strokeWidth={2}
+                              color="#757575"
+                              aria-hidden
                             />
                           </button>
                           <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
@@ -1679,7 +1685,11 @@ export function MonitoringCallWindow({
                             aria-label="Requeue"
                             className="bg-[#f2f2f2] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#e5e5e5] active:scale-95 transition-all"
                           >
-                            <img alt="" className="size-[16px] block" src={assets.requeue} />
+                            <RotateCcw
+                              size={18}
+                              strokeWidth={2}
+                              aria-hidden
+                            />
                           </button>
                           <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
                             Requeue
@@ -1723,7 +1733,13 @@ export function MonitoringCallWindow({
                           aria-label={previewClaimLabel ?? "Claim"}
                           className="bg-[#35a853] flex items-center justify-center rounded-full size-[36px] border-none cursor-pointer hover:bg-[#2d9147] active:scale-95 transition-all"
                         >
-                          <img alt="" className="size-[12px] block [filter:brightness(0)_invert(1)]" src={assets.callmd} />
+                          <Phone
+                            size={16}
+                            strokeWidth={2.4}
+                            color="#ffffff"
+                            fill="#ffffff"
+                            aria-hidden
+                          />
                         </button>
                         <p className="font-['Lato',sans-serif] leading-[18px] text-[13px] text-[#121212] m-0">
                           {previewClaimLabel ?? "Claim"}

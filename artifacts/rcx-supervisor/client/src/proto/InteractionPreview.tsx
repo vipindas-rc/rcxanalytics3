@@ -67,34 +67,40 @@ const ChannelActionGroup = styled.div`
   display: inline-flex;
   align-items: center;
   gap: 4px;
+`;
 
-  .preview-channel-actions {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    width: 66px;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 120ms ease;
+const ToolbarButton = styled.button`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: none;
+  background: transparent;
+  color: #9e9e9e;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  &:hover, &:focus-visible {
+    background-color: rgba(0, 0, 0, 0.04);
+    outline: none;
   }
-
-  &:hover .preview-channel-actions,
-  &:focus-within .preview-channel-actions {
-    opacity: 1;
-    pointer-events: auto;
+  & > svg {
+    width: 24px;
+    height: 24px;
   }
 `;
 
 type AuditPosition = { x: number; y: number };
 
-const AUDIT_DIALOG_WIDTH = 560;
-const AUDIT_DIALOG_HEIGHT = 430;
+const AUDIT_DIALOG_WIDTH = 830;
+const AUDIT_MAX_HEIGHT = 600;
 
 function boundAuditPosition(position: AuditPosition): AuditPosition {
   if (typeof window === "undefined") return position;
   return {
     x: Math.max(8, Math.min(position.x, window.innerWidth - AUDIT_DIALOG_WIDTH - 8)),
-    y: Math.max(8, Math.min(position.y, window.innerHeight - AUDIT_DIALOG_HEIGHT - 8)),
+    y: Math.max(8, Math.min(position.y, window.innerHeight - AUDIT_MAX_HEIGHT - 8)),
   };
 }
 
@@ -109,35 +115,53 @@ function defaultAuditPosition(): AuditPosition {
   if (typeof window === "undefined") return { x: 80, y: 80 };
   return boundAuditPosition({
     x: Math.round((window.innerWidth - AUDIT_DIALOG_WIDTH) / 2),
-    y: Math.round((window.innerHeight - AUDIT_DIALOG_HEIGHT) / 2),
+    y: Math.round((window.innerHeight - AUDIT_MAX_HEIGHT) / 2),
   });
 }
 
 function auditEventsFor(engagementId: string, queueName: string) {
   let seed = 0;
   for (const char of engagementId) seed = (seed * 31 + char.charCodeAt(0)) >>> 0;
-  const minute = 10 + (seed % 35);
-  const at = (offset: number) => {
-    const value = minute + offset;
-    const hour = 9 + Math.floor(value / 60);
-    return `${String(hour).padStart(2, "0")}:${String(value % 60).padStart(2, "0")} AM`;
+
+  // Deterministic times
+  const today = new Date();
+  today.setHours(10, 0, 0, 0);
+  const startMs = today.getTime() - 24 * 60 * 60 * 1000 - (seed % 1000000); // starts about a day ago
+
+  const formatTime = (ms: number) => {
+    const d = new Date(ms);
+    const m = d.getMonth() + 1;
+    const day = d.getDate();
+    const y = d.getFullYear();
+    let h = d.getHours();
+    const min = d.getMinutes().toString().padStart(2, "0");
+    const ampm = h >= 12 ? "PM" : "AM";
+    h = h % 12 || 12;
+    return `${m}/${day}/${y}, ${h}:${min} ${ampm}`;
   };
+
+  let currentMs = startMs;
+  const advance = (mins: number) => {
+    currentMs += mins * 60 * 1000 + (seed % 60000);
+    return formatTime(currentMs);
+  };
+
   return [
-    {
-      icon: History,
-      description: "The interaction was created.",
-      time: at(0),
-    },
-    {
-      icon: Bot,
-      description: "The virtual assistant collected the customer's details.",
-      time: at(1),
-    },
-    {
-      icon: CheckCircle2,
-      description: `The interaction entered the ${queueName} queue.`,
-      time: at(3),
-    },
+    { icon: History, description: "The interaction was created.", time: formatTime(currentMs) },
+    { icon: Bot, description: "The customer engaged with the virtual assistant.", time: advance(1) },
+    { icon: RefreshCw, description: "The CRM record was imported automatically.", time: advance(0.5) },
+    { icon: CheckCircle2, description: "The virtual assistant verified the account details.", time: advance(2) },
+    { icon: Bot, description: "The virtual assistant routed the interaction.", time: advance(1) },
+    { icon: PhoneIncoming, description: `The interaction entered the ${queueName} queue.`, time: advance(0) },
+    { icon: RefreshCw, description: "The interaction priority was escalated.", time: advance(15) },
+    { icon: UserRound, description: "The interaction was assigned to Agent Alex.", time: advance(5) },
+    { icon: PhoneOutgoing, description: "Agent Alex transferred the interaction to another queue.", time: advance(10) },
+    { icon: PhoneIncoming, description: "The interaction was moved to the Escalation queue.", time: advance(0) },
+    { icon: UserRound, description: "The interaction was assigned to Agent Blake.", time: advance(4) },
+    { icon: MessageSquareMore, description: "Agent Blake replied to the customer.", time: advance(2) },
+    { icon: StickyNote, description: "Agent Blake added a note to the interaction.", time: advance(5) },
+    { icon: UserRound, description: "Agent Blake transferred the interaction to a supervisor.", time: advance(2) },
+    { icon: Headset, description: "The interaction was assigned to you.", time: advance(1) },
   ];
 }
 
@@ -200,7 +224,7 @@ function AuditLogDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      dialogTitle="Audit log"
+      dialogTitle={<span style={{ fontSize: 24, fontWeight: 400 }}>Audit log</span>}
       closeButtonText="Close"
       maxWidth={false}
       scrollable
@@ -222,35 +246,29 @@ function AuditLogDialog({
           left: position.x,
           top: position.y,
           width: AUDIT_DIALOG_WIDTH,
-          height: AUDIT_DIALOG_HEIGHT,
+          maxHeight: AUDIT_MAX_HEIGHT,
           margin: 0,
+          display: "flex",
+          flexDirection: "column",
         },
       }}
       content={
         <div
-          style={{ paddingTop: 4, fontFamily: FONT }}
+          style={{ paddingTop: 8, paddingBottom: 16, fontFamily: FONT, overflowY: "auto", flex: 1 }}
           data-testid="audit-log-timeline"
         >
-          <div
-            style={{
-              marginBottom: 18,
-              color: "#616161",
-              fontSize: 13,
-            }}
-          >
-            Thread ID: {engagementId}
-          </div>
           {events.map((event, index) => {
             const EventIcon = event.icon;
             return (
               <div
-                key={`${event.time}-${event.description}`}
+                key={`${event.time}-${index}`}
                 style={{
                   position: "relative",
                   display: "grid",
-                  gridTemplateColumns: "32px minmax(0, 1fr) 76px",
-                  gap: 12,
-                  minHeight: 74,
+                  gridTemplateColumns: "32px minmax(0, 1fr) auto",
+                  gap: 16,
+                  minHeight: 42,
+                  alignItems: "start",
                 }}
               >
                 {index < events.length - 1 ? (
@@ -259,10 +277,10 @@ function AuditLogDialog({
                     style={{
                       position: "absolute",
                       left: 15,
-                      top: 30,
-                      bottom: 0,
+                      top: 24,
+                      bottom: -8,
                       width: 1,
-                      background: "#d7d7d7",
+                      borderLeft: "1px dashed #d7d7d7",
                     }}
                   />
                 ) : null}
@@ -271,25 +289,26 @@ function AuditLogDialog({
                     zIndex: 1,
                     width: 32,
                     height: 32,
-                    borderRadius: "50%",
                     display: "inline-flex",
-                    alignItems: "center",
+                    alignItems: "flex-start",
                     justifyContent: "center",
-                    color: RC_BLUE,
-                    background: "#e8f4fb",
+                    color: "#9e9e9e",
+                    background: "#fff",
+                    paddingTop: 2,
                   }}
                 >
-                  <EventIcon size={16} strokeWidth={2} />
+                  <EventIcon size={18} strokeWidth={1.5} />
                 </span>
-                <span style={{ color: "#212121", fontSize: 14, lineHeight: "20px" }}>
+                <span style={{ color: "#212121", fontSize: 14, lineHeight: "24px", paddingTop: 4 }}>
                   {event.description}
                 </span>
                 <time
                   style={{
-                    color: "#757575",
-                    fontSize: 12,
-                    lineHeight: "20px",
+                    color: "#9e9e9e",
+                    fontSize: 13,
+                    lineHeight: "24px",
                     textAlign: "right",
+                    paddingTop: 4,
                   }}
                 >
                   {event.time}
@@ -1701,11 +1720,16 @@ export function InteractionPreview({
   const [modalEngagementId] = useUrlParam("engagementId");
   const [auditPositionParam] = useUrlParam("auditPos");
   const updateSearch = useUrlSearchUpdater();
+  const isPendingDigital = Boolean(
+    data.pending &&
+    !isTakeover &&
+    !String(data.sourceType).toUpperCase().startsWith("VOICE")
+  );
+
   const auditOpen =
     modalParam === "audit-log" &&
     modalEngagementId === data.engagementId &&
-    Boolean(data.pending) &&
-    !isTakeover;
+    isPendingDigital;
   const [auditPosition, setAuditPosition] = useState<AuditPosition>(
     () => parseAuditPosition(auditPositionParam) ?? defaultAuditPosition(),
   );
@@ -1713,8 +1737,7 @@ export function InteractionPreview({
   useEffect(() => {
     if (modalParam !== "audit-log") return;
     if (
-      !data.pending ||
-      isTakeover ||
+      !isPendingDigital ||
       !modalEngagementId ||
       modalEngagementId !== data.engagementId
     ) {
@@ -1724,9 +1747,8 @@ export function InteractionPreview({
       );
     }
   }, [
+    isPendingDigital,
     data.engagementId,
-    data.pending,
-    isTakeover,
     modalEngagementId,
     modalParam,
     updateSearch,
@@ -2111,40 +2133,6 @@ export function InteractionPreview({
               <TypeIcon source={data.sourceType as any} showTip={false} />
             </span>
           </Tooltip>
-          {data.pending && !isTakeover ? (
-            <span className="preview-channel-actions">
-              <Tooltip
-                title="Copy thread ID"
-                placement="top"
-                PopperProps={{ style: { zIndex: 10001 } }}
-              >
-                <button
-                  type="button"
-                  aria-label="Copy thread ID"
-                  onClick={copyThreadId}
-                  style={{ ...iconButtonStyle, width: 32, height: 32 }}
-                  data-testid="button-copy-thread-id"
-                >
-                  <Copy width="16px" height="16px" />
-                </button>
-              </Tooltip>
-              <Tooltip
-                title="View audit log"
-                placement="top"
-                PopperProps={{ style: { zIndex: 10001 } }}
-              >
-                <button
-                  type="button"
-                  aria-label="View audit log"
-                  onClick={openAuditLog}
-                  style={{ ...iconButtonStyle, width: 32, height: 32 }}
-                  data-testid="button-view-audit-log"
-                >
-                  <ListLogs />
-                </button>
-              </Tooltip>
-            </span>
-          ) : null}
         </ChannelActionGroup>
         {/* Take-over has no window header, so when the details pane is
             hidden its reopen affordance sits inline at the end of the
@@ -2173,6 +2161,49 @@ export function InteractionPreview({
           </button>
         ) : null}
       </div>
+      {/* Pending actions toolbar */}
+      {isPendingDigital ? (
+        <div
+          style={{
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            padding: "8px 24px",
+            borderBottom: "1px solid #efeff0",
+            gap: 8,
+          }}
+          data-testid="row-pending-toolbar"
+        >
+          <Tooltip
+            title="Copy thread ID"
+            placement="top"
+            PopperProps={{ style: { zIndex: 10001 } }}
+          >
+            <ToolbarButton
+              type="button"
+              aria-label="Copy thread ID"
+              onClick={copyThreadId}
+              data-testid="button-copy-thread-id"
+            >
+              <Copy width="24px" height="24px" />
+            </ToolbarButton>
+          </Tooltip>
+          <Tooltip
+            title="View audit log"
+            placement="top"
+            PopperProps={{ style: { zIndex: 10001 } }}
+          >
+            <ToolbarButton
+              type="button"
+              aria-label="View audit log"
+              onClick={openAuditLog}
+              data-testid="button-view-audit-log"
+            >
+              <ListLogs width="24px" height="24px" />
+            </ToolbarButton>
+          </Tooltip>
+        </div>
+      ) : null}
       {/* Queue timing — only for pending (queue) previews; hidden when the
           parent marks this as a claimed / active-messages view. */}
       {!hideTiming &&
