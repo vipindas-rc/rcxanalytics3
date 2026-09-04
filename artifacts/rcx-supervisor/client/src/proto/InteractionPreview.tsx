@@ -979,7 +979,7 @@ export function ContactInfoSections({
             }
             data-testid="menuitem-recategorize"
           >
-            Recategorize thread
+            Recategorise thread
           </button>
         ) : null}
         {onEndMessage ? (

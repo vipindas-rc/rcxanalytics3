@@ -73,6 +73,11 @@ export interface ConversationCategory {
   color: string;
 }
 
+export interface ConversationCategorization {
+  categories: ConversationCategory[];
+  comment: string;
+}
+
 /** Every category the Recategorize dialog can assign. */
 export const CONVERSATION_CATEGORIES: ConversationCategory[] = [
   { label: "Critical issue", bg: "#fdeae5", color: "#c40c05" },
@@ -123,10 +128,37 @@ function loadCategoryOverrides(): Record<string, ConversationCategory[]> {
 let categoryOverrides: Record<string, ConversationCategory[]> =
   loadCategoryOverrides();
 
+const CONVERSATION_COMMENTS_STORAGE_KEY =
+  "rcx-supervisor.conversationComments.v1";
+
+function loadConversationComments(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(CONVERSATION_COMMENTS_STORAGE_KEY) ?? "{}",
+    );
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+let conversationComments = loadConversationComments();
+
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (event) => {
-    if (event.key !== CATEGORY_OVERRIDES_STORAGE_KEY) return;
-    categoryOverrides = loadCategoryOverrides();
+    if (event.key === CATEGORY_OVERRIDES_STORAGE_KEY) {
+      categoryOverrides = loadCategoryOverrides();
+    } else if (event.key === CONVERSATION_COMMENTS_STORAGE_KEY) {
+      conversationComments = loadConversationComments();
+    } else {
+      return;
+    }
     emit();
   });
 }
@@ -147,11 +179,40 @@ export function setConversationCategories(
   emit();
 }
 
+export function setConversationCategorization(
+  engagementId: string,
+  categories: ConversationCategory[],
+  comment: string,
+) {
+  categoryOverrides = { ...categoryOverrides, [engagementId]: categories };
+  conversationComments = {
+    ...conversationComments,
+    [engagementId]: comment.trim(),
+  };
+  try {
+    window.localStorage.setItem(
+      CATEGORY_OVERRIDES_STORAGE_KEY,
+      JSON.stringify(categoryOverrides),
+    );
+    window.localStorage.setItem(
+      CONVERSATION_COMMENTS_STORAGE_KEY,
+      JSON.stringify(conversationComments),
+    );
+  } catch {
+    // Storage can be unavailable; the live in-memory update still succeeds.
+  }
+  emit();
+}
+
 export function useCategoryOverrides(): Record<
   string,
   ConversationCategory[]
 > {
   return useSyncExternalStore(subscribe, () => categoryOverrides);
+}
+
+export function useConversationComments(): Record<string, string> {
+  return useSyncExternalStore(subscribe, () => conversationComments);
 }
 
 // ---------------------------------------------------------------------------

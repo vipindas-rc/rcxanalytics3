@@ -23,7 +23,8 @@ import { useLocation, useSearch } from "wouter";
  *             default: Supervisor / My team)
  *   filters   filter toolbar visibility: open (default: hidden)
  *   modal     THE one open dialog (mutually exclusive by sharing this key):
- *             transfer | reassign | agent-state | rollup | table-settings
+ *             transfer | reassign | agent-state | rollup | table-settings |
+ *             categorize
  *   agentId   companion to modal=agent-state / modal=rollup: target agent id
  *   agentType, agent, channel, queue, state, category
  *             Interactions-tab filters (comma-separated multi-select values)
@@ -43,6 +44,7 @@ export const MODAL_IDS = [
   "table-settings",
   "queue-transfer",
   "queue-requeue",
+  "categorize",
 ] as const;
 export type ModalId = (typeof MODAL_IDS)[number];
 

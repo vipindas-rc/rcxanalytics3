@@ -85,8 +85,9 @@ import {
   registerClaimedDigital,
   registerClaimedQueueRow,
   removeClaimedDigital,
-  setConversationCategories,
+  setConversationCategorization,
   useCategoryOverrides,
+  useConversationComments,
   useClaimedDigitalIds,
 } from "./claimedDigitalStore";
 import { ActiveMessagesSidebar } from "./ActiveMessagesSidebar";
@@ -665,20 +666,6 @@ export default function AgentTablePanel({
     engagementId: string;
     contactIdentity: string;
   } | null>(null);
-  // Recategorize is URL-driven for pending voice and digital interactions:
-  // "1" targets the open preview; another value targets that queue row.
-  const [categorizeParam, setCategorizeParam] = useUrlParam("categorize");
-  const recategorizeOpen = categorizeParam === "1";
-  const recategorizeRowId =
-    categorizeParam && categorizeParam !== "1" ? categorizeParam : null;
-  const setRecategorizeOpen = useCallback(
-    (open: boolean) => setCategorizeParam(open ? "1" : null),
-    [setCategorizeParam],
-  );
-  const setRecategorizeRowId = useCallback(
-    (id: string | null) => setCategorizeParam(id),
-    [setCategorizeParam],
-  );
   // Active messages End message dialog.
   const [endMessageOpen, setEndMessageOpen] = useState(false);
   // Incrementing signal that asks the open take-over view to show its
@@ -730,8 +717,29 @@ export default function AgentTablePanel({
     },
     [updateSearch],
   );
+  // Categorise shares the structural modal URL contract. The stable
+  // engagement id targets either the open preview or a digital queue row.
+  const setRecategorizeOpen = useCallback(
+    (open: boolean) =>
+      open && previewEngagementId && !readOnly
+        ? openModal("categorize", undefined, previewEngagementId)
+        : closeModal(),
+    [closeModal, openModal, previewEngagementId, readOnly],
+  );
+  const setRecategorizeRowId = useCallback(
+    (id: string | null) =>
+      id && !readOnly ? openModal("categorize", undefined, id) : closeModal(),
+    [closeModal, openModal, readOnly],
+  );
   const transferOpen = modalParam === "transfer";
   const reassignOpen = modalParam === "reassign";
+  const recategorizeOpen =
+    modalParam === "categorize" &&
+    modalEngagementIdParam === previewEngagementId;
+  const recategorizeRowId =
+    modalParam === "categorize" && !recategorizeOpen
+      ? modalEngagementIdParam
+      : null;
   const stateModalAgentId =
     modalParam === "agent-state" ? modalAgentIdParam : null;
   const rollupAgentId = modalParam === "rollup" ? modalAgentIdParam : null;
@@ -754,7 +762,8 @@ export default function AgentTablePanel({
       !closePreviewOnOutsideClick ||
       !previewEngagementId ||
       previewMode !== "preview" ||
-      removeConfirmRow
+      removeConfirmRow ||
+      modalParam
     ) {
       return;
     }
@@ -783,6 +792,7 @@ export default function AgentTablePanel({
     previewEngagementId,
     previewMode,
     removeConfirmRow,
+    modalParam,
   ]);
 
   // Switching to the read-only Agent view closes every supervisor-only surface
@@ -799,7 +809,8 @@ export default function AgentTablePanel({
       modalParam === "agent-state" ||
       modalParam === "rollup" ||
       modalParam === "queue-transfer" ||
-      modalParam === "queue-requeue"
+      modalParam === "queue-requeue" ||
+      modalParam === "categorize"
     ) {
       closeModal({ replace: true });
     }
@@ -1446,7 +1457,9 @@ export default function AgentTablePanel({
       }
       if (type === "queueRecategorize") {
         const row = queueRows.find((r: any) => r.engagementId === uii) as any;
-        if (uii && row) setRecategorizeRowId(uii);
+        if (uii && row && !row.isVoiceInteraction) {
+          setRecategorizeRowId(uii);
+        }
         return;
       }
       // Transfer: voice rows open the phone-call modal with the Transfer
@@ -1798,6 +1811,10 @@ export default function AgentTablePanel({
   // Deep link names an agent that doesn't exist (stale id, logged out) ->
   // close the dialog and restore a clean URL.
   useEffect(() => {
+    if (modalParam === "categorize" && !modalEngagementIdParam) {
+      closeModal({ replace: true });
+      return;
+    }
     if (
       (rollupAgentId && !rollupAgent) ||
       (stateModalAgentId && !stateModalAgent) ||
@@ -1814,6 +1831,8 @@ export default function AgentTablePanel({
     modalParam,
     modalAgentIdParam,
     closeModal,
+    modalEngagementIdParam,
+    modalParam,
   ]);
 
   // Live row backing the open AI Insights panel, so its Sentiment / Confidence
@@ -1881,21 +1900,20 @@ export default function AgentTablePanel({
       recategorizeOpen &&
       (!previewRow || previewRow.isVoiceInteraction)
     ) {
-      setRecategorizeOpen(false);
+      closeModal({ replace: true });
     }
     if (
       recategorizeRowId &&
       (!recategorizeRow || recategorizeRow.isVoiceInteraction)
     ) {
-      setRecategorizeRowId(null);
+      closeModal({ replace: true });
     }
   }, [
+    closeModal,
     previewRow,
     recategorizeOpen,
     recategorizeRow,
     recategorizeRowId,
-    setRecategorizeOpen,
-    setRecategorizeRowId,
   ]);
 
   // Claimed digital conversations backing the Active messages list panel.
@@ -1929,6 +1947,21 @@ export default function AgentTablePanel({
 
   // Digital category overrides stay live across preview/take-over remounts.
   const categoryOverrides = useCategoryOverrides();
+  const conversationComments = useConversationComments();
+  const categoriesForRow = useCallback(
+    (row: any): ConversationCategory[] => {
+      const override = categoryOverrides[row.engagementId];
+      if (override) return override;
+      const names = String(row.categoryIds ?? "")
+        .split(",")
+        .map((id) => CATEGORIES_MAP[id.trim()]?.name)
+        .filter(Boolean) as string[];
+      return CONVERSATION_CATEGORIES.filter((category) =>
+        names.includes(category.label),
+      );
+    },
+    [categoryOverrides],
+  );
   const previewData = useMemo(() => {
     if (!previewRow) return null;
     const base = previewRow.isQueueRow
@@ -2034,39 +2067,40 @@ export default function AgentTablePanel({
     <RcThemeProvider>
       <ThemeProvider theme={theme as any}>
         <PanelScope $readOnly={readOnly}>
-          {previewRow &&
+          {!readOnly &&
+          previewRow &&
           !previewRow.isVoiceInteraction &&
           recategorizeOpen ? (
             <RecategorizeDialog
-              current={previewData?.tags ?? []}
+              current={categoriesForRow(previewRow)}
+              currentComment={
+                conversationComments[previewRow.engagementId] ?? ""
+              }
               onCancel={() => setRecategorizeOpen(false)}
-              onSave={(categories) => {
-                setConversationCategories(previewRow.engagementId, categories);
+              onSave={(categories, comment) => {
+                setConversationCategorization(
+                  previewRow.engagementId,
+                  categories,
+                  comment,
+                );
                 setRecategorizeOpen(false);
                 flashRef.current("Categories updated");
               }}
             />
-          ) : recategorizeRow &&
+          ) : !readOnly &&
+            recategorizeRow &&
             !recategorizeRow.isVoiceInteraction &&
             recategorizeRowId ? (
             <RecategorizeDialog
-              current={(() => {
-                const override = categoryOverrides[recategorizeRowId];
-                if (override) return override;
-                const ids = String(recategorizeRow.categoryIds ?? "")
-                  .split(",")
-                  .map((id: string) => id.trim())
-                  .filter(Boolean);
-                const names = ids
-                  .map((id: string) => CATEGORIES_MAP[id]?.name)
-                  .filter(Boolean) as string[];
-                return CONVERSATION_CATEGORIES.filter((category) =>
-                  names.includes(category.label),
-                );
-              })()}
+              current={categoriesForRow(recategorizeRow)}
+              currentComment={conversationComments[recategorizeRowId] ?? ""}
               onCancel={() => setRecategorizeRowId(null)}
-              onSave={(categories) => {
-                setConversationCategories(recategorizeRowId, categories);
+              onSave={(categories, comment) => {
+                setConversationCategorization(
+                  recategorizeRowId,
+                  categories,
+                  comment,
+                );
                 setRecategorizeRowId(null);
                 flashRef.current("Categories updated");
               }}
@@ -2497,7 +2531,7 @@ export default function AgentTablePanel({
                   ? [
                       {
                         id: "recategorize",
-                        label: "Recategorize",
+                        label: "Recategorise",
                         onSelect: () => setRecategorizeOpen(true),
                       },
                       {

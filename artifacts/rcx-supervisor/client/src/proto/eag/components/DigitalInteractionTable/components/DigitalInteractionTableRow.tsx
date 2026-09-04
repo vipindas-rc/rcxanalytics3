@@ -52,7 +52,7 @@ const QueueMoreMenu: FC<{
         () => [
             {
                 id: `recategorize-${engagementId}`,
-                title: 'Recategorize',
+                title: 'Recategorise',
                 action: () =>
                     onAction(
                         agentId,

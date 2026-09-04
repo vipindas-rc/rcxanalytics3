@@ -1023,6 +1023,17 @@ export const SupervisorAgents = (): JSX.Element => {
     ? activePreviewElapsed
     : monitoringElapsed;
   const isEngaged = !!headerSession;
+  const [availableSinceMs, setAvailableSinceMs] = useState(
+    () => Date.now() - (21 * 60 + 1) * 1000,
+  );
+  const wasEngagedRef = useRef(isEngaged);
+  useEffect(() => {
+    if (wasEngagedRef.current && !isEngaged) {
+      setAvailableSinceMs(Date.now());
+    }
+    wasEngagedRef.current = isEngaged;
+  }, [isEngaged]);
+  const availableElapsed = useElapsedSince(isEngaged ? null : availableSinceMs);
   const pendingInteractionsUrl = useCallback(() => {
     const target = new URL(withView("/"), window.location.origin);
     if (hasQueueTab) target.searchParams.set("nav", "queue");
@@ -2037,7 +2048,7 @@ export const SupervisorAgents = (): JSX.Element => {
                   {isEngaged ? "Engaged" : "Available"}
                 </span>
                 <span className="whitespace-nowrap font-caption-1 text-[length:var(--caption-1-font-size)] font-[number:var(--caption-1-font-weight)] leading-[var(--caption-1-line-height)] tracking-[var(--caption-1-letter-spacing)] text-[#121212] [font-style:var(--caption-1-font-style)]">
-                  {headerSession ? headerSessionElapsed : "21:01"}
+                  {headerSession ? headerSessionElapsed : availableElapsed}
                 </span>
               </div>
               <img

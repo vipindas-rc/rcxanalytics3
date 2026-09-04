@@ -102,42 +102,35 @@ const CATEGORY_OPTIONS = CONVERSATION_CATEGORIES.map((c) => ({
 
 export function RecategorizeDialog({
   current,
+  currentComment,
   onCancel,
   onSave,
 }: {
   current: ConversationCategory[];
+  currentComment: string;
   onCancel: () => void;
-  onSave: (categories: ConversationCategory[]) => void;
+  onSave: (categories: ConversationCategory[], comment: string) => void;
 }): JSX.Element {
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>(
     current.map((c) => c.label),
   );
-  const [comment, setComment] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+  const [comment, setComment] = useState(currentComment);
 
   const handleSave = () => {
     const categories = CONVERSATION_CATEGORIES.filter((c) =>
       selectedIds.includes(c.label),
     );
-    onSave(categories);
+    onSave(categories, comment);
   };
 
   return (
-    <div ref={ref} data-testid="dialog-recategorize">
+    <div data-testid="dialog-recategorize">
       <RingCxDialog
         open
         onClose={onCancel}
         maxWidth="xs"
         style={{ zIndex: 10050 }}
-        dialogTitle="Categorize"
+        dialogTitle="Categorise"
         closeButtonText="Close"
         actions={
           <RingCxButton
@@ -161,9 +154,12 @@ export function RecategorizeDialog({
                 transform: translateY(-50%) !important;
               }
             `}</style>
-            <span className="mb-1.5 block font-['Roboto',sans-serif] text-[14px] text-[#494949]">
+            <label
+              htmlFor="conversation-categories"
+              className="mb-1.5 block font-['Roboto',sans-serif] text-[14px] text-[#494949]"
+            >
               Categories
-            </span>
+            </label>
             <div data-testid="input-categories">
               <RingCxAutocomplete
                 multiple
@@ -172,7 +168,7 @@ export function RecategorizeDialog({
                 onChange={((ids: (string | number)[]) =>
                   setSelectedIds(ids ?? [])) as any}
                 groupBy={(option: any) => option.groupName}
-                disableClearable
+                disableClearable={false}
                 blurOnSelect={false}
                 filterSelectedOptions
                 renderTags={((value: any[], getTagProps: any) =>
@@ -193,6 +189,8 @@ export function RecategorizeDialog({
                     );
                   })) as any}
                 name="categories"
+                inputId="conversation-categories"
+                accessibleLabel="Categories"
                 onBlur={() => undefined}
                 ref={null as any}
               />
