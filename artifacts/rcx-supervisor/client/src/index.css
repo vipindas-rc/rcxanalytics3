@@ -3,6 +3,13 @@
 @tailwind components;
 @tailwind utilities;
 
+.preview-compact-tooltip .MuiTooltip-tooltip {
+  min-width: 0;
+  padding: 4px 6px;
+  font-size: 12px;
+  line-height: 14px;
+}
+
 @layer components {
   .all-\[unset\] {
     all: unset;

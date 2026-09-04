@@ -76,9 +76,7 @@ const ChannelActionGroup = styled.div`
     overflow: hidden;
     opacity: 0;
     pointer-events: none;
-    transition:
-      width 140ms ease,
-      opacity 120ms ease;
+    transition: opacity 120ms ease;
   }
 
   &:hover .preview-channel-actions,
@@ -2140,7 +2138,11 @@ export function InteractionPreview({
               <Tooltip
                 title="Copy thread ID"
                 placement="bottom"
-                PopperProps={{ style: { zIndex: 10001 } }}
+                enterDelay={250}
+                PopperProps={{
+                  className: "preview-compact-tooltip",
+                  style: { zIndex: 10001 },
+                }}
               >
                 <ToolbarButton
                   type="button"
@@ -2154,7 +2156,11 @@ export function InteractionPreview({
               <Tooltip
                 title="View audit log"
                 placement="bottom"
-                PopperProps={{ style: { zIndex: 10001 } }}
+                enterDelay={250}
+                PopperProps={{
+                  className: "preview-compact-tooltip",
+                  style: { zIndex: 10001 },
+                }}
               >
                 <ToolbarButton
                   type="button"
@@ -2170,7 +2176,11 @@ export function InteractionPreview({
           <Tooltip
             title={data.channelLabel}
             placement="bottom"
-            PopperProps={{ style: { zIndex: 10001 } }}
+            enterDelay={250}
+            PopperProps={{
+              className: "preview-compact-tooltip",
+              style: { zIndex: 10001 },
+            }}
           >
             <span
               style={{
