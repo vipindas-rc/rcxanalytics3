@@ -99,6 +99,9 @@ const QueueMoreMenu: FC<{
                     onClose: () => setIsOpen(false),
                     // Portal to body so the flyout stacks above other rows.
                     disablePortal: false,
+                    // Keep the browser scrollbar in place so opening More
+                    // cannot change the grid width or shift every column.
+                    disableScrollLock: true,
                     disableAutoFocusItem: true,
                 }}
             />

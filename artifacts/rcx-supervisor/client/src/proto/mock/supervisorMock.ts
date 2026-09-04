@@ -1098,6 +1098,7 @@ export function makeQueuePreview(row: any): InteractionPreviewData {
     pending: true,
     channelLabel,
     sourceType,
+    sourceColor: row?.sourceColor,
     subject,
     tags: [{ label: 'Waiting', bg: '#e8f4fb', color: '#066fac' }],
     customerName,
@@ -1229,6 +1230,7 @@ export interface InteractionPreviewData {
   engagementId: string;
   channelLabel: string;
   sourceType: string;
+  sourceColor?: string;
   subject: string;
   tags: PreviewTag[];
   customerName: string;
@@ -1401,6 +1403,7 @@ export function makeInteractionPreview(row: any): InteractionPreviewData {
     pending: String(row?.conversationState ?? '') === 'PENDING',
     channelLabel,
     sourceType,
+    sourceColor: row?.sourceColor,
     subject: 'Hello! I have a problem with account. Can you help with it?',
     tags: [
       { label: 'Critical issue', bg: '#fdeae5', color: '#c40c05' },

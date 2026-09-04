@@ -29,6 +29,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  digitalColorMap,
   Dialog,
   IconButton,
   Menu,
@@ -63,25 +64,36 @@ const RC_BLUE = "#066fac";
 const FONT = "'Roboto', sans-serif";
 
 const ChannelActionGroup = styled.div`
+  position: relative;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
 
   .preview-channel-actions {
+    position: absolute;
+    top: 50%;
+    right: calc(100% + 24px);
+    transform: translateY(-50%);
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    width: 0;
-    overflow: hidden;
+    gap: 16px;
+    width: 64px;
     opacity: 0;
     pointer-events: none;
     transition: opacity 120ms ease;
+
+    &::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 100%;
+      width: 24px;
+      height: 100%;
+    }
   }
 
   &:hover .preview-channel-actions,
   &:focus-within .preview-channel-actions {
-    width: 56px;
     opacity: 1;
     pointer-events: auto;
   }
@@ -2193,7 +2205,15 @@ export function InteractionPreview({
               }}
               data-testid="icon-channel"
             >
-              <TypeIcon source={data.sourceType as any} showTip={false} />
+              <TypeIcon
+                source={data.sourceType as any}
+                inColor={
+                  data.sourceColor
+                    ? digitalColorMap[data.sourceColor]
+                    : undefined
+                }
+                showTip={false}
+              />
             </span>
           </Tooltip>
         </ChannelActionGroup>
