@@ -2140,8 +2140,7 @@ export function InteractionPreview({
                 placement="bottom"
                 enterDelay={250}
                 PopperProps={{
-                  className: "preview-compact-tooltip",
-                  style: { zIndex: 10001 },
+                  style: { zIndex: 10001, pointerEvents: "none" },
                 }}
               >
                 <ToolbarButton
@@ -2158,8 +2157,7 @@ export function InteractionPreview({
                 placement="bottom"
                 enterDelay={250}
                 PopperProps={{
-                  className: "preview-compact-tooltip",
-                  style: { zIndex: 10001 },
+                  style: { zIndex: 10001, pointerEvents: "none" },
                 }}
               >
                 <ToolbarButton
@@ -2178,8 +2176,7 @@ export function InteractionPreview({
             placement="bottom"
             enterDelay={250}
             PopperProps={{
-              className: "preview-compact-tooltip",
-              style: { zIndex: 10001 },
+              style: { zIndex: 10001, pointerEvents: "none" },
             }}
           >
             <span
