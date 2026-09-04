@@ -1032,7 +1032,6 @@ export function Dialer(props: DialerProps): JSX.Element {
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [requeueQuery, setRequeueQuery] = useState("");
   const [selectedQueueId, setSelectedQueueId] = useState<string | null>(null);
-  const [requeuedBanner, setRequeuedBanner] = useState(false);
   const [holdStartedAt, setHoldStartedAt] = useState<number | null>(null);
   const [holdElapsed, setHoldElapsed] = useState(0);
   const [consultHoldStartedAt, setConsultHoldStartedAt] = useState<number | null>(null);
@@ -1165,12 +1164,6 @@ export function Dialer(props: DialerProps): JSX.Element {
   }, []);
 
   useEffect(() => {
-    if (!requeuedBanner) return;
-    const id = window.setTimeout(() => setRequeuedBanner(false), 4000);
-    return () => window.clearTimeout(id);
-  }, [requeuedBanner]);
-
-  useEffect(() => {
     if (view !== "warm") return;
     const id = window.setTimeout(() => setView("conference"), 4000);
     return () => window.clearTimeout(id);
@@ -1230,7 +1223,6 @@ export function Dialer(props: DialerProps): JSX.Element {
 
   const goToTransfer = () => setView("transfer");
   const goToRequeue = () => {
-    setRequeuedBanner(false);
     setView("requeue");
   };
 
@@ -1317,7 +1309,6 @@ export function Dialer(props: DialerProps): JSX.Element {
     });
     onRequeueComplete?.(target);
     resetTransferState();
-    setRequeuedBanner(true);
     setView("call");
   };
   const handleTransferNow = () => {
@@ -1391,7 +1382,6 @@ export function Dialer(props: DialerProps): JSX.Element {
               onToggleKeypad={() => setKeypadOpen((o) => !o)}
               onTransfer={goToTransfer}
               onRequeue={goToRequeue}
-              requeuedBanner={requeuedBanner}
               onDigit={handleDigit}
               onBackspace={handleBackspace}
               onEndCall={handleEndAll}
@@ -2294,7 +2284,6 @@ type CallViewProps = {
   onToggleKeypad: () => void;
   onTransfer: () => void;
   onRequeue: () => void;
-  requeuedBanner: boolean;
   onDigit: (d: string) => void;
   onBackspace: () => void;
   onEndCall: () => void;
@@ -2307,22 +2296,11 @@ type CallViewProps = {
   assets: Assets;
 };
 
-function CallView({ timer, keypadOpen, enteredNumber, onToggleKeypad, onTransfer, onRequeue, requeuedBanner, onDigit, onBackspace, onEndCall, customerOnHold, holdText, holdOverThreshold, onOpenHoldSheet, holdTriggerRef, caller, assets }: CallViewProps) {
+function CallView({ timer, keypadOpen, enteredNumber, onToggleKeypad, onTransfer, onRequeue, onDigit, onBackspace, onEndCall, customerOnHold, holdText, holdOverThreshold, onOpenHoldSheet, holdTriggerRef, caller, assets }: CallViewProps) {
   return (
     <div className="w-full h-[490px] flex flex-col">
       <div className="relative flex flex-col items-start px-[16px] w-full">
         <TopStatusRow timer={timer} assets={assets} />
-        {requeuedBanner && (
-          <div
-            className="absolute left-[70px] top-[44px] z-20 bg-[#2f7a39] rounded-[8px] px-4 py-2 shadow-[0_4px_12px_rgba(0,0,0,0.18)]"
-            data-testid="banner-call-requeued"
-            role="status"
-          >
-            <span className="font-['Lato',sans-serif] text-[15px] leading-[20px] text-white whitespace-nowrap">
-              Call requeued
-            </span>
-          </div>
-        )}
         <div className="flex gap-[12px] items-start pb-[12px] pt-[10px] w-full">
           <div
             className="flex items-center justify-center rounded-full size-[48px] shrink-0"

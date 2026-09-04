@@ -16,6 +16,8 @@ description: Sharp edges of the rcx-supervisor artifact imported from the Cherry
 
 ## Exposing proto code to the page
 The `@proto` alias resolves to `proto/AgentTablePanel.tsx` (vite.config.ts) and the proto tree is excluded from tsc — anything the page imports must be BOTH re-exported from AgentTablePanel.tsx and hand-declared in `client/src/proto-module.d.ts`, or `pnpm run check` fails with "no exported member".
+
+Root providers built from vendored proto components must use the same `@proto` bridge. A deep provider import from `App.tsx` pulls the excluded vendor tree into `tsc` and produces widespread styled-components `DefaultTheme` errors.
 ## URL modal whitelist
 New `?modal=` dialog ids silently self-close unless added to the `MODAL_IDS` whitelist in `client/src/hooks/useUrlState.ts` — a cleanup effect strips unknown ids as stale. Add the id there AND to the readOnly close-list in AgentTablePanel before debugging "dialog won't open" from a deep link.
 

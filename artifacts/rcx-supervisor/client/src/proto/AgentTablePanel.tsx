@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PropsWithChildren,
+} from "react";
 import styled, { ThemeProvider, css } from "styled-components";
 import { RcThemeProvider } from "@ringcentral/juno";
 import { theme, Dialog } from "@ringcx/ui";
@@ -9,6 +16,8 @@ import "./vendor/ringcx-ui/icons/engage-icons/engage-icons.css";
 
 import RingCxCheckbox from "./vendor/ringcx-ui/components/Checkbox/Checkbox";
 import RingCxFilterToggle from "./vendor/ringcx-ui/components/Inputs/SearchInput/components/FilterToggle";
+import { Toast as useRingCxToast } from "./vendor/ringcx-ui/components/Toast";
+import { ToastProvider } from "./vendor/ringcx-ui/components/Toast/ToastProvider";
 import { SupervisorAgentList } from "./eag/containers/SupervisorAgentList/SupervisorAgentList";
 import { DigitalInteractionTable } from "./eag/components/DigitalInteractionTable/DigitalInteractionTable";
 import AiInsightsPanel from "./eag/components/AiInsightsPanel/AiInsightsPanel";
@@ -23,7 +32,6 @@ import { ReassignConversationModal } from "./ReassignConversationModal";
 import { InteractionRollupModal } from "./eag/containers/SupervisorAgentList/components/InteractionRollupModal";
 import {
   UpdateAgentStateModal,
-  AgentStateToast,
   type AgentStateOption,
 } from "./UpdateAgentStateModal";
 import {
@@ -55,6 +63,14 @@ export { useQueuePendingCount };
 // All raw queue rows re-exported so consumers (e.g. the pagination panel) can
 // compute total / filtered counts without coupling to the proto mock tree.
 export { useQueueRows };
+
+export function RingCxToastProvider({ children }: PropsWithChildren) {
+  return (
+    <ThemeProvider theme={theme}>
+      <ToastProvider>{children}</ToastProvider>
+    </ThemeProvider>
+  );
+}
 
 // Live "Interactions (n)" counter: all pending interactions — queued (Pending,
 // live from the queue store) plus Reserved rows (routed to an agent but not
@@ -519,6 +535,10 @@ export default function AgentTablePanel({
   queueClaimLabel = "Claim",
   useMyQueuesColumns = false,
 }: AgentTablePanelProps) {
+  const ringCxToast = useRingCxToast();
+  const ringCxToastRef = useRef(ringCxToast);
+  ringCxToastRef.current = ringCxToast;
+
   // Supervisor view 3 shares all of view 2's Interactions behavior (pending
   // row merging, hover actions, preview) — only the column set differs.
   // "suggestion" uses a leaner Active-only column set; pending rows live in
@@ -820,15 +840,15 @@ export default function AgentTablePanel({
       closeModal({ replace: true });
     }
   }, [readOnly, modalParam, closeModal]);
-  const [toast, setToast] = useState<string | null>(null);
-  const [successToast, setSuccessToast] = useState<string | null>(null);
   const [agentCols] = useState(() => columns.map((c: any) => ({ ...c })));
 
-  const flash = (msg: string) => {
-    setToast(msg);
-    window.clearTimeout((flash as any)._t);
-    (flash as any)._t = window.setTimeout(() => setToast(null), 2600);
-  };
+  const flash = useCallback((msg: string) => {
+    ringCxToastRef.current.info({
+      text: msg,
+      timeout: 2600,
+      hasCloseButton: true,
+    });
+  }, []);
   const flashRef = useRef(flash);
   flashRef.current = flash;
 
@@ -1319,7 +1339,7 @@ export default function AgentTablePanel({
             : a,
         ),
       );
-      flash(`${fullName} is now Inactive`);
+      flash(`${fullName} is now inactive.`);
     }, 3000);
   }, []);
 
@@ -1331,12 +1351,11 @@ export default function AgentTablePanel({
       closeModal();
 
       const showSuccess = () => {
-        setSuccessToast("The agent's state has been updated successfully.");
-        window.clearTimeout((applyAgentState as any)._t);
-        (applyAgentState as any)._t = window.setTimeout(
-          () => setSuccessToast(null),
-          4000,
-        );
+        ringCxToastRef.current.success({
+          text: "Agent state updated",
+          timeout: 4000,
+          hasCloseButton: true,
+        });
       };
 
       // AirPro agents being switched off (Inactive) drain their in-flight work
@@ -2854,34 +2873,6 @@ export default function AgentTablePanel({
           />
         )}
 
-        {successToast && (
-          <AgentStateToast
-            message={successToast}
-            onClose={() => setSuccessToast(null)}
-          />
-        )}
-
-        {toast && (
-          <div
-            role="status"
-            aria-live="polite"
-            style={{
-              position: "fixed",
-              bottom: 20,
-              left: "50%",
-              transform: "translateX(-50%)",
-              background: "#212121",
-              color: "#fff",
-              padding: "10px 18px",
-              borderRadius: 8,
-              fontSize: 14,
-              boxShadow: "0 4px 16px rgba(0,0,0,0.25)",
-              zIndex: 9999,
-            }}
-          >
-            {toast}
-          </div>
-        )}
       </ThemeProvider>
     </RcThemeProvider>
   );

@@ -1,5 +1,6 @@
 declare module "@proto" {
-  import type { ComponentType } from "react";
+  import type { ComponentType, PropsWithChildren } from "react";
+  export const RingCxToastProvider: ComponentType<PropsWithChildren>;
   export interface ProtoAgentTablePanelProps {
     activeTab?: "Agents" | "Interactions" | "Queue";
 
