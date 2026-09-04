@@ -66,12 +66,12 @@ const ChannelActionGroup = styled.div`
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
 
   .preview-channel-actions {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 8px;
     width: 0;
     overflow: hidden;
     opacity: 0;
@@ -83,7 +83,7 @@ const ChannelActionGroup = styled.div`
 
   &:hover .preview-channel-actions,
   &:focus-within .preview-channel-actions {
-    width: 100px;
+    width: 56px;
     opacity: 1;
     pointer-events: auto;
   }
@@ -93,8 +93,8 @@ const ToolbarButton = styled.button`
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
+  width: 24px;
+  height: 24px;
   border: none;
   background: transparent;
   color: #9e9e9e;
@@ -106,8 +106,8 @@ const ToolbarButton = styled.button`
     outline: none;
   }
   & > svg {
-    width: 24px;
-    height: 24px;
+    width: 16px;
+    height: 16px;
   }
 `;
 
@@ -2139,7 +2139,7 @@ export function InteractionPreview({
             <span className="preview-channel-actions">
               <Tooltip
                 title="Copy thread ID"
-                placement="top"
+                placement="bottom"
                 PopperProps={{ style: { zIndex: 10001 } }}
               >
                 <ToolbarButton
@@ -2148,12 +2148,12 @@ export function InteractionPreview({
                   onClick={copyThreadId}
                   data-testid="button-copy-thread-id"
                 >
-                  <Copy size={24} strokeWidth={1.75} aria-hidden />
+                  <Copy size={16} strokeWidth={1.75} aria-hidden />
                 </ToolbarButton>
               </Tooltip>
               <Tooltip
                 title="View audit log"
-                placement="top"
+                placement="bottom"
                 PopperProps={{ style: { zIndex: 10001 } }}
               >
                 <ToolbarButton
@@ -2162,14 +2162,14 @@ export function InteractionPreview({
                   onClick={openAuditLog}
                   data-testid="button-view-audit-log"
                 >
-                  <FileClock size={24} strokeWidth={1.75} aria-hidden />
+                  <FileClock size={16} strokeWidth={1.75} aria-hidden />
                 </ToolbarButton>
               </Tooltip>
             </span>
           ) : null}
           <Tooltip
             title={data.channelLabel}
-            placement="top"
+            placement="bottom"
             PopperProps={{ style: { zIndex: 10001 } }}
           >
             <span
