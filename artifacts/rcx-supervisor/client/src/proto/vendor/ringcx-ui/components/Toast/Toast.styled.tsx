@@ -73,11 +73,12 @@ export const ToastContainerFixed = styled.div`
     top: 60px;
     left: 50%;
     right: auto;
+    width: calc(100% - 32px);
     z-index: ${({ theme }) => theme.zIndexes.toast};
     transform: translateX(-50%);
     display: flex;
     flex-direction: column;
-    max-width: 90%;
+    align-items: center;
     @media ${({ theme }) => theme.dimensions.screenCrmIntegration} {
         z-index: ${({ theme }) => theme.zIndexes.sideNav + 1};
     }
@@ -85,12 +86,12 @@ export const ToastContainerFixed = styled.div`
 `;
 
 export const ToastRoot = styled.div`
-    width: 640px;
+    width: fit-content;
     display: flex;
     align-items: center;
     justify-content: center;
     margin-bottom: 8px;
-    max-width: 100%;
+    max-width: min(640px, 100%);
 
     &:focus {
         outline: none;
