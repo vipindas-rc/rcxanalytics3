@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearch, useLocation, Router as WouterRouter } from 'wouter';
+import { trackEvent } from './lib/analytics';
 
 type View = 'supervisor' | 'agent';
 
@@ -28,7 +29,12 @@ function ReviewPage() {
   ];
 
   function switchTab(tab: View) {
+    if (tab === activeView) return;
     navigate(`?tab=${tab}`, { replace: true });
+    trackEvent('review_role_changed', {
+      role: tab,
+      previous_role: activeView,
+    });
   }
 
   // Mount the newly selected view immediately, but don't boot the second full

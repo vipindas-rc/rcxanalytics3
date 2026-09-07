@@ -56,6 +56,7 @@ import {
   requeueRow,
 } from "./mock/queueStore";
 import { useUrlParam, useUrlSearchUpdater } from "@/hooks/useUrlState";
+import { trackEvent } from "@/lib/analytics";
 
 // Live "Queue (n)" counter hook — re-exported so the page's top tab label can
 // track queue arrivals/departures without importing the proto mock tree.
@@ -1350,11 +1351,16 @@ export default function AgentTablePanel({
       const agent = agents.find((a: any) => a.agentId === id) as any;
       closeModal();
 
-      const showSuccess = () => {
+      const showSuccess = (transition: "immediate" | "draining" = "immediate") => {
         ringCxToastRef.current.success({
           text: "Agent state updated",
           timeout: 4000,
           hasCloseButton: true,
+        });
+        trackEvent("agent_state_updated", {
+          agent_type: agent?.agentType === "Air" ? "ai" : "human",
+          state: option.key,
+          transition,
         });
       };
 
@@ -1379,7 +1385,7 @@ export default function AgentTablePanel({
             ),
           );
           scheduleDrain(id, agent.fullName);
-          showSuccess();
+          showSuccess("draining");
           return;
         }
         setAgents((prev: any[]) =>
@@ -1520,6 +1526,10 @@ export default function AgentTablePanel({
           agentType: "Human",
         });
         onVoicePreviewAccepted?.();
+        trackEvent("queue_action_completed", {
+          action: "claim",
+          channel: "voice",
+        });
         return;
       }
       const row = removeQueueRow(uii ?? "");
@@ -1539,6 +1549,10 @@ export default function AgentTablePanel({
         appendContextHop(row.engagementId, { kind: "you" });
         onDigitalTakeOverCommitted?.(row.engagementId);
       }
+      trackEvent("queue_action_completed", {
+        action: "claim",
+        channel: (row as any).isVoiceInteraction ? "voice" : "digital",
+      });
     },
     [
       onPreviewOpen,
@@ -1603,6 +1617,11 @@ export default function AgentTablePanel({
           ? `Ask first sent — call from ${row.contactIdentity} will move to ${result.queueName}${skillNote} once accepted`
           : `Call from ${row.contactIdentity} requeued to ${result.queueName}${skillNote}`,
       );
+      trackEvent("queue_action_completed", {
+        action: "requeue",
+        channel: "voice",
+        mode: result.askFirst ? "ask_first" : "direct",
+      });
     },
     [queueRequeueEngagementId, closeModal, queueRows],
   );
@@ -1626,6 +1645,10 @@ export default function AgentTablePanel({
       flashRef.current(
         `Conversation with ${row.contactIdentity} transferred to ${dest}`,
       );
+      trackEvent("queue_action_completed", {
+        action: "transfer",
+        channel: (row as any).isVoiceInteraction ? "voice" : "digital",
+      });
     },
     [queueTransferEngagementId, closeModal],
   );

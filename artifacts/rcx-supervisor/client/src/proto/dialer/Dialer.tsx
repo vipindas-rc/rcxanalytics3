@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import { trackEvent } from "@/lib/analytics";
 
 /* -------------------- PUBLIC TYPES -------------------- */
 
@@ -1308,6 +1309,10 @@ export function Dialer(props: DialerProps): JSX.Element {
       description: `The call is now waiting in ${target}.`,
     });
     onRequeueComplete?.(target);
+    trackEvent("call_action_completed", {
+      action: "requeue",
+      mode: "direct",
+    });
     resetTransferState();
     setView("call");
   };
@@ -1318,6 +1323,10 @@ export function Dialer(props: DialerProps): JSX.Element {
       description: `Transferred to ${target}.`,
     });
     onTransferComplete?.(target);
+    trackEvent("call_action_completed", {
+      action: "transfer",
+      mode: "direct",
+    });
     resetTransferState();
     setView("call");
   };

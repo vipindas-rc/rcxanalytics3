@@ -17,6 +17,7 @@ import {
   useUrlSearchUpdater,
   type ModalId,
 } from "@/hooks/useUrlState";
+import { trackEvent } from "@/lib/analytics";
 
 // Kept in sync with the proto InteractionPreview component's mode union.
 // (Declared locally so this page doesn't pull the excluded proto tree into tsc.)
@@ -1284,6 +1285,17 @@ export const SupervisorAgents = (): JSX.Element => {
 
   const handleTopTabChange = useCallback(
     (value: string) => {
+      const trackedView =
+        value === "Active messages"
+          ? "active_messages"
+          : value === "Queue"
+            ? "queue"
+            : value === "Supervisor"
+              ? "supervisor"
+              : null;
+      if (trackedView) {
+        trackEvent("supervisor_view_changed", { view: trackedView });
+      }
       // Active messages returns to the claimed conversation (most recent
       // claim first); with none claimed it shows the empty state.
       if (value === "Active messages") {
@@ -1501,15 +1513,21 @@ export const SupervisorAgents = (): JSX.Element => {
   // (which is what resets its dropdown back to "All ...").
   const setInteractionFilter = useCallback(
     (key: InteractionFilterKey, values: string[]) => {
-      writeInteractionFilters(
-        cascadeInteractionFilters(
-          {
-            ...interactionFilters.values,
-            [key]: values,
-          },
-          filterRows,
-        ).values,
-      );
+      const validated = cascadeInteractionFilters(
+        {
+          ...interactionFilters.values,
+          [key]: values,
+        },
+        filterRows,
+      ).values;
+      writeInteractionFilters(validated);
+      trackEvent("queue_filter_changed", {
+        filter: key,
+        value_count: validated[key].length,
+        active_filter_count: INTERACTION_FILTER_KEYS.filter(
+          (filterKey) => validated[filterKey].length > 0,
+        ).length,
+      });
     },
     [interactionFilters, writeInteractionFilters, filterRows],
   );
@@ -1548,8 +1566,13 @@ export const SupervisorAgents = (): JSX.Element => {
   );
 
   const openPreview = useCallback(
-    (engagementId: string) =>
-      navigate(withView(`/interactions/${engagementId}/preview`)),
+    (engagementId: string) => {
+      navigate(withView(`/interactions/${engagementId}/preview`));
+      trackEvent("interaction_preview_opened", {
+        surface: "interactions",
+        mode: "preview",
+      });
+    },
     [navigate, withView],
   );
   const changePreviewMode = useCallback(
@@ -1604,8 +1627,13 @@ export const SupervisorAgents = (): JSX.Element => {
     return qs ? `/?${qs}` : "/";
   }, [rawViewParam, hasQueueTab]);
   const openQueuePreview = useCallback(
-    (engagementId: string) =>
-      navigate(withView(`/queue/${engagementId}/preview`)),
+    (engagementId: string) => {
+      navigate(withView(`/queue/${engagementId}/preview`));
+      trackEvent("interaction_preview_opened", {
+        surface: "queue",
+        mode: "preview",
+      });
+    },
     [navigate, withView],
   );
   const changeQueuePreviewMode = useCallback(
