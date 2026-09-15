@@ -223,7 +223,7 @@ function makeAirInteractions(i: number) {
   return [a, b].map(toInteraction);
 }
 
-export function makeAgents(_count?: number): ISupervisorAgentListItem[] {
+function buildAgents(): ISupervisorAgentListItem[] {
   return clone(captured.agents).map((a: any, i: number) => {
     const r = makeRollup(i + 1);
     // give each agent a varied primary channel so the Channel filter is meaningful
@@ -276,6 +276,15 @@ export function makeAgents(_count?: number): ISupervisorAgentListItem[] {
       interactions24hRollupTotalCount: r.total,
     };
   }) as unknown as ISupervisorAgentListItem[];
+}
+
+// The table mutates row state during prototype interactions, so callers receive
+// isolated data. Build the expensive deterministic seed once, then clone only
+// when a mounted experience needs its own working copy.
+const AGENT_SEED = buildAgents();
+
+export function makeAgents(_count?: number): ISupervisorAgentListItem[] {
+  return clone(AGENT_SEED);
 }
 
 // --- AI Insights side panel (mock content) ------------------------------------
@@ -588,7 +597,7 @@ export function transcriptTurnAt(
 // cycling the base rows with fresh engagement ids and slightly offset clocks —
 // used by the Supervisor (Expected) flow to demo a high-volume Interactions
 // table without disturbing the other flows' data.
-export function makeInteractions(_agents?: unknown, volume?: number): any[] {
+function buildInteractions(volume?: number): any[] {
   const templates = clone(captured.interactions) as any[];
   const agents = makeAgents() as any[];
   const rows: any[] = [];
@@ -739,6 +748,15 @@ export function makeInteractions(_agents?: unknown, volume?: number): any[] {
   }
 
   return rows;
+}
+
+const INTERACTION_SEED = buildInteractions();
+
+export function makeInteractions(_agents?: unknown, volume?: number): any[] {
+  // High-volume is a specialist prototype route. Normal Supervisor startup
+  // clones the cached deterministic rows instead of rebuilding agents, records,
+  // and template data on every import and mount.
+  return volume ? buildInteractions(volume) : clone(INTERACTION_SEED);
 }
 
 // ---------------------------------------------------------------------------

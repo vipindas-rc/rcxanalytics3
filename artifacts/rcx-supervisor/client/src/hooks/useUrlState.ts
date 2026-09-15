@@ -16,11 +16,11 @@ import { useLocation, useSearch } from "wouter";
  *                                       (mode: preview | expanded)
  *
  * Search params (omitted at their defaults so clean URLs stay short):
- *   view      flow: supervisor-2 | agent-2
+ *   view      flow: supervisor-2 | supervisor-pagination | supervisor-expected
  *             (default: Supervisor 1 — no param; unknown values normalize)
  *   tab       supervisor sub-tab: agents (default: interactions)
- *   nav       top tab: queue (Supervisor 2 / Agent 2 flows only;
- *             default: Supervisor / My team)
+ *   nav       Supervisor sub-tab: queue (Queue-capable Supervisor flows only;
+ *             default: Interactions)
  *   filters   filter toolbar visibility: open (default: hidden)
  *   modal     THE one open dialog (mutually exclusive by sharing this key):
  *             transfer | reassign | agent-state | rollup | table-settings |
@@ -33,8 +33,8 @@ import { useLocation, useSearch } from "wouter";
  *             Interactions-tab filters (comma-separated multi-select values)
  *
  * Kept OUT of the URL on purpose:
- *   - search-box text, row highlight blink, drag drafts, menu anchors and the
- *     floating view-switcher menu (transient input / cosmetic chrome)
+ *   - search-box text, row highlight blink, drag drafts, and menu anchors
+ *     (transient input / cosmetic chrome)
  *   - table column visibility & order (personal preference — localStorage)
  */
 

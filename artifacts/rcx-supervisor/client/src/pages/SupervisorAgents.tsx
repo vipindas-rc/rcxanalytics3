@@ -33,7 +33,6 @@ import AgentTablePanel, {
   queueColumnMeta,
   agentStateOptions,
   interactionFilterRows,
-  useQueuePendingCount,
   usePendingInteractionsCount,
   usePendingFilterRows,
   SupervisorFilter,
@@ -75,8 +74,6 @@ import {
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Check,
-  Eye,
   Search as SearchIcon,
   Settings as SettingsIcon,
   ExternalLink,
@@ -332,23 +329,6 @@ function saveStored(storageKey: string, value: unknown): void {
     // Storage unavailable (private mode, quota) — preferences just won't stick.
   }
 }
-
-// Sticky review-mode flag: set when ?mode=review is first seen, lives for the
-// rest of the window session (per browsing context — the demo-review iframe
-// and a regular tab never share it).
-let reviewModeSticky = false;
-
-const topTabs = [
-  "Active calls",
-  "Active messages",
-  "All messages",
-  "History",
-  "Callbacks",
-  "Scripts",
-  "Stats",
-  "Supervisor",
-  "Queue",
-];
 
 const supervisorFilters = ["Agents", "Interactions"];
 
@@ -967,14 +947,6 @@ export const SupervisorAgents = (): JSX.Element => {
   // URL-driven tab state (deep-linkable): Interactions is the default landing
   // tab (clean URL, no param); the Agents tab is addressable via ?tab=agents.
   const search = useSearch();
-  // The pagination and CP: Suggestion flows' Queue tabs read the extended
-  // high-volume queue set; the other flows keep the original compact queue.
-  // (viewParam is derived further below, so read the raw param here.)
-  const queuePendingCount = useQueuePendingCount(
-    ["supervisor-pagination", "supervisor-2", "agent-2"].includes(
-      new URLSearchParams(search).get("view") ?? "",
-    ),
-  );
   const [pathname, navigate] = useLocation();
 
   // URL-addressable digital "Interaction preview" (deep-linkable / refresh-safe):
@@ -996,8 +968,6 @@ export const SupervisorAgents = (): JSX.Element => {
   //     merged in the Interactions table — today's classic experience.
   //   - Supervisor (suggestion) (?view=supervisor-2): pending interactions
   //     move to a top-level Queue tab; the Interactions table keeps the rest.
-  //   - Agent (suggestion) (?view=agent-2): like Supervisor (suggestion), but
-  //     the Supervisor tab is labeled "My team".
   //   - Supervisor (pagination) (?view=supervisor-pagination): like Supervisor
   //     (suggestion) but the Queue tab paginates pending items 20 per page.
   // Any other (or missing/stale) ?view= value normalizes to the default
@@ -1005,25 +975,13 @@ export const SupervisorAgents = (): JSX.Element => {
   const parsedViewParam = new URLSearchParams(search).get("view");
   const rawViewParam: string | null =
     parsedViewParam === "supervisor-2" ||
-    parsedViewParam === "agent-2" ||
     parsedViewParam === "supervisor-pagination" ||
     parsedViewParam === "supervisor-expected"
       ? parsedViewParam
       : null;
   const viewParam: string = rawViewParam ?? "supervisor-1";
-  // When ?mode=review is present (embedded in the RCX Demo Review artifact)
-  // the floating view-switcher FAB is hidden so the frame looks clean.
-  // Review-mode embeds hide the floating view switcher. ?mode=review flags it
-  // on entry, but internal navigation rewrites the URL and can drop the
-  // param — so once seen, review mode sticks for the rest of this window
-  // session (module flag: per browsing context, resets on reload, and the
-  // demo-review iframe src always re-supplies ?mode=review).
-  if (new URLSearchParams(search).get("mode") === "review") {
-    reviewModeSticky = true;
-  }
-  const isReviewMode = reviewModeSticky;
-  // Retired/unknown ?view values (e.g. old supervisor-3 links) render as
-  // Supervisor 1 and self-clean from the address bar via replace.
+  // Retired Agent or unknown view links render as Supervisor 1 and self-clean
+  // from the address bar via replace.
   useEffect(() => {
     if (parsedViewParam != null && rawViewParam == null) {
       updateSearch((p) => p.delete("view"), { replace: true });
@@ -1031,18 +989,16 @@ export const SupervisorAgents = (): JSX.Element => {
   }, [parsedViewParam, rawViewParam, updateSearch]);
   const isSupervisor1View = viewParam === "supervisor-1";
   const isSupervisor2View = viewParam === "supervisor-2";
-  const isAgent2View = viewParam === "agent-2";
   const isPaginationView = viewParam === "supervisor-pagination";
-  // CP: Suggestion views: Supervisor and Agent suggestion — the two views that
-  // get the My Queues page, Claim, and Phase 1 terminology renames.
-  const isSuggestionView = isSupervisor2View || isAgent2View;
+  // The Supervisor suggestion view gets My Queues, Claim, and Phase 1 terms.
+  const isSuggestionView = isSupervisor2View;
   // Supervisor (Expected): a copy of Supervisor 1 (merged Interactions view)
   // with a high-volume table paginated at 10 rows per page.
   const isExpectedView = viewParam === "supervisor-expected";
   // Flows where pending work lives in the top-level Queue tab instead of the
   // Interactions table.
-  const hasQueueTab = isSupervisor2View || isAgent2View || isPaginationView;
-  const viewLabel = isAgent2View ? "My team" : "Supervisor";
+  const hasQueueTab = isSupervisor2View || isPaginationView;
+  const viewLabel = "Supervisor";
 
   // URL-addressable queue "Interaction preview" (deep-linkable / refresh-safe):
   // /queue/:engagementId/:mode with mode preview | expanded. Shows the
@@ -1073,13 +1029,8 @@ export const SupervisorAgents = (): JSX.Element => {
     }
   }, [auditPositionParam, modalParam, updateSearch]);
 
-  // URL-driven top tab (deep-linkable / refresh-safe): the Supervisor/My team
-  // tab is the default (clean URL); the Queue tab exists only in the
-  // Supervisor 2 / Agent 2 flows and is addressable via ?nav=queue (and by
-  // queue preview deep links in those flows — in Supervisor 1 queue previews
-  // open from the merged Interactions table instead). Preview deep links
-  // always belong to the Supervisor tab, so a preview route wins over a stray
-  // nav param.
+  // Queue remains deep-linkable for Supervisor flows that expose it. Top
+  // navigation is intentionally hidden; preview links remain refresh-safe.
   const isQueueTab =
     hasQueueTab &&
     (queuePreviewMatched ||
@@ -1283,65 +1234,6 @@ export const SupervisorAgents = (): JSX.Element => {
     ],
   );
 
-  const handleTopTabChange = useCallback(
-    (value: string) => {
-      const trackedView =
-        value === "Active messages"
-          ? "active_messages"
-          : value === "Queue"
-            ? "queue"
-            : value === "Supervisor"
-              ? "supervisor"
-              : null;
-      if (trackedView) {
-        trackEvent("supervisor_view_changed", { view: trackedView });
-      }
-      // Active messages returns to the claimed conversation (most recent
-      // claim first); with none claimed it shows the empty state.
-      if (value === "Active messages") {
-        const latest = claimedDigitalIds[claimedDigitalIds.length - 1];
-        navigate(
-          withView(latest ? `/active-messages/${latest}` : "/active-messages"),
-        );
-        return;
-      }
-      // Leaving the Active calls / Active messages context returns to the
-      // Supervisor table.
-      if (value === "Supervisor" && (activeCallMatched || activeMessagesMatched)) {
-        navigate(withView("/"));
-        return;
-      }
-      // Only the Supervisor/My team, Queue, Active calls, and Active messages
-      // tabs are functional in this prototype; the others are decorative.
-      if (value !== "Queue" && value !== "Supervisor") return;
-      updateSearch(
-        (params) => {
-          if (value === "Queue") params.set("nav", "queue");
-          else {
-            params.delete("nav");
-            // Leaving the Queue tab clears any pagination page param — the
-            // Supervisor tab has no paging and it must not appear in its URL.
-            params.delete("page");
-          }
-          // Tab switches leave any open dialog behind.
-          params.delete("modal");
-          params.delete("agentId");
-          params.delete("engagementId");
-        },
-        // Leaving a preview/queue-preview deep link returns to the table URL.
-        { path: "/" },
-      );
-    },
-    [
-      updateSearch,
-      navigate,
-      activeCallMatched,
-      activeMessagesMatched,
-      claimedDigitalIds,
-      withView,
-    ],
-  );
-
   // All three flows are supervisor-capability flows: previews, take-over,
   // transfer, and requeue work everywhere.
   const canTakeOver = true;
@@ -1391,18 +1283,20 @@ export const SupervisorAgents = (): JSX.Element => {
 
   // A preview deep link always belongs to the Interactions tab (preview URLs
   // never carry ?tab=agents, so the URL-derived tab is already Interactions).
-  // Every flow (including Agent 2 / "My team") shows the Agents/Interactions
-  // sub-tab pair.
+  // Every flow shows the Agents/Interactions sub-tab pair. Queue-capable
+  // Supervisor flows add Pending interactions as a local Supervisor sub-tab.
   // In Supervisor 1 a queue preview opens from the merged Interactions table;
   // in the Queue-tab flows it belongs to the Queue tab instead.
   const hasSubTabs = true;
-  const activeTab: "Agents" | "Interactions" = previewRouteMatched
-    ? "Interactions"
-    : (isSupervisor1View || isExpectedView) && queuePreviewMatched
+  const activeTab: "Agents" | "Interactions" | "Queue" = isQueueTab
+    ? "Queue"
+    : previewRouteMatched
       ? "Interactions"
-      : !hasSubTabs || new URLSearchParams(search).get("tab") === "agents"
-        ? "Agents"
-        : "Interactions";
+      : (isSupervisor1View || isExpectedView) && queuePreviewMatched
+        ? "Interactions"
+        : !hasSubTabs || new URLSearchParams(search).get("tab") === "agents"
+          ? "Agents"
+          : "Interactions";
   const isInteractions = activeTab === "Interactions";
 
   // Supervisor (Expected): full post-filter (pre-slice) Interactions count,
@@ -1549,20 +1443,26 @@ export const SupervisorAgents = (): JSX.Element => {
     (isSupervisor1View || isExpectedView) && isInteractions;
 
   const setActiveTab = useCallback(
-    (value: "Agents" | "Interactions") => {
+    (value: "Agents" | "Interactions" | "Queue") => {
       updateSearch(
         (params) => {
-          if (value === "Agents") params.set("tab", "agents");
-          else params.delete("tab");
+          if (value === "Queue") {
+            params.set("nav", "queue");
+            params.delete("tab");
+          } else {
+            params.delete("nav");
+            if (value === "Agents") params.set("tab", "agents");
+            else params.delete("tab");
+          }
           if (params.get("modal") === "audit-log") {
             clearAuditLogParams(params);
           }
         },
         // Leaving from a preview deep link returns to the plain table URL.
-        { path: previewRouteMatched ? "/" : pathname },
+        { path: previewRouteMatched || queuePreviewMatched ? "/" : pathname },
       );
     },
-    [updateSearch, pathname, previewRouteMatched],
+    [updateSearch, pathname, previewRouteMatched, queuePreviewMatched],
   );
 
   const openPreview = useCallback(
@@ -1601,8 +1501,8 @@ export const SupervisorAgents = (): JSX.Element => {
     if (activeMessageEngagementId) {
       removeClaimedDigital(activeMessageEngagementId);
     }
-    // Stay on the Active messages tab: fall back to the most recent other
-    // claimed conversation, or the tab's empty state.
+    // Fall back to the most recent other claimed conversation. With none
+    // remaining, return to Supervisor so this route never strands the user.
     const remaining = claimedDigitalIds.filter(
       (id) => id !== activeMessageEngagementId,
     );
@@ -1610,7 +1510,7 @@ export const SupervisorAgents = (): JSX.Element => {
       withView(
         remaining.length
           ? `/active-messages/${remaining[remaining.length - 1]}`
-          : "/active-messages",
+          : "/",
       ),
     );
   }, [activeMessageEngagementId, claimedDigitalIds, navigate, withView]);
@@ -1660,55 +1560,6 @@ export const SupervisorAgents = (): JSX.Element => {
     if (queuePreviewMatched && !queuePreviewMode) navigate(queueTabUrl());
   }, [queuePreviewMatched, queuePreviewMode, navigate, queueTabUrl]);
 
-  // Floating view switcher: Supervisor 1 (default), Supervisor 2, Agent 2.
-  // Menu open state is transient chrome (not URL state).
-  const [viewMenuOpen, setViewMenuOpen] = useState(false);
-  const viewFabRef = useRef<HTMLButtonElement | null>(null);
-  // Escape closes the view menu and returns focus to the floating button.
-  useEffect(() => {
-    if (!viewMenuOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setViewMenuOpen(false);
-        viewFabRef.current?.focus();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [viewMenuOpen]);
-  const handleViewChange = useCallback(
-    (
-      view:
-        | "supervisor-1"
-        | "supervisor-2"
-        | "agent-2"
-        | "supervisor-pagination"
-        | "supervisor-expected",
-    ) => {
-      setViewMenuOpen(false);
-      updateSearch(
-        (params) => {
-          // Supervisor 1 owns the clean URL; the other flows pin the param.
-          // It also has no Queue tab, so its nav param drops too.
-          if (view === "supervisor-1") {
-            params.delete("view");
-            params.delete("nav");
-          } else {
-            params.set("view", view);
-          }
-          // Clear pagination page when leaving or entering any flow so stale
-          // page numbers don't carry over (the pagination flow always starts
-          // fresh on page 1 after a flow switch).
-          params.delete("page");
-        },
-        // Any open preview closes on a flow change (its URL context may no
-        // longer apply).
-        { path: queuePreviewMatched || previewRouteMatched ? "/" : pathname },
-      );
-    },
-    [updateSearch, pathname, queuePreviewMatched, previewRouteMatched],
-  );
-
   // When the supervisor clicks an agent's "Active interactions" icons we jump to
   // the Interactions tab and blink that agent's rows. The nonce re-triggers the
   // blink animation even if the same agent is clicked again. (Blink highlight is
@@ -1729,7 +1580,7 @@ export const SupervisorAgents = (): JSX.Element => {
     (value: string) => {
       // setActiveTab already routes back to the plain table URL when a preview
       // deep link is open, so switching tabs also closes the preview.
-      setActiveTab(value as "Agents" | "Interactions");
+      setActiveTab(value as "Agents" | "Interactions" | "Queue");
       // Manually changing tabs clears any agent-driven row highlight.
       setHighlightAgentId(null);
     },
@@ -1775,9 +1626,8 @@ export const SupervisorAgents = (): JSX.Element => {
     ),
   );
   // The Interactions table renders a different column set per view variant.
-  // CP: Suggestion views (supervisor-2, agent-2) use a leaner Active-only
-  // column set (no wait-time / previous-agent columns), so they need their
-  // own meta and localStorage keys to avoid clobbering the other views' prefs.
+  // The Supervisor suggestion view uses a leaner Active-only column set (no
+  // wait-time or previous-agent columns), so it uses separate preferences.
   const activeInteractionMeta = isSuggestionView
     ? suggestionInteractionColumnMeta
     : supervisor3InteractionColumnMeta;
@@ -1961,7 +1811,7 @@ export const SupervisorAgents = (): JSX.Element => {
   // all show only Active rows on the Interactions tab — State is unambiguous
   // there, so the filter and column are hidden in those flows.
   const showStateFilter =
-    isInteractions && !isSupervisor2View && !isAgent2View && !isPaginationView;
+    isInteractions && !isSupervisor2View && !isPaginationView;
   const selectedInteractionStates = showStateFilter ? iv.state : [];
   // Active-filter count for the "Filters (n)" toggle label — one per filter
   // control with a non-default selection on the active tab (each multi-select
@@ -1988,7 +1838,7 @@ export const SupervisorAgents = (): JSX.Element => {
       // (pagination) Interactions tabs are always Active — hide the State
       // column in those flows.
       !(
-        (isSupervisor2View || isAgent2View || isPaginationView) &&
+        (isSupervisor2View || isPaginationView) &&
         id === "conversationState"
       ),
   );
@@ -2331,7 +2181,7 @@ export const SupervisorAgents = (): JSX.Element => {
             <div className="flex h-[60px] items-center px-3 py-0.5">
               <div className="flex flex-1 items-center gap-2 pr-3">
                 <span className="font-descriptor-mini tracking-[var(--descriptor-mini-letter-spacing)] text-neutralf-06 [font-style:var(--descriptor-mini-font-style)] focus-visible text-[18px] font-semibold">
-                  RingCX Agent
+                  RingCX Supervisor
                 </span>
               </div>
               <Button
@@ -2359,44 +2209,37 @@ export const SupervisorAgents = (): JSX.Element => {
                 />
               </Button>
             </div>
-            <Tabs
-              value={
-                activeCallMatched
-                  ? "Active calls"
-                  : activeMessagesMatched
-                    ? "Active messages"
-                    : isQueueTab
-                      ? "Queue"
-                      : "Supervisor"
-              }
-              onValueChange={handleTopTabChange}
-              className="w-full"
-            >
-              <TabsList className="h-auto justify-start rounded-none border-0 bg-transparent p-0">
-                {topTabs
-                  .filter((tab) => tab !== "Queue" || hasQueueTab)
-                  .map((tab) => (
-                  <TabsTrigger
-                    key={tab}
-                    value={tab}
-                    data-testid={`tab-top-${tab.toLowerCase().replace(/\s+/g, "-")}`}
-                    className="rounded-none border-b-2 border-transparent px-3 py-1.5 font-descriptor-mini text-[length:var(--descriptor-mini-font-size)] font-[number:var(--descriptor-mini-font-weight)] leading-[var(--descriptor-mini-line-height)] tracking-[var(--descriptor-mini-letter-spacing)] text-[#121212] shadow-none ring-offset-0 [font-style:var(--descriptor-mini-font-style)] focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:border-[#066fac] data-[state=active]:bg-transparent data-[state=active]:text-[#066fac] data-[state=active]:shadow-none"
-                  >
-                    {tab === "Supervisor"
-                      ? viewLabel
-                      : tab === "Queue"
-                        ? isSuggestionView
-                          ? `Pending interactions (${queuePendingCount})`
-                          : `Queue (${queuePendingCount})`
-                        : tab === "Active messages" &&
-                            claimedDigitalIds.length > 0
-                          ? `Active messages (${claimedDigitalIds.length})`
-                          : tab}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
           </div>
+          {isQueueTab && (
+            <div
+              data-name="Supervisor toolbar"
+              className="relative flex shrink-0 items-center border-b border-[#0000001a] px-5 py-3"
+            >
+              <h2 className="shrink-0 font-subtitle-mini text-[15px] font-semibold leading-[var(--subtitle-mini-line-height)] text-[#121212]">
+                {viewLabel}
+              </h2>
+              <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-3">
+                <Tabs value={activeTab} onValueChange={handleTabChange} className="w-auto">
+                  <TabsList className="h-10 items-stretch gap-0 rounded-[4px] bg-[#f9f9f9] p-1">
+                    {[...supervisorFilters, "Queue"].map((tab) => (
+                      <TabsTrigger
+                        key={tab}
+                        value={tab}
+                        className="h-full w-[148px] rounded-[4px] px-6 font-['Roboto',sans-serif] text-[14px] tracking-[0.15px] text-[#212121] shadow-none ring-offset-0 transition-colors focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-white data-[state=active]:font-medium data-[state=active]:text-[#212121] data-[state=active]:shadow-[0px_2px_3px_0px_rgba(173,173,173,0.2)]"
+                        data-testid={`tab-supervisor-${tab.toLowerCase()}`}
+                      >
+                        {tab === "Queue"
+                          ? "Pending interactions"
+                          : tab === "Interactions"
+                            ? `Interactions (${interactionsCount ?? pendingInteractionsCount})`
+                            : tab}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+              </div>
+            </div>
+          )}
           {isQueueTab ? (
             isPaginationView ? (
               <PaginatedQueuePanel
@@ -2464,7 +2307,7 @@ export const SupervisorAgents = (): JSX.Element => {
               queueTitle={isSuggestionView ? "Pending interactions" : "Queue"}
               hideBreachedSla={true}
               hideQueueViewInsights={isSuggestionView}
-              hideQueueTransferAndMore={isAgent2View}
+              hideQueueTransferAndMore={false}
               queueClaimLabel="Claim"
               useMyQueuesColumns={isSuggestionView}
               onOpenSettings={
@@ -2499,16 +2342,18 @@ export const SupervisorAgents = (): JSX.Element => {
                 className="w-auto"
               >
                 <TabsList className="h-10 items-stretch gap-0 rounded-[4px] bg-[#f9f9f9] p-1">
-                  {supervisorFilters.map((tab) => (
+                  {[...supervisorFilters, ...(hasQueueTab ? ["Queue"] : [])].map((tab) => (
                     <TabsTrigger
                       key={tab}
                       value={tab}
                       className="h-full w-[148px] rounded-[4px] px-6 font-['Roboto',sans-serif] text-[14px] tracking-[0.15px] text-[#212121] shadow-none ring-offset-0 transition-colors focus-visible:ring-0 focus-visible:ring-offset-0 data-[state=active]:bg-white data-[state=active]:font-medium data-[state=active]:text-[#212121] data-[state=active]:shadow-[0px_2px_3px_0px_rgba(173,173,173,0.2)] data-[state=inactive]:bg-transparent data-[state=inactive]:font-normal data-[state=inactive]:text-[#212121]"
                       data-testid={`tab-supervisor-${tab.toLowerCase()}`}
                     >
-                      {tab === "Interactions"
-                        ? `Interactions (${interactionsCount ?? pendingInteractionsCount})`
-                        : tab}
+                      {tab === "Queue"
+                        ? "Pending interactions"
+                        : tab === "Interactions"
+                          ? `Interactions (${interactionsCount ?? pendingInteractionsCount})`
+                          : tab}
                     </TabsTrigger>
                   ))}
                 </TabsList>
@@ -2684,8 +2529,15 @@ export const SupervisorAgents = (): JSX.Element => {
             // Active calls view for the taken-over voice call. The supervisor
             // table below stays mounted (zero-height) so the floating take-over
             // dialer window and monitoring session survive the tab switch.
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <ActiveCallView agentId={activeCallAgentId} />
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="shrink-0 border-b border-[#0000001a] bg-white px-4 py-2">
+                <Button variant="ghost" onClick={() => navigate(withView("/"))}>
+                  Back to Supervisor
+                </Button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <ActiveCallView agentId={activeCallAgentId} />
+              </div>
             </div>
           ) : null}
           {activeMessagesMatched && !activeMessageEngagementId ? (
@@ -2717,6 +2569,9 @@ export const SupervisorAgents = (): JSX.Element => {
                 <span className="font-['Roboto',sans-serif] text-[14px] tracking-[0.25px] text-[#666666]">
                   When you claim a conversation, it appears here.
                 </span>
+                <Button variant="outline" onClick={() => navigate(withView("/"))}>
+                  Back to Supervisor
+                </Button>
                 </div>
               </div>
             </div>
@@ -2738,9 +2593,6 @@ export const SupervisorAgents = (): JSX.Element => {
               // once per mount).
               key={isExpectedView ? "supervisor-expected" : "default"}
               readOnly={false}
-              // Agent suggestion view: agents can't monitor teammates'
-              // conversations — no preview/Monitor eye on Interactions rows.
-              hideInteractionPreview={isAgent2View}
               activeTab={activeTab}
               interactionsVariant={
                 isInteractions
@@ -2958,158 +2810,6 @@ export const SupervisorAgents = (): JSX.Element => {
             </DialogContent>
           </Dialog>
 
-          {/* Floating view switcher — hidden in review-mode embeds. */}
-          {!isReviewMode && <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
-            {viewMenuOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setViewMenuOpen(false)}
-                  aria-hidden="true"
-                />
-                <div
-                  role="menu"
-                  aria-label="View options"
-                  className="z-50 w-72 rounded-md border border-[#e5e5e5] bg-white py-1 shadow-[0_4px_16px_rgba(0,0,0,0.18)]"
-                  data-testid="menu-view-switcher"
-                >
-                  <div
-                    role="presentation"
-                    aria-hidden="true"
-                    className="select-none px-3 pb-1 pt-2 text-xs font-medium text-[#9a9a9a]"
-                  >
-                    Cherry picking (CP)
-                  </div>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => handleViewChange("supervisor-1")}
-                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[#121212] hover:bg-[#f5f5f5]"
-                    data-testid="menuitem-supervisor-view-1"
-                  >
-                    <span className="flex flex-col">
-                      Supervisor (Current)
-                      <span className="text-xs leading-4 text-[#666666]">
-                        Today's view: pending and active interactions in one
-                        table
-                      </span>
-                    </span>
-                    {isSupervisor1View && (
-                      <Check className="h-4 w-4 shrink-0" style={{ color: RC_BLUE }} />
-                    )}
-                  </button>
-                  <div
-                    role="separator"
-                    aria-orientation="horizontal"
-                    className="my-1 h-px bg-[#f0f0f0]"
-                  />
-                  <div
-                    role="presentation"
-                    aria-hidden="true"
-                    className="select-none px-3 pb-1 pt-2 text-xs font-medium text-[#9a9a9a]"
-                  >
-                    CP: With tech limitations
-                  </div>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => handleViewChange("supervisor-expected")}
-                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[#121212] hover:bg-[#f5f5f5]"
-                    data-testid="menuitem-supervisor-expected"
-                  >
-                    <span className="flex flex-col">
-                      Supervisor (Expected)
-                      <span className="text-xs leading-4 text-[#666666]">
-                        Current view at high volume: one merged table, 10 rows
-                        per page
-                      </span>
-                    </span>
-                    {isExpectedView && (
-                      <Check className="h-4 w-4 shrink-0" style={{ color: RC_BLUE }} />
-                    )}
-                  </button>
-                  <div
-                    role="separator"
-                    aria-orientation="horizontal"
-                    className="my-1 h-px bg-[#f0f0f0]"
-                  />
-                  <div
-                    role="presentation"
-                    aria-hidden="true"
-                    className="select-none px-3 pb-1 pt-2 text-xs font-medium text-[#9a9a9a]"
-                  >
-                    CP: Suggestion
-                  </div>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => handleViewChange("supervisor-pagination")}
-                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[#121212] hover:bg-[#f5f5f5]"
-                    data-testid="menuitem-supervisor-pagination"
-                  >
-                    <span className="flex flex-col">
-                      Supervisor (w. tech limitations)
-                      <span className="text-xs leading-4 text-[#666666]">
-                        Separate Queue tab with pending items paginated 20 per
-                        page
-                      </span>
-                    </span>
-                    {isPaginationView && (
-                      <Check className="h-4 w-4 shrink-0" style={{ color: RC_BLUE }} />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => handleViewChange("supervisor-2")}
-                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[#121212] hover:bg-[#f5f5f5]"
-                    data-testid="menuitem-supervisor-view-2"
-                  >
-                    <span className="flex flex-col">
-                      Supervisor
-                      <span className="text-xs leading-4 text-[#666666]">
-                        Pending work in its own Queue tab; Interactions shows
-                        active only
-                      </span>
-                    </span>
-                    {isSupervisor2View && (
-                      <Check className="h-4 w-4 shrink-0" style={{ color: RC_BLUE }} />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => handleViewChange("agent-2")}
-                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-[#121212] hover:bg-[#f5f5f5]"
-                    data-testid="menuitem-agent-view-2"
-                  >
-                    <span className="flex flex-col">
-                      Agent
-                      <span className="text-xs leading-4 text-[#666666]">
-                        The same suggestion as an agent's "My team" view
-                      </span>
-                    </span>
-                    {isAgent2View && (
-                      <Check className="h-4 w-4 shrink-0" style={{ color: RC_BLUE }} />
-                    )}
-                  </button>
-                </div>
-              </>
-            )}
-            <button
-              ref={viewFabRef}
-              type="button"
-              aria-label="Change view"
-              aria-haspopup="menu"
-              aria-expanded={viewMenuOpen}
-              onClick={() => setViewMenuOpen((o) => !o)}
-              className="z-50 flex h-12 w-12 items-center justify-center rounded-full text-white shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
-              style={{ backgroundColor: RC_BLUE }}
-              data-testid="button-view-switcher"
-            >
-              <Eye className="h-5 w-5" />
-            </button>
-          </div>}
         </section>
       </div>
     </main>
