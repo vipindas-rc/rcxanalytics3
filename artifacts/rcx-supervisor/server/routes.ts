@@ -12,7 +12,7 @@ export async function registerRoutes(
   // import. It stays on loopback; Supervisor exposes only this namespaced,
   // same-origin gateway.
   const analyticsRoot = path.resolve(process.cwd(), "analytics");
-  const analyticsPort = "5174";
+  const analyticsPort = process.env.ANALYTICS_PORT ?? "5174";
   const analytics = spawn(
     "pnpm",
     ["--filter", "@workspace/analytics-content", "exec", "tsx", "server/index.ts"],
@@ -23,6 +23,7 @@ export async function registerRoutes(
         PORT: analyticsPort,
         AI_PROVIDER: "openai",
         RCX_DEMO_BOOTSTRAP: "true",
+        ANALYTICS_TEST_MODEL: process.env.ANALYTICS_TEST_MODEL,
       },
       stdio: "inherit",
     },

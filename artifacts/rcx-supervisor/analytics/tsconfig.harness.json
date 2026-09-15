@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.harness.tsbuildinfo"
+  },
+  "files": [
+    "evaluation/runner.ts",
+    "evaluation/cli.ts",
+    "evaluation/runner.test.ts",
+    "scripts/gateway-test.ts",
+    "tests/integration/disposableDatabase.ts",
+    "tests/integration/storePersistence.test.ts"
+  ]
+}

@@ -30,8 +30,12 @@ const examplesService = new PostgresSyntheticExamplesService(examplesPool)
 await bootstrapDemoData(demoBootstrap, operationalService, examplesService)
 await mkdir(path.join(directory,'sandbox'),{recursive:true})
 const provider=selectProvider({provider:process.env.AI_PROVIDER,directory:path.join(directory,'sandbox'),codex:codexModel,openai:openAIModel})
-const operationalAgents=provider.provider==='openai' ? createOpenAIOperationalAgents() : undefined
-const app=createApp(store,provider.model,operationalService,operationalAgents,examplesService)
+// Test hosts deliberately replace inference only at the provider boundary.
+// This keeps API, orchestration, and PostgreSQL coverage real without a paid call.
+const deterministicTestModel = async () => ({ kind: 'text', text: 'Deterministic test response.', choices: [], suggestions: [], charts: [], operations: [] })
+const useDeterministicTestModel = process.env.ANALYTICS_TEST_MODEL === 'deterministic'
+const operationalAgents=provider.provider==='openai' && !useDeterministicTestModel ? createOpenAIOperationalAgents() : undefined
+const app=createApp(store,useDeterministicTestModel ? deterministicTestModel : provider.model,operationalService,operationalAgents,examplesService)
 app.get('/api/status',async(_q,r)=>{
  if(provider.provider==='openai') return r.json(await providerStatus({provider:'openai',apiKey:process.env.OPENAI_API_KEY,model:process.env.OPENAI_MODEL}))
  try{const result=await promisify(execFile)('codex',['login','status'],{timeout:5000});const detail=`${result.stdout}\n${result.stderr}`.trim();r.json({provider:'codex',connected:/logged in/i.test(detail),detail})}catch{r.json({provider:'codex',connected:false,detail:'Codex login is unavailable.'})}

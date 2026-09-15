@@ -3,6 +3,7 @@ import { Pool } from 'pg'
 import { migrateDatabase } from '../../server/db/migrate'
 import { PostgresOperationalService } from '../../server/operational/service'
 import { isolatedTestDatabaseUrl } from './databaseSafety'
+import { createDisposableDatabase } from './disposableDatabase'
 
 const testUrl = isolatedTestDatabaseUrl()
 const scope = { start: '2026-09-01T00:00:00.000Z', end: '2026-09-04T00:00:00.000Z' }
@@ -11,13 +12,18 @@ const scope = { start: '2026-09-01T00:00:00.000Z', end: '2026-09-04T00:00:00.000
 // Every case uses a unique namespace; the dedicated test database owns its lifecycle.
 describe.skipIf(!testUrl)('persistent operational reporting (requires TEST_DATABASE_URL)', () => {
   let pool: Pool
+  let dispose: (() => Promise<void>) | undefined
+  let isolatedUrl: string
   let service: PostgresOperationalService
   beforeAll(async () => {
-    pool = new Pool({ connectionString: testUrl, max: 5 })
+    const database = await createDisposableDatabase('operational')
+    pool = database.pool
+    isolatedUrl = database.url
+    dispose = database.dispose
     await migrateDatabase(pool)
     service = new PostgresOperationalService(pool)
   })
-  afterAll(async () => { await pool?.end() })
+  afterAll(async () => { await dispose?.() })
 
   it('generates once and returns the same records after reconnecting', async () => {
     const input = { ...scope, datasetId: `qa-${crypto.randomUUID()}`, seed: 31 }
@@ -27,7 +33,7 @@ describe.skipIf(!testUrl)('persistent operational reporting (requires TEST_DATAB
     expect(report.rows.length).toBeGreaterThan(0)
     expect(report.datasetId).toBe(first.datasetId)
     expect(report.revisionId).toBe(first.revisionId)
-    const secondPool = new Pool({ connectionString: testUrl, max: 1 })
+    const secondPool = new Pool({ connectionString: isolatedUrl, max: 1 })
     try {
       const restarted = new PostgresOperationalService(secondPool)
       const repeated = await restarted.ensureCoverage(input)
