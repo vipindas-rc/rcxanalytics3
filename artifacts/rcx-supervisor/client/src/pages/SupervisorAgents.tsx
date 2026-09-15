@@ -355,6 +355,11 @@ const sidePrimaryNav = [
     active: true,
   },
   {
+    label: "Analytics",
+    icon: "/figmaAssets/icon-analytics-border.svg",
+    active: false,
+  },
+  {
     label: "Contacts",
     icon: "/figmaAssets/phone-inbox-border-1.svg",
     active: false,
