@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import type { Pool } from 'pg'
+import { examplesMigrationsDirectory } from '../runtimePaths.ts'
 
 export async function migrateExamplesDatabase(pool: Pool) {
   const client = await pool.connect()
@@ -11,7 +11,8 @@ export async function migrateExamplesDatabase(pool: Pool) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('rcx-examples-migrations'))")
     await client.query('CREATE SCHEMA IF NOT EXISTS rcx_examples')
     await client.query('CREATE TABLE IF NOT EXISTS rcx_examples.migrations (name text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())')
-    const directory = fileURLToPath(new URL('./migrations/', import.meta.url))
+    // See db/migrate.ts: CommonJS host bundles do not retain import.meta.url.
+    const directory = examplesMigrationsDirectory()
     for (const name of (await readdir(directory)).filter((file) => /^\d+.*\.sql$/.test(file)).sort()) {
       const sql = await readFile(path.join(directory, name), 'utf8')
       const checksum = createHash('sha256').update(sql).digest('hex')

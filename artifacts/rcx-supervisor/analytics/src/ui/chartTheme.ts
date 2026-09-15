@@ -1,14 +1,24 @@
 import type { Dataset, Renderer } from '../lib/model'
 const paletteTokens = ['primary-f', 'extra-amethyst', 'extra-tiffany', 'extra-olive', 'extra-wildberry']
-export function getChartTheme() {
-  const scope = document.querySelector('[data-sui-theme-scope]') ?? document.documentElement
+const themeScope = (element?: Element | null) => element?.closest<HTMLElement>('[data-sui-theme-scope]') ?? document.querySelector<HTMLElement>('[data-sui-theme-scope]') ?? document.documentElement
+
+export function getChartTheme(element?: Element | null) {
+  const scope = themeScope(element)
   const computed = getComputedStyle(scope)
-  const color = (name: string) => computed.getPropertyValue(`--sui-colors-${name}`).trim()
+  const color = (name: string) => {
+    const resolved = computed.getPropertyValue(`--sui-colors-${name}`).trim()
+    if (!resolved) throw new Error(`Analytics requires the Spring color token --sui-colors-${name} on its theme scope.`)
+    return resolved
+  }
   return { version: 'spring-light-2', palette: paletteTokens.map(color), foreground: color('neutral-b1'), muted: color('neutral-b2'), grid: color('neutral-b4'), background: color('neutral-base'), font: computed.getPropertyValue('--sui-font-family').trim() }
 }
-export function styleChart(renderer: Renderer, input: any, dataset: Dataset) {
+export function chartThemeSignature(element?: Element | null) {
+  const theme = getChartTheme(element)
+  return JSON.stringify(theme)
+}
+export function styleChart(renderer: Renderer, input: any, dataset: Dataset, element?: Element | null) {
   const spec = structuredClone(input)
-  const theme = getChartTheme()
+  const theme = getChartTheme(element)
   const choose = (name: unknown, index: number) => {
     const label = String(name)
     const category = dataset.fields.find(field => field.type !== 'number' && field.values?.includes(label))

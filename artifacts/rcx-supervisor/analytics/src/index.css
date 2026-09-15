@@ -1,15 +1,8 @@
-@import '@ringcentral/spring-ui';
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-* { box-sizing: border-box; }
-
-body {
-  margin: 0;
-  min-width: 320px;
-  height: 100dvh;
-  overflow: hidden;
+/*
+ * The native host imports Spring's shared component stylesheet once and mounts
+ * Analytics beneath its scoped ThemeProvider. Do not add a document reset or
+ * Tailwind preflight here: both would alter Supervisor outside this feature.
+ */
+@scope (:is(.analytics-app, .analytics-portal)) {
+  :scope, :scope * { box-sizing: border-box; }
 }
-
-#root { height: 100dvh; }

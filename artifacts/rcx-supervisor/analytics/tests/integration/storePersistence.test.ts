@@ -32,7 +32,7 @@ describe.skipIf(!required)('PostgreSQL Store persistence', () => {
     await new Store(database.pool).initialize(source)
     const workspace = await store.read()
     expect(workspace.projects[0]).toMatchObject({ id: 'saved-project', name: 'Edited' })
-    expect((await database.pool.query('SELECT revision FROM rcx_data.analytics_workspace WHERE workspace_id=1')).rows[0].revision).toBe(workspace.revision)
+    expect(Number((await database.pool.query('SELECT revision FROM rcx_data.analytics_workspace WHERE workspace_id=1')).rows[0].revision)).toBe(workspace.revision)
   })
 
   it('recovers pending requests after restart and rolls back thrown mutations', async () => {

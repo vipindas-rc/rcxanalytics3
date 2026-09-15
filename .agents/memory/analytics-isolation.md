@@ -1,12 +1,18 @@
 ---
 name: Analytics isolation
-description: Conversational Analytics is a React 19 source import isolated within the React 18 Supervisor shell.
+description: Architectural reasons for native integration, runtime isolation, and source portability.
 ---
 
 # Analytics isolation
 
-Keep Conversational Analytics in an isolated bundle and loopback service rather than importing its runtime, styles, or providers into Supervisor.
+Native integration and source portability are both requirements. Analytics must remain independently runnable and testable, rather than becoming usable only inside Supervisor.
 
-**Why:** Supervisor remains React 18 with legacy dependencies, while Analytics requires React 19 and its own Spring provider. Platform routing also reserves `/api` for the standalone API artifact, so the Analytics browser gateway must use a distinct same-origin prefix.
+**Why:** Native interaction superseded the original iframe approach, but the user explicitly retained the source application and harness as independently verifiable deliverables.
 
-**How to apply:** Preserve the host content-only iframe boundary and proxy the Analytics service through its non-conflicting gateway. Do not use the standalone API artifact for Analytics calls. Any future deep-link bridge must validate exact origin, source window, message schema, and allowed Analytics paths.
+**How to apply:** Evaluate host and standalone startup contracts separately when changing dependencies, styles, routing, or API configuration.
+
+Keep runtime and style boundaries even without an iframe; avoid upgrading the legacy Supervisor runtime merely to accommodate Analytics.
+
+**Why:** The native integration was chosen to remove iframe friction, not to force a broader Supervisor rewrite or load unrelated feature engines on every visit.
+
+**How to apply:** Preserve compatible shared infrastructure while isolating feature-specific loading and styling. Test actual valid output in both contexts, not merely before/after equality.

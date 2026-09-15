@@ -10,6 +10,7 @@ if (!process.env.TEST_DATABASE_URL) throw new Error('TEST_DATABASE_URL is requir
 const workspace = path.resolve(process.cwd(), '../../..')
 const analytics = process.cwd()
 const command = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+const playwrightOutput = path.join('/tmp', `native-gateway-results-${process.pid}`)
 async function freePort() {
   const server = createServer()
   await new Promise<void>((resolve, reject) => server.listen(0, '127.0.0.1').once('listening', resolve).once('error', reject))
@@ -26,11 +27,13 @@ let host: ReturnType<typeof spawn> | undefined
 let hostExited: Promise<void> | undefined
 try {
   const hostPort = process.env.GATEWAY_TEST_PORT ?? await freePort()
-  const analyticsPort = await freePort()
   await migrateDatabase(database.pool)
   await migrateExamplesDatabase(database.pool)
   await run(['--filter', '@workspace/rcx-supervisor', 'build'], workspace)
-  const environment = { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', DATABASE_URL: database.url, SYNTHETIC_DATABASE_URL: database.url, PORT: hostPort, ANALYTICS_PORT: analyticsPort, ANALYTICS_TEST_MODEL: 'deterministic', NODE_ENV: 'production' }
+  // Analytics now initializes in the Supervisor process. Both pools point at
+  // the run-owned disposable database and inference is deterministic; there is
+  // no Analytics listener/port or paid-provider fallback in this harness.
+  const environment = { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', DATABASE_URL: database.url, SYNTHETIC_DATABASE_URL: database.url, PORT: hostPort, ANALYTICS_TEST_MODEL: 'deterministic', NODE_ENV: 'production' }
   host = spawn(command, ['--filter', '@workspace/rcx-supervisor', 'start'], { cwd: workspace, env: environment, stdio: 'inherit', detached: true })
   hostExited = new Promise((resolve, reject) => host!.once('exit', code => code === 0 ? resolve() : reject(new Error(`Gateway host exited unexpectedly (${code}).`))).once('error', reject))
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -38,7 +41,7 @@ try {
     if (attempt === 99) throw new Error('Isolated Supervisor gateway host did not become ready.')
     await Promise.race([hostExited, sleep(250)])
   }
-  await Promise.race([run(['exec', 'playwright', 'test', '-c', 'playwright.gateway.config.ts'], analytics, { PLAYWRIGHT_BASE_URL: `http://127.0.0.1:${hostPort}` }), hostExited])
+  await Promise.race([run(['exec', 'playwright', 'test', '-c', 'playwright.gateway.config.ts', '--output', playwrightOutput, 'tests/gateway/supervisor-gateway.spec.ts'], analytics, { PLAYWRIGHT_BASE_URL: `http://127.0.0.1:${hostPort}` }), hostExited])
 } finally {
   if (host?.pid) {
     process.kill(-host.pid, 'SIGTERM')

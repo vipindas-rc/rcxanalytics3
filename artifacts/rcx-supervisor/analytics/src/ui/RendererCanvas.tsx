@@ -1,14 +1,41 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Dataset, Presentation } from '../lib/model'
-import { styleChart } from './chartTheme'
+import { chartThemeSignature, styleChart } from './chartTheme'
 
 type Props = { presentation: Presentation; dataset: Dataset; title: string; onReady: () => void; onError: (error: string) => void }
 export function RendererCanvas({ presentation, dataset, title, onReady, onError }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const ready = useRef(onReady); const error = useRef(onError)
+  const [themeRevision, setThemeRevision] = useState(0)
+  const appliedTheme = useRef('')
   useEffect(() => { ready.current = onReady; error.current = onError }, [onReady, onError])
+  // Chart engines need concrete values, unlike CSS. Re-render only when the
+  // Spring scope's resolved token values change (including a host theme swap).
+  useEffect(() => {
+    const element = host.current
+    if (!element) return
+    const scope = element.closest<HTMLElement>('[data-sui-theme-scope]') ?? document.documentElement
+    const updateTheme = () => {
+      try {
+        const next = chartThemeSignature(element)
+        if (!appliedTheme.current) {
+          appliedTheme.current = next
+        } else if (next !== appliedTheme.current) {
+          appliedTheme.current = next
+          setThemeRevision(version => version + 1)
+        }
+      } catch (caught) {
+        error.current(caught instanceof Error ? caught.message : String(caught))
+      }
+    }
+    updateTheme()
+    const observer = new MutationObserver(updateTheme)
+    observer.observe(scope, { attributes: true, attributeFilter: ['class', 'data-sui-theme', 'data-sui-theme-scope', 'style'] })
+    observer.observe(document.head, { childList: true, subtree: true, characterData: true })
+    return () => observer.disconnect()
+  }, [])
   // Polling returns fresh dataset objects. Only a changed effective chart should remount.
-  const renderKey = JSON.stringify({ renderer: presentation.renderer, spec: presentation.spec, colors: dataset.colors, fields: dataset.fields, title })
+  const renderKey = JSON.stringify({ renderer: presentation.renderer, spec: presentation.spec, colors: dataset.colors, fields: dataset.fields, title, themeRevision })
   const inputs = useRef({ presentation, dataset, title })
   useEffect(() => { inputs.current = { presentation, dataset, title } }, [presentation, dataset, title])
   useEffect(() => {
@@ -22,7 +49,7 @@ export function RendererCanvas({ presentation, dataset, title, onReady, onError 
     let resizeFrame = 0
     const observer = new ResizeObserver(() => { cancelAnimationFrame(resizeFrame); resizeFrame = requestAnimationFrame(() => { if (!disposed && element.clientWidth > 0 && element.clientHeight > 0) { try { resize() } catch (caught) { fail(caught) } } }) }); observer.observe(element)
     void (async () => {
-      const spec = styleChart(presentation.renderer, presentation.spec, dataset)
+      const spec = styleChart(presentation.renderer, presentation.spec, dataset, element)
       const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
       if (document.fonts?.ready) await document.fonts.ready
       if (disposed) return

@@ -1,55 +1,59 @@
-import { Switch, Route } from "wouter";
-import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { RingCxToastProvider } from "@proto";
+import { lazy, Suspense, useEffect } from "react";
+import { Route, Switch, useLocation } from "wouter";
 import NotFound from "@/pages/not-found";
 
-import { SupervisorAgents } from "@/pages/SupervisorAgents";
+const AnalyticsRoute = lazy(() => import("@/routes/AnalyticsRoute"));
+const SupervisorRoute = lazy(() => import("@/routes/SupervisorRoute"));
+
+function RouteLoading() {
+  return <div className="flex h-screen items-center justify-center">Loading…</div>;
+}
+
+function LegacyAnalyticsRedirect() {
+  const [, navigate] = useLocation();
+
+  useEffect(() => {
+    navigate(`/analytics${window.location.search}${window.location.hash}`, {
+      replace: true,
+    });
+  }, [navigate]);
+
+  return <RouteLoading />;
+}
 
 function Router() {
+  const [pathname] = useLocation();
+
+  // The native branch is deliberately outside Switch: wouter continues to own
+  // legacy routes while BrowserRouter owns Analytics descendants only.
+  if (pathname === "/analytics" || pathname.startsWith("/analytics/")) {
+    if (pathname === "/analytics/index.html") {
+      return <LegacyAnalyticsRedirect />;
+    }
+    return (
+      <Suspense fallback={<RouteLoading />}>
+        <AnalyticsRoute />
+      </Suspense>
+    );
+  }
+
   return (
-    <Switch>
-      {/* Add pages below */}
-      <Route path="/" component={SupervisorAgents} />
-      <Route path="/analytics" component={SupervisorAgents} />
-      {/* Digital monitoring: Interaction preview popup / full-page take-over.
-          mode is one of preview | expanded | takeover. */}
-      <Route
-        path="/interactions/:engagementId/:mode"
-        component={SupervisorAgents}
-      />
-      {/* Queue preview: the customer's pre-queue IVR transcript.
-          mode is one of preview | expanded (no take-over for queued rows). */}
-      <Route
-        path="/queue/:engagementId/:mode"
-        component={SupervisorAgents}
-      />
-      {/* Voice take-over: Active calls view for the taken-over call. */}
-      <Route path="/active-call/:agentId" component={SupervisorAgents} />
-      {/* Digital take-over: Active messages tab, with (or without) a claimed
-          conversation. */}
-      <Route path="/active-messages" component={SupervisorAgents} />
-      <Route
-        path="/active-messages/:engagementId"
-        component={SupervisorAgents}
-      />
-      {/* Fallback to 404 */}
-      <Route component={NotFound} />
-    </Switch>
+    <Suspense fallback={<RouteLoading />}>
+      <Switch>
+        <Route path="/" component={SupervisorRoute} />
+        <Route path="/interactions/:engagementId/:mode" component={SupervisorRoute} />
+        <Route path="/queue/:engagementId/:mode" component={SupervisorRoute} />
+        <Route path="/active-call/:agentId" component={SupervisorRoute} />
+        <Route path="/active-messages" component={SupervisorRoute} />
+        <Route path="/active-messages/:engagementId" component={SupervisorRoute} />
+        <Route component={NotFound} />
+      </Switch>
+    </Suspense>
   );
 }
 
 function App() {
-  return (
-    <RingCxToastProvider>
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <Router />
-        </TooltipProvider>
-      </QueryClientProvider>
-    </RingCxToastProvider>
-  );
+  return <Router />;
 }
 
 export default App;

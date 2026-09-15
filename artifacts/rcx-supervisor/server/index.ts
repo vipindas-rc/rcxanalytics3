@@ -1,5 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
+import { registerRoutes, shutdownRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
@@ -100,4 +100,15 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
+
+  let stopping = false;
+  const shutdown = () => {
+    if (stopping) return;
+    stopping = true;
+    void shutdownRoutes().finally(() => {
+      httpServer.close(() => process.exit(0));
+    });
+  };
+  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
 })();

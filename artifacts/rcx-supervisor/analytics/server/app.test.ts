@@ -18,6 +18,35 @@ it('discards late inference after a workspace reset',async()=>{
  await new Promise(r=>setTimeout(r,30))
  const w=await store.read();expect(w.sessions).toEqual([]);expect(w.requests).toEqual([]);expect(w.responseCache).toEqual({})
 })
+it('persists cancellation and suppresses a late model result', async () => {
+  let release!: () => void
+  let entered!: () => void
+  let aborted = false
+  const started = new Promise<void>(resolve => { entered = resolve })
+  const blocked = new Promise<void>(resolve => { release = resolve })
+  const { api, store } = await setup(async context => {
+    context.signal?.addEventListener('abort', () => { aborted = true }, { once: true })
+    entered()
+    await blocked
+    return { kind: 'text', text: 'Late answer' }
+  })
+  const session = (await api('/sessions', {})).data
+  await api('/conversation', { sessionId: session.id, requestId: 'cancel-pending', question: 'Wait' })
+  await started
+  const cancelled = await api('/requests/cancel-pending/cancel', {})
+  expect(cancelled.status).toBe(200)
+  expect(cancelled.data).toMatchObject({ status: 'cancelled', phase: 'Cancelled' })
+  expect(aborted).toBe(true)
+  const repeated = await api('/requests/cancel-pending/cancel', {})
+  expect(repeated.data).toMatchObject({ status: 'cancelled', phase: 'Cancelled' })
+  expect(repeated.data.phaseHistory.filter((entry: any) => entry.phase === 'cancelled')).toHaveLength(1)
+  release()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  const workspace = await store.read()
+  expect(workspace.requests.find(request => request.id === 'cancel-pending')).toMatchObject({ status: 'cancelled', phase: 'Cancelled' })
+  expect(workspace.sessions.find(item => item.id === session.id)?.messages.map(item => item.role)).toEqual(['user'])
+  expect(workspace.responseCache).toEqual({})
+})
 afterEach(async()=>{await Promise.all(servers.splice(0).map(s=>new Promise<void>(r=>s.close(()=>r()))))})
 async function setup(model:Model, operational?: any, examples?: any){const dir=await mkdtemp(path.join(os.tmpdir(),'analytics-test-'));const store=new Store(path.join(dir,'workspace.json'));await store.initialize();const server=(createApp as (...args:any[])=>ReturnType<typeof createApp>)(store,model,operational,undefined,examples).listen(0,'127.0.0.1');servers.push(server);await new Promise<void>((r,reject)=>server.on('listening',r).on('error',reject));const address=server.address() as {port:number};const api=async(route:string,body?:unknown,method=body?'POST':'GET')=>{const response=await fetch(`http://127.0.0.1:${address.port}/api${route}`,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:response.status,data:response.status===204?null:response.headers.get('content-type')?.includes('application/json')?await response.json() as any:{error:await response.text()}}};return {store,api,dir}}
 async function completed(api:any,id:string){for(let i=0;i<100;i++){const result=await api(`/requests/${id}`);if(result.data.status!=='pending')return result.data;await new Promise(r=>setTimeout(r,10))}throw Error('Request timed out')}
@@ -111,6 +140,18 @@ describe('persistent API',()=>{
  })
  it('reports factual controller phases in their actual order while a response is being prepared',async()=>{let release!:()=>void;let started!:()=>void;const waiting=new Promise<void>(resolve=>release=resolve);const modelStarted=new Promise<void>(resolve=>started=resolve);const {api}=await setup(async()=>{started();await waiting;return {kind:'text',text:'Ready'}});const session=(await api('/sessions',{})).data;const request=(await api('/conversation',{sessionId:session.id,requestId:'phase-request',question:'Show the current state.'})).data;await modelStarted;const pending=(await api(`/requests/${request.id}`)).data;expect(pending.phase).toBe('planning');expect(pending.phaseHistory.map((entry:any)=>entry.phase)).toEqual(['initializing','planning']);release();expect((await completed(api,request.id)).phase).toBe('Complete')})
  it('isolates concurrent sessions, serializes edits and deduplicates request delivery',async()=>{let release!:()=>void;let calls=0;const wait=new Promise<void>(r=>release=r);const {api}=await setup(async()=>{calls++;await wait;return {kind:'text',text:'Synthetic analytics ready.'}});const a=(await api('/sessions',{})).data;const b=(await api('/sessions',{})).data;const turn={sessionId:a.id,requestId:'request-one',question:'Hello'};expect((await api('/conversation',turn)).status).toBe(202);await api('/conversation',turn);expect((await api('/conversation',{...turn,requestId:'request-duplicate'})).status).toBe(409);await api('/conversation',{...turn,sessionId:b.id,requestId:'request-two'});await api(`/sessions/${a.id}`,{title:'My title'},'PATCH');await api('/projects',{name:'During inference'});release();expect((await completed(api,'request-one')).status).toBe('completed');await completed(api,'request-two');const w=(await api('/workspace')).data;expect(calls).toBe(2);expect(w.sessions.find((s:any)=>s.id===a.id).title).toBe('My title');expect(w.sessions.every((s:any)=>s.messages.length===2)).toBe(true);expect(w.projects.some((p:any)=>p.name==='During inference')).toBe(true)})
+ it('serializes a workspace refresh with new-session conversation intake', async () => {
+  const { api } = await setup(async () => ({ kind: 'text', text: 'Ready' }))
+  const refreshes = Promise.all(Array.from({ length: 6 }, () => api('/workspace')))
+  const session = (await api('/sessions', {})).data
+  const queuedRefreshes = Promise.all(Array.from({ length: 6 }, () => api('/workspace')))
+  const attempt = await api('/conversation', { sessionId: session.id, requestId: 'refresh-session-race', question: 'Hello' })
+  expect(attempt.status).toBe(202)
+  await Promise.all([...await refreshes, ...await queuedRefreshes])
+  expect((await completed(api, attempt.data.id)).status).toBe('completed')
+  const workspace = (await api('/workspace')).data
+  expect(workspace.sessions.find((item: any) => item.id === session.id)?.messages.map((message: any) => message.role)).toEqual(['user', 'assistant'])
+ })
  it('records failure and retries without duplicating user message',async()=>{let calls=0;const {api}=await setup(async()=>{if(!calls++)throw Error('Authentication unavailable');return {kind:'text',text:'Ready'}});const s=(await api('/sessions',{})).data;await api('/conversation',{sessionId:s.id,requestId:'failed',question:'Hello'});expect((await completed(api,'failed')).error).toContain('Authentication');await api('/conversation',{sessionId:s.id,requestId:'retry',question:'Hello',retryOf:'failed'});expect((await completed(api,'retry')).status).toBe('completed');expect((await api('/workspace')).data.sessions[0].messages.filter((m:any)=>m.role==='user')).toHaveLength(1)})
  it('uses the nearest earlier chart as context after a clarification turn', async () => {
   let captured: any

@@ -1,6 +1,7 @@
 import express from 'express'
 import { createHash } from 'node:crypto'
-import type { AnalysisEvidence, AnalysisReference, Dashboard, Dataset, Field, Renderer, ReportContext, Workspace } from '../src/lib/model.ts'
+import { z } from 'zod'
+import type { AnalysisEvidence, AnalysisReference, ChartView, Dashboard, Dataset, Field, Filter, Renderer, ReportContext, Workspace } from '../src/lib/model.ts'
 import { applyView, generateDataset, createArtifact, compilePresentation, compileResolvedPresentation } from '../src/lib/analytics.ts'
 import { Store, id, now } from './store.ts'
 import { normalizeSource, effectiveFilters, datasetVersion } from './context.ts'
@@ -24,6 +25,36 @@ class HttpError extends Error { status: number; constructor(status: number, mess
 const find = <T extends { id: string }>(items: T[], key: string, label: string): T => { const v = items.find(i => i.id === key); if (!v) throw new HttpError(404, `${label} not found.`); return v }
 const renderer = (r: unknown): Renderer => { if (!['echarts','chartjs','plotly'].includes(String(r))) throw new HttpError(400,'Choose a supported renderer.'); return r as Renderer }
 const title = (v: unknown) => { if (typeof v !== 'string' || !v.trim()) throw new HttpError(400,'Enter a title.'); return v.trim().slice(0,200) }
+const filterSchema = z.object({
+ field: z.string().min(1),
+ operator: z.enum(['eq', 'in', 'gte', 'lte']),
+ value: z.union([z.string(), z.number(), z.array(z.union([z.string(), z.number()]))]),
+}).strict()
+const chartViewSchema = z.object({
+ chartType: z.string().min(1),
+ x: z.string().optional(),
+ y: z.string().optional(),
+ y2: z.string().optional(),
+ series: z.string().optional(),
+ aggregation: z.enum(['sum', 'mean', 'count', 'ratio']),
+ numerator: z.string().optional(),
+ denominator: z.string().optional(),
+ filters: z.array(filterSchema),
+ sort: z.enum(['ascending', 'descending']).optional(),
+ orientation: z.enum(['horizontal', 'vertical']).optional(),
+ target: z.number().optional(),
+ labelField: z.string().optional(),
+}).strict()
+const parseFilter = (value: unknown): Filter => {
+ const parsed = filterSchema.parse(value)
+ if (parsed.value === undefined) throw new HttpError(400, 'Invalid dashboard filters.')
+ return { field: parsed.field, operator: parsed.operator, value: parsed.value }
+}
+const parseFilters = (value: unknown): Filter[] => z.array(z.unknown()).parse(value).map(parseFilter)
+const parseChartView = (value: unknown): ChartView => {
+ const parsed = chartViewSchema.parse(value)
+ return { ...parsed, filters: parseFilters(parsed.filters) }
+}
 function snapshot(d: Dashboard) { d.history.push({ revision: d.revision, title: d.title, widgets: structuredClone(d.widgets), filters: structuredClone(d.filters), createdAt: now() }); d.revision++ }
 const supportedReportIds = new Set(['agent-activity-overview','agent-activity','agent-activity-report','agent-conduct','agent-dispositions','agent-scorecard','agent-state','agent-disposition-report'])
 type SupportedReportId = 'agent-activity-overview' | 'agent-activity' | 'agent-activity-report' | 'agent-conduct' | 'agent-dispositions' | 'agent-scorecard' | 'agent-state' | 'agent-disposition-report'
@@ -200,7 +231,7 @@ function reportAnswer(report: ReportContext, dataset: Dataset | undefined, quest
  return { kind: 'report', text: `Showing ${report.title}. This is a fixed fourteen-day synthetic report fixture; its table is available below for inspection.`, choices: [], suggestions: ['How many agents are AI agents?', 'Show the report as a table.'], charts: [{ title: report.title, reuseDataset: true, fields: [], seed: 20260914, view: { chartType: 'table', aggregation: 'count', filters: [] } }], operations: [] }
 }
 export function createApp(store: Store, model: Model, operational?: OperationalService, operationalAgents?: PlannerReviewer, examples?: SyntheticExamplesService) {
- const app = express(); app.use(express.json({ limit: '64kb' })); const cache = new Map<string, Answer>(); let epoch = 0
+ const app = express(); app.use(express.json({ limit: '64kb' })); const cache = new Map<string, Answer>(); const activeRequests = new Map<string, AbortController>(); let epoch = 0
  const updateRequestPhase = async (requestId: string, phase: string, runEpoch = epoch) => {
   if (runEpoch !== epoch) return
   await store.mutate(w => {
@@ -224,7 +255,7 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
   const intent = q.body.intent === 'count' || q.body.intent === 'comparison' ? q.body.intent : 'activity'
   r.json(await operational.query({ revisionId: coverage.revisionId, ...scope, intent, agentType: q.body.agentType, offset: q.body.offset, limit: q.body.limit }))
  })
- app.post('/api/workspace/reset', async (_q,r) => { epoch++; cache.clear(); r.json(await store.mutate(w => { const briefingArtifactIds=new Set(w.briefings.flatMap(briefing=>briefing.widgets.map(widget=>widget.artifactId))); w.artifacts=w.artifacts.filter(artifact=>briefingArtifactIds.has(artifact.id)); const briefingDatasetIds=new Set(w.artifacts.map(artifact=>artifact.datasetId)); w.datasets=w.datasets.filter(dataset=>briefingDatasetIds.has(dataset.id)); w.sessions=[];w.projects=[{id:'project-inbox',name:'Analytics'}];w.savedCharts=[];w.dashboards=[];w.requests=[];w.preferences=Object.fromEntries(Object.entries(w.preferences).filter(([artifactId])=>briefingArtifactIds.has(artifactId)));w.responseCache={};return w })) })
+ app.post('/api/workspace/reset', async (_q,r) => { epoch++; activeRequests.forEach(controller => controller.abort()); activeRequests.clear(); cache.clear(); r.json(await store.mutate(w => { const briefingArtifactIds=new Set(w.briefings.flatMap(briefing=>briefing.widgets.map(widget=>widget.artifactId))); w.artifacts=w.artifacts.filter(artifact=>briefingArtifactIds.has(artifact.id)); const briefingDatasetIds=new Set(w.artifacts.map(artifact=>artifact.datasetId)); w.datasets=w.datasets.filter(dataset=>briefingDatasetIds.has(dataset.id)); w.sessions=[];w.projects=[{id:'project-inbox',name:'Analytics'}];w.savedCharts=[];w.dashboards=[];w.requests=[];w.preferences=Object.fromEntries(Object.entries(w.preferences).filter(([artifactId])=>briefingArtifactIds.has(artifactId)));w.responseCache={};return w })) })
  app.post('/api/briefings/ensure', async (_q,r) => r.json(await store.mutate(w => ensureBriefings(w))))
  app.get('/api/search', async (q,r) => { const w = await store.read(); const term = String(q.query.q ?? '').toLowerCase(); r.json(w.sessions.filter(s => JSON.stringify([s.title,s.messages]).toLowerCase().includes(term))) })
  app.post('/api/sessions', async (q,r) => r.status(201).json(await store.mutate(w => { const projectId = q.body.projectId ?? null; if(projectId) find(w.projects,projectId,'Project'); const advisor = q.body.advisor === true; const s = { id:id('session'),title: advisor ? 'Advisor' : 'New analytics chat',advisor,projectId,createdAt:now(),updatedAt:now(),messages:[] }; w.sessions.unshift(s); return s })))
@@ -240,7 +271,20 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
  app.patch('/api/dashboards/:id',async(q,r)=>r.json(await store.mutate(w=>{const d=find(w.dashboards,q.params.id,'Dashboard');if(q.body.revision!==d.revision)throw new HttpError(409,'Dashboard changed. Reload before editing.');validateDashboardPatch(w,q.body);snapshot(d);if(q.body.title!==undefined)d.title=title(q.body.title);if(q.body.widgets)d.widgets=q.body.widgets;if(q.body.filters)d.filters=q.body.filters;return d})))
  app.delete('/api/dashboards/:id',async(q,r)=>{await store.mutate(w=>{find(w.dashboards,q.params.id,'Dashboard');w.dashboards=w.dashboards.filter(d=>d.id!==q.params.id)});r.status(204).end()})
  app.post('/api/dashboards/:id/widgets',async(q,r)=>{ let created = false; const dashboard = await store.mutate(w=>{const d=find(w.dashboards,q.params.id,'Dashboard');const a=find(w.artifacts,q.body.artifactId,'Artifact');if(d.widgets.some(widget=>widget.artifactId===a.id))return d;snapshot(d);d.widgets.push({id:id('widget'),artifactId:a.id,title:q.body.title?title(q.body.title):a.title});created=true;return d}); r.status(created?201:200).json(dashboard) })
- app.get('/api/requests/:id',async(q,r)=>r.json(find((await store.read()).requests,q.params.id,'Request')))
+  app.get('/api/requests/:id',async(q,r)=>r.json(find((await store.read()).requests,q.params.id,'Request')))
+  app.post('/api/requests/:id/cancel', async (q, r) => {
+   const request = await store.mutate(w => {
+    const current = find(w.requests, q.params.id, 'Request')
+    if (current.status === 'pending') {
+     current.status = 'cancelled'
+     current.phase = 'Cancelled'
+     current.phaseHistory = [...(current.phaseHistory ?? []), { phase: 'cancelled', at: now() }].slice(-8)
+    }
+    return current
+   })
+   activeRequests.get(q.params.id)?.abort()
+   r.json(request)
+  })
  app.post('/api/conversation',async(q,r)=>{
   let question = typeof q.body.question === 'string' ? q.body.question.trim() : ''
   if (question.length > 6000) throw new HttpError(400,'Enter a question of up to 6000 characters.')
@@ -256,7 +300,7 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    if(w.requests.some(t=>t.sessionId===session.id&&t.status==='pending'))throw new HttpError(409,'This conversation already has an answer in progress.')
    if(q.body.contextDashboardId)find(w.dashboards,q.body.contextDashboardId,'Dashboard')
    let userMessageId=id('message')
-   if(prior && (prior.sessionId!==session.id||prior.status!=='failed'||prior.question!==question))throw new HttpError(409,'Only the same failed turn can be retried.')
+    if(prior && (prior.sessionId!==session.id||!['failed','cancelled'].includes(prior.status)||prior.question!==question))throw new HttpError(409,'Only the same failed or cancelled turn can be retried.')
    const sourceContext=prior ? prior.sourceContext ?? normalizeSource(w,{contextArtifactId:prior.contextArtifactId,contextFilters:prior.contextFilters,sourceLabel:prior.sourceLabel},session) : normalizeSource(w,q.body,session)
    // An explicit source always wins. With no selected report or source, agent
    // cohort comparisons have a registered operational meaning and must not
@@ -274,9 +318,10 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    const t={id:requestId,sessionId:session.id,question,status:'pending' as const,phase:'initializing',phaseHistory:[{phase:'initializing',at:createdAt}],userMessageId,createdAt,asOf:captured.asOf,timezone:captured.timezone,sourceContext,reportContext,contextArtifactId:sourceContext?.artifactId,contextFilters:sourceContext?.filters??[],contextDashboardId,sourceLabel:sourceContext?.sourceLabel}
    w.requests.push(t);session.updatedAt=now();fresh=true;return t
   })
-  r.status(202).json(attempt);if(fresh)void run(attempt.id,selected)
+  r.status(202).json(attempt);if(fresh){const controller=new AbortController();activeRequests.set(attempt.id,controller);void run(attempt.id,selected,controller.signal).finally(()=>{if(activeRequests.get(attempt.id)===controller)activeRequests.delete(attempt.id)})}
  })
- async function run(requestId:string, selected:Renderer){const runEpoch=epoch;try{
+  async function run(requestId:string, selected:Renderer, signal?:AbortSignal){const runEpoch=epoch;const isPending=async()=>runEpoch===epoch&&(await store.read()).requests.find(item=>item.id===requestId)?.status==='pending';try{
+   if(!await isPending())return
   await updateRequestPhase(requestId, 'planning', runEpoch)
   const w=await store.read();const request=find(w.requests,requestId,'Request');const s=find(w.sessions,request.sessionId,'Conversation');let reportContext=request.reportContext;const userMessage=s.messages.find(message=>message.id===request.userMessageId);const selectedSource=userMessage?.selectedFollowUpFrom?s.messages.find(message=>message.id===userMessage.selectedFollowUpFrom):undefined;const artifactId=reportContext ? undefined : request.contextArtifactId??selectedSource?.artifactIds?.at(-1)??s.messages.slice().reverse().find(m=>m.role==='assistant'&&m.artifactIds?.length)?.artifactIds?.at(-1);const sourceArtifact=w.artifacts.find(a=>a.id===artifactId);const artifact=sourceArtifact && request.contextFilters?.length ? {...sourceArtifact,view:{...sourceArtifact.view,filters:request.contextFilters}} : sourceArtifact;const reportDatasetId=reportContext?.datasetId;let dataset=reportDatasetId ? w.datasets.find(d=>d.id===reportDatasetId) : w.datasets.find(d=>d.id===artifact?.datasetId);const dashboard=w.dashboards.find(d=>d.id===request.contextDashboardId)
   let operationalResult: Awaited<ReturnType<OperationalService['query']>> | undefined
@@ -343,23 +388,25 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    operationalAnswer = syntheticAnswer(generic.plan, dataset, definition.title)
   }
   const key=createHash('sha256').update(JSON.stringify({version:8,datasetVersion:dataset?datasetVersion(dataset):undefined,sourceContext:request.sourceContext,reportContext,sessionId:s.id,question:request.question.toLowerCase().trim(),artifact,datasetId:dataset?.id,dashboard,messages:s.messages.filter(m=>m.role==='assistant').slice(-4)})).digest('hex');const bypass=!reportContext&&/regenerat|new (?:data|values)|fresh data/i.test(request.question);let answer=operationalAnswer ?? (reportContext?reportAnswer(reportContext,dataset,request.question):bypass?undefined:cache.get(key) ?? w.responseCache?.[key] as Answer | undefined);const cached=!!answer && !reportContext
-  if(!answer){await updateRequestPhase(requestId, 'planning', runEpoch);answer=answerSchema.parse(await model({question:request.question,session:s,artifact,dataset,dashboard,sourceContext:request.sourceContext,reportContext}))}else{await updateRequestPhase(requestId, 'preparing-output', runEpoch);answer=answerSchema.parse(structuredClone(answer))}
+  if(!answer){if(!await isPending())return;await updateRequestPhase(requestId, 'planning', runEpoch);answer=answerSchema.parse(await model({question:request.question,session:s,artifact,dataset,dashboard,sourceContext:request.sourceContext,reportContext,signal}))}else{await updateRequestPhase(requestId, 'preparing-output', runEpoch);answer=answerSchema.parse(structuredClone(answer))}
   if(reportContext && answer.charts.some(chart=>!chart.reuseDataset))throw new HttpError(400,'That question cannot be answered from the selected report fixture. Choose a supported field or start a new synthetic example.')
-  if(runEpoch!==epoch)return
+   if(!await isPending())return
   await updateRequestPhase(requestId, 'preparing-output', runEpoch)
   const result=answer
   if (generalPlan && dataset) validatePlanBeforePublication(generalPlan, dataset, result)
   await updateRequestPhase(requestId, 'reviewing', runEpoch)
-  await store.mutate(current=>{if(runEpoch!==epoch)return;const t=find(current.requests,requestId,'Request');const session=find(current.sessions,t.sessionId,'Conversation');const ids:string[]=[]
+   let published=false
+   await store.mutate(current=>{if(runEpoch!==epoch)return;const t=find(current.requests,requestId,'Request');if(t.status!=='pending')return;const session=find(current.sessions,t.sessionId,'Conversation');const ids:string[]=[]
    if (dataset && !current.datasets.some(item => item.id === dataset!.id)) current.datasets.push(dataset)
    if (reportContext) { t.reportContext = reportContext; session.reportContext = structuredClone(reportContext) }
    if (generalPlan) t.analysisPlan = structuredClone(generalPlan) as Record<string, unknown>
-   for(const recipe of result.charts){let data=dataset;if(!recipe.reuseDataset){data=generateDataset({title:recipe.title,seed:recipe.seed,fields:recipe.fields});current.datasets.push(data!)}if(!data)throw new HttpError(400,'There is no contextual dataset to reuse.');const a=createArtifact(data,recipe.view,recipe.title,selected);if (analysis) { a.analysisReference=analysis.reference; a.evidence=analysis.evidence } current.artifacts.push(a);ids.push(a.id)}
+   for(const recipe of result.charts){let data=dataset;if(!recipe.reuseDataset){data=generateDataset({title:recipe.title,seed:recipe.seed,fields:recipe.fields});current.datasets.push(data!)}if(!data)throw new HttpError(400,'There is no contextual dataset to reuse.');const a=createArtifact(data,parseChartView(recipe.view),recipe.title,selected);if (analysis) { a.analysisReference=analysis.reference; a.evidence=analysis.evidence } current.artifacts.push(a);ids.push(a.id)}
    let changedDashboard:Dashboard|undefined
-   if(result.kind==='dashboard'){if(!dashboard)throw new HttpError(400,'Select a dashboard before requesting changes.');const d=find(current.dashboards,dashboard.id,'Dashboard');if(d.revision!==dashboard.revision)throw new HttpError(409,'Dashboard changed while interpreting. Retry against its latest revision.');const beforeDashboard=structuredClone(d);for(const op of result.operations){if(op.action==='add'){const a=find(current.artifacts,op.artifactId??ids[0]??'','Artifact');if(!d.widgets.some(widget=>widget.artifactId===a.id))d.widgets.push({id:id('widget'),artifactId:a.id,title:op.title??a.title})}else if(op.action==='filter'){d.filters=op.filters??[]}else if(op.action==='rename'&&!op.widgetId){d.title=title(op.title)}else if(op.action==='reorder'){if(!op.widgetIds||op.widgetIds.length!==d.widgets.length||new Set(op.widgetIds).size!==d.widgets.length)throw new HttpError(400,'Reorder must include every widget once.');d.widgets=op.widgetIds.map(i=>find(d.widgets,i,'Widget'))}else{const widget=find(d.widgets,op.widgetId??'','Widget');if(op.action==='remove')d.widgets=d.widgets.filter(v=>v.id!==widget.id);if(op.action==='rename')widget.title=title(op.title);if(op.action==='reconfigure'){if(!op.view)throw new HttpError(400,'A new view is required.');const a=find(current.artifacts,widget.artifactId,'Artifact');const replacement=createArtifact(find(current.datasets,a.datasetId,'Dataset'),op.view,op.title??widget.title,selected);current.artifacts.push(replacement);widget.artifactId=replacement.id}}}if(JSON.stringify({title:d.title,widgets:d.widgets,filters:d.filters})!==JSON.stringify({title:beforeDashboard.title,widgets:beforeDashboard.widgets,filters:beforeDashboard.filters})){d.history.push({revision:beforeDashboard.revision,title:beforeDashboard.title,widgets:beforeDashboard.widgets,filters:beforeDashboard.filters,createdAt:now()});d.revision++}changedDashboard=d}
+   if(result.kind==='dashboard'){if(!dashboard)throw new HttpError(400,'Select a dashboard before requesting changes.');const d=find(current.dashboards,dashboard.id,'Dashboard');if(d.revision!==dashboard.revision)throw new HttpError(409,'Dashboard changed while interpreting. Retry against its latest revision.');const beforeDashboard=structuredClone(d);for(const op of result.operations){if(op.action==='add'){const a=find(current.artifacts,op.artifactId??ids[0]??'','Artifact');if(!d.widgets.some(widget=>widget.artifactId===a.id))d.widgets.push({id:id('widget'),artifactId:a.id,title:op.title??a.title})}else if(op.action==='filter'){d.filters=parseFilters(op.filters??[])}else if(op.action==='rename'&&!op.widgetId){d.title=title(op.title)}else if(op.action==='reorder'){if(!op.widgetIds||op.widgetIds.length!==d.widgets.length||new Set(op.widgetIds).size!==d.widgets.length)throw new HttpError(400,'Reorder must include every widget once.');d.widgets=op.widgetIds.map(i=>find(d.widgets,i,'Widget'))}else{const widget=find(d.widgets,op.widgetId??'','Widget');if(op.action==='remove')d.widgets=d.widgets.filter(v=>v.id!==widget.id);if(op.action==='rename')widget.title=title(op.title);if(op.action==='reconfigure'){if(!op.view)throw new HttpError(400,'A new view is required.');const a=find(current.artifacts,widget.artifactId,'Artifact');const replacement=createArtifact(find(current.datasets,a.datasetId,'Dataset'),parseChartView(op.view),op.title??widget.title,selected);current.artifacts.push(replacement);widget.artifactId=replacement.id}}}if(JSON.stringify({title:d.title,widgets:d.widgets,filters:d.filters})!==JSON.stringify({title:beforeDashboard.title,widgets:beforeDashboard.widgets,filters:beforeDashboard.filters})){d.history.push({revision:beforeDashboard.revision,title:beforeDashboard.title,widgets:beforeDashboard.widgets,filters:beforeDashboard.filters,createdAt:now()});d.revision++}changedDashboard=d}
    session.messages.push({id:id('message'),role:'assistant',text:result.text,createdAt:now(),artifactIds:ids,suggestions:result.suggestions,choices:result.choices,requestId,reportContext:t.reportContext,analysisReference:analysis?.reference,evidence:analysis?.evidence,dashboardId:changedDashboard?.id,dashboardRevision:changedDashboard?.revision});if(!session.renamed&&(session.title==='New analytics chat'||session.title==='Advisor'))session.title=t.question.slice(0,56);session.updatedAt=now();t.status='completed';t.phase='Complete';t.artifactIds=ids;t.cached=cached; if (!bypass && !reportContext) { current.responseCache ??= {}; current.responseCache[key] = structuredClone(result); const keys = Object.keys(current.responseCache); if (keys.length > 100) for (const stale of keys.slice(0, keys.length - 100)) delete current.responseCache[stale] }
-  });if(runEpoch===epoch&&!bypass)cache.set(key,result)
- }catch(error){if(runEpoch!==epoch)return;await store.mutate(w=>{const t=w.requests.find(item=>item.id===requestId);if(!t||runEpoch!==epoch)return;t.status='failed';t.phase='Could not complete';t.error=error instanceof Error?error.message:'Inference failed. Retry this turn.'})}}
+   published=true
+   });if(published&&runEpoch===epoch&&!bypass)cache.set(key,result)
+  }catch(error){if(runEpoch!==epoch)return;await store.mutate(w=>{const t=w.requests.find(item=>item.id===requestId);if(!t||t.status!=='pending'||runEpoch!==epoch)return;t.status='failed';t.phase='Could not complete';t.error=error instanceof Error?error.message:'Inference failed. Retry this turn.'})}}
  app.use((error:any,_q:express.Request,r:express.Response,_next:express.NextFunction)=>r.status(error.status??500).json({error:error.message??'Request failed.'}))
  return app
 }

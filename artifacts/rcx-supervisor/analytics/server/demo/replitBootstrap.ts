@@ -1,5 +1,5 @@
 import { access } from 'node:fs/promises'
-import { restoreDemoWorkspace } from './seedCli.ts'
+import { restoreDemoWorkspace } from './workspaceSeedIo.ts'
 
 export function shouldBootstrapDemo(environment: Record<string, string | undefined> = process.env): boolean {
   return environment.RCX_DEMO_BOOTSTRAP === 'true' || Boolean(environment.REPLIT_DEV_DOMAIN)

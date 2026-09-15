@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { providerStatus, selectProvider } from './providerSelection.ts'
 import type { Model } from './inference.ts'
+import { SUPERVISOR_ANALYTICS_PROVIDER } from './bootstrap.ts'
 
 const model: Model = async () => ({ kind: 'text', text: 'Ready' })
 
@@ -15,6 +16,11 @@ describe('provider selection', () => {
   expect(selectProvider({ directory: '/sandbox', openai: () => model, codex: () => model }).provider).toBe('codex')
   expect(selectProvider({ provider: 'other', directory: '/sandbox', openai: () => model, codex: () => model }).provider).toBe('codex')
  })
+
+  it('guards the embedded Supervisor runtime to its established OpenAI provider', () => {
+   const selected = selectProvider({ provider: SUPERVISOR_ANALYTICS_PROVIDER, directory: '/sandbox', openai: () => model, codex: () => model })
+   expect(selected.provider).toBe('openai')
+  })
 
  it('reports OpenAI configuration without exposing the API key', async () => {
   const status = await providerStatus({ provider: 'openai', apiKey: 'super-secret-key', model: 'gpt-5.6-luna' })

@@ -41,14 +41,24 @@ export class Store {
    for (const r of w.requests) if (r.status === 'pending') { r.status = 'failed'; r.phase = 'Interrupted'; r.error = 'Server restarted during this request. Retry to continue.'; changed = true }
    if (changed) await this.write(w)
  }
-  async read(): Promise<Workspace> {
-   await this.queue
+  private async readCurrent(): Promise<Workspace> {
    if (this.pool) {
     const result = await this.pool.query<{ workspace: Workspace }>('SELECT workspace FROM rcx_data.analytics_workspace WHERE workspace_id=1')
     if (!result.rows.length) throw new Error('Analytics workspace is not initialized.')
     return migrate(result.rows[0].workspace)
    }
    return migrate(JSON.parse(await readFile(this.file, 'utf8')))
+  }
+  /**
+   * Reads share the same serialization queue as mutations. This gives the
+   * gateway a linearizable workspace view while native UI refreshes, session
+   * creation, and conversation intake arrive together; a stale refresh cannot
+   * interleave with a transaction that establishes a returned session ID.
+   */
+  read(): Promise<Workspace> {
+   const result = this.queue.then(() => this.readCurrent())
+   this.queue = result.catch(() => {})
+   return result
   }
   private async write(w: Workspace) {
    if (this.pool) {

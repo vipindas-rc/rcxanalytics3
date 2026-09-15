@@ -18,72 +18,11 @@ import {
   type ModalId,
 } from "@/hooks/useUrlState";
 import { trackEvent } from "@/lib/analytics";
+import { ShellIcon, SupervisorShell } from "@/components/shell/SupervisorShell";
 
 // Kept in sync with the proto InteractionPreview component's mode union.
 // (Declared locally so this page doesn't pull the excluded proto tree into tsc.)
 type InteractionPreviewMode = "preview" | "expanded" | "takeover";
-
-// The Analytics bundle is intentionally isolated in an iframe. Keep its URL
-// state in a namespaced query-string namespace so Supervisor's own `view` (and
-// other URL-driven table state) can never be consumed or overwritten by the
-// bridge.
-const ANALYTICS_BRIDGE_VERSION = 1 as const;
-const ANALYTICS_BRIDGE_READY = "rcx.analytics.ready";
-const ANALYTICS_BRIDGE_NAVIGATE = "rcx.analytics.navigate";
-const ANALYTICS_VIEW_VALUES = [
-  "chats",
-  "briefing",
-  "projects",
-  "saved",
-  "dashboards",
-] as const;
-type AnalyticsView = (typeof ANALYTICS_VIEW_VALUES)[number];
-type AnalyticsNavigationState = {
-  view: AnalyticsView;
-  sessionId: string | null;
-  projectId: string | null;
-  dashboardId: string | null;
-};
-
-function isAnalyticsView(value: unknown): value is AnalyticsView {
-  return (
-    typeof value === "string" &&
-    (ANALYTICS_VIEW_VALUES as readonly string[]).includes(value)
-  );
-}
-
-function analyticsId(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 && value.length <= 256
-    ? value
-    : null;
-}
-
-function readAnalyticsNavigation(search: string): AnalyticsNavigationState {
-  const params = new URLSearchParams(search);
-  const view = params.get("analyticsView");
-  return {
-    view: isAnalyticsView(view) ? view : "chats",
-    sessionId: analyticsId(params.get("analyticsSession")),
-    projectId: analyticsId(params.get("analyticsProject")),
-    dashboardId: analyticsId(params.get("analyticsDashboard")),
-  };
-}
-
-function isAnalyticsBridgeMessage(
-  value: unknown,
-): value is {
-  type: typeof ANALYTICS_BRIDGE_READY | typeof ANALYTICS_BRIDGE_NAVIGATE;
-  version: typeof ANALYTICS_BRIDGE_VERSION;
-  state?: Partial<AnalyticsNavigationState>;
-} {
-  if (typeof value !== "object" || value === null) return false;
-  const message = value as Record<string, unknown>;
-  return (
-    message.version === ANALYTICS_BRIDGE_VERSION &&
-    (message.type === ANALYTICS_BRIDGE_READY ||
-      message.type === ANALYTICS_BRIDGE_NAVIGATE)
-  );
-}
 
 import AgentTablePanel, {
   ActiveCallView,
@@ -393,60 +332,6 @@ function saveStored(storageKey: string, value: unknown): void {
 }
 
 const supervisorFilters = ["Agents", "Interactions"];
-
-const sidePrimaryNav = [
-  {
-    label: "Message",
-    icon: "/figmaAssets/icon-bubble-lines-border.svg",
-    active: false,
-    badge: "6",
-  },
-  {
-    label: "Video",
-    icon: "/figmaAssets/icon-videocam-border.svg",
-    active: false,
-  },
-  {
-    label: "Phone",
-    icon: "/figmaAssets/icon-phone-border.svg",
-    active: false,
-  },
-  {
-    label: "Agent",
-    icon: "/figmaAssets/icon-engage-border-1.svg",
-    active: true,
-  },
-  {
-    label: "Analytics",
-    icon: "/figmaAssets/icon-analytics-border.svg",
-    active: false,
-  },
-  {
-    label: "Contacts",
-    icon: "/figmaAssets/phone-inbox-border-1.svg",
-    active: false,
-  },
-  {
-    label: "More",
-    icon: "/figmaAssets/icon-more-horiz.svg",
-    active: false,
-  },
-];
-
-const sideSecondaryNav = [
-  {
-    label: "Apps",
-    icon: "/figmaAssets/icon-default-integration-border.svg",
-  },
-  {
-    label: "Settings",
-    icon: "/figmaAssets/icon-settings-border.svg",
-  },
-  {
-    label: "Help",
-    icon: "/figmaAssets/icon-help-border.svg",
-  },
-];
 
 // Pagination page size for the Supervisor (pagination) flow.
 const QUEUE_PAGE_SIZE = 20;
@@ -1015,70 +900,6 @@ export const SupervisorAgents = (): JSX.Element => {
   // tab (clean URL, no param); the Agents tab is addressable via ?tab=agents.
   const search = useSearch();
   const [pathname, navigate] = useLocation();
-  // Analytics owns only this content area. Its isolated React 19 bundle runs in
-  // an iframe, so its provider, global CSS, and dependencies cannot alter the
-  // React 18 Supervisor shell.
-  const analyticsRoute = pathname === "/analytics";
-  const analyticsFrameRef = useRef<HTMLIFrameElement>(null);
-  const sendAnalyticsState = useCallback(() => {
-    const frame = analyticsFrameRef.current;
-    if (!analyticsRoute || !frame?.contentWindow) return;
-    frame.contentWindow.postMessage(
-      {
-        type: "rcx.analytics.init",
-        version: ANALYTICS_BRIDGE_VERSION,
-        state: readAnalyticsNavigation(search),
-      },
-      window.location.origin,
-    );
-  }, [analyticsRoute, search]);
-
-  // The parent owns the shareable URL. Messages are accepted only from this
-  // route's exact iframe window and same-origin document; unrelated frames or
-  // Supervisor routes cannot rewrite Supervisor URL state.
-  useEffect(() => {
-    if (!analyticsRoute) return;
-    const onAnalyticsMessage = (event: MessageEvent<unknown>) => {
-      const frame = analyticsFrameRef.current;
-      if (
-        event.origin !== window.location.origin ||
-        !frame?.contentWindow ||
-        event.source !== frame.contentWindow ||
-        !isAnalyticsBridgeMessage(event.data)
-      ) {
-        return;
-      }
-      if (event.data.type === ANALYTICS_BRIDGE_READY) {
-        sendAnalyticsState();
-        return;
-      }
-      const rawState = event.data.state;
-      if (typeof rawState !== "object" || rawState === null) return;
-      const state = rawState as Partial<AnalyticsNavigationState>;
-      const view = state.view;
-      if (!isAnalyticsView(view)) return;
-      updateSearch((params) => {
-        if (view === "chats") params.delete("analyticsView");
-        else params.set("analyticsView", view);
-        const writeId = (key: string, value: unknown) => {
-          const id = analyticsId(value);
-          if (id) params.set(key, id);
-          else params.delete(key);
-        };
-        writeId("analyticsSession", state.sessionId);
-        writeId("analyticsProject", state.projectId);
-        writeId("analyticsDashboard", state.dashboardId);
-      });
-    };
-    window.addEventListener("message", onAnalyticsMessage);
-    return () => window.removeEventListener("message", onAnalyticsMessage);
-  }, [analyticsRoute, sendAnalyticsState, updateSearch]);
-
-  // Covers browser back/forward and direct links while the iframe remains
-  // mounted. The iframe URL itself stays static, avoiding reload loops.
-  useEffect(() => {
-    if (analyticsRoute) sendAnalyticsState();
-  }, [analyticsRoute, sendAnalyticsState]);
 
   // URL-addressable digital "Interaction preview" (deep-linkable / refresh-safe):
   // /interactions/:engagementId/:mode with mode preview | expanded | takeover.
@@ -1988,63 +1809,59 @@ export const SupervisorAgents = (): JSX.Element => {
   );
 
   return (
-    <main className="flex h-screen w-full flex-col overflow-hidden bg-white">
-      <header
-        data-name="App bar"
-        className="flex h-14 w-full shrink-0 items-center border-b border-[#0000001f] bg-white"
-      >
+    <SupervisorShell
+      activeArea="agent"
+      onNavigate={(target) => navigate(target)}
+      header={
         <div className="relative flex h-full w-full items-center bg-[url('/figmaAssets/appbar-bg.svg')] bg-cover bg-center px-4 pl-5">
           <div className="flex items-center gap-4">
             <button type="button" className="relative">
-              <div className="relative h-10 w-10 overflow-hidden rounded-full bg-white">
+              <div
+                className="relative h-10 w-10 overflow-hidden rounded-full"
+                style={{ backgroundColor: "var(--sui-colors-neutral-base)" }}
+              >
                 <img
                   className="h-full w-full object-cover"
                   alt="Image"
                   src="/figmaAssets/image-1-1.png"
                 />
               </div>
-              <img
-                className="absolute bottom-0 right-0 h-3.5 w-3.5"
-                alt="Presence"
+              <ShellIcon
                 src="/figmaAssets/presence.svg"
+                className="absolute bottom-0 right-0 h-3.5 w-3.5"
+                tone="static"
               />
             </button>
-            <h1 className="font-headline-2 text-[length:var(--headline-2-font-size)] font-[number:var(--headline-2-font-weight)] leading-[var(--headline-2-line-height)] tracking-[var(--headline-2-letter-spacing)] text-headertext [font-style:var(--headline-2-font-style)]">
+            <h1
+              className="font-headline-2 text-[length:var(--headline-2-font-size)] font-[number:var(--headline-2-font-weight)] leading-[var(--headline-2-line-height)] tracking-[var(--headline-2-letter-spacing)] [font-style:var(--headline-2-font-style)]"
+              style={{ color: "var(--sui-colors-neutral-static-w0)" }}
+            >
               RingCentral, Inc.
             </h1>
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
-                className="h-8 w-8 rounded-full bg-[#ffffff29] p-0 hover:bg-[#ffffff40]"
+                className="h-8 w-8 rounded-full bg-[var(--sui-colors-neutral-static-w0-t20)] p-0 hover:opacity-80"
               >
-                <img
-                  className="h-4 w-4"
-                  alt="Icon chevron left"
-                  src="/figmaAssets/icon-chevron-left.svg"
-                />
+                <ShellIcon src="/figmaAssets/icon-chevron-left.svg" tone="static" />
               </Button>
               <Button
                 variant="ghost"
-                className="h-8 w-8 rounded-full bg-[#ffffff14] p-0 hover:bg-[#ffffff29]"
+                className="h-8 w-8 rounded-full bg-[var(--sui-colors-neutral-static-w0-t10)] p-0 hover:opacity-80"
               >
-                <img
-                  className="h-4 w-4"
-                  alt="Icon chevron right"
-                  src="/figmaAssets/icon-chevron-right.svg"
-                />
+                <ShellIcon src="/figmaAssets/icon-chevron-right.svg" tone="static" />
               </Button>
             </div>
           </div>
           <div className="flex flex-1 px-2 pl-3 pr-3">
             <div className="relative w-full max-w-[468px]">
-              <div className="pointer-events-none absolute inset-0 rounded-full bg-[#ffffff29]" />
+              <div className="pointer-events-none absolute inset-0 rounded-full bg-[var(--sui-colors-neutral-static-w0-t20)]" />
               <div className="relative flex h-8 items-center gap-2 px-3">
-                <img
-                  className="h-4 w-4"
-                  alt="Icon search nav"
-                  src="/figmaAssets/icon-search-nav.svg"
-                />
-                <span className="font-button text-[length:var(--button-font-size)] font-[number:var(--button-font-weight)] leading-[var(--button-line-height)] tracking-[var(--button-letter-spacing)] text-headertexthint [font-style:var(--button-font-style)]">
+                <ShellIcon src="/figmaAssets/icon-search-nav.svg" tone="static" />
+                <span
+                  className="font-button text-[length:var(--button-font-size)] font-[number:var(--button-font-weight)] leading-[var(--button-line-height)] tracking-[var(--button-letter-spacing)] opacity-60 [font-style:var(--button-font-style)]"
+                  style={{ color: "var(--sui-colors-neutral-static-w0)" }}
+                >
                   Search
                 </span>
               </div>
@@ -2055,7 +1872,8 @@ export const SupervisorAgents = (): JSX.Element => {
               /* Active call chip: dark bar with the caller number, live timer,
                  mute toggle and hang-up (design ref: RingCX top-bar call). */
               <div
-                className="flex h-full min-w-[334px] max-w-[420px] shrink-0 items-center gap-3 bg-gradient-to-r from-[#1b3a4f] to-[#2c536e] px-4"
+                className="flex h-full min-w-[334px] max-w-[420px] shrink-0 items-center gap-3 px-4"
+                style={{ backgroundColor: "var(--sui-colors-extra-denim-high-contrast)", color: "var(--sui-colors-neutral-static-w0)" }}
                 data-testid="chip-active-call"
               >
                 {activePreviewCall ? (
@@ -2073,7 +1891,7 @@ export const SupervisorAgents = (): JSX.Element => {
                     height="20"
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke="#ffffff"
+                    stroke="currentColor"
                     strokeWidth="1.7"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -2086,13 +1904,13 @@ export const SupervisorAgents = (): JSX.Element => {
                   </svg>
                   <span className="flex min-w-0 flex-1 flex-col leading-none">
                     <span
-                      className="block truncate font-['Lato',sans-serif] text-[15px] font-bold text-white"
+                      className="block truncate font-['Lato',sans-serif] text-[15px] font-bold"
                       title={headerSessionLabel}
                     >
                       {headerSessionLabel}
                     </span>
                     <span
-                      className="font-['Lato',sans-serif] text-[12px] text-[#d5dee5] tabular-nums"
+                      className="font-['Lato',sans-serif] text-[12px] opacity-80 tabular-nums"
                       data-testid="text-active-call-timer"
                     >
                       {headerSessionElapsed}
@@ -2110,7 +1928,7 @@ export const SupervisorAgents = (): JSX.Element => {
                       height="20"
                       viewBox="0 0 24 24"
                       fill="none"
-                      stroke="#ffffff"
+                      stroke="currentColor"
                       strokeWidth="1.7"
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -2123,13 +1941,13 @@ export const SupervisorAgents = (): JSX.Element => {
                     </svg>
                     <span className="flex min-w-0 flex-1 flex-col leading-none">
                       <span
-                        className="block truncate font-['Lato',sans-serif] text-[15px] font-bold text-white"
+                        className="block truncate font-['Lato',sans-serif] text-[15px] font-bold"
                         title={headerSessionLabel}
                       >
                         {headerSessionLabel}
                       </span>
                       <span
-                        className="font-['Lato',sans-serif] text-[12px] text-[#d5dee5] tabular-nums"
+                        className="font-['Lato',sans-serif] text-[12px] opacity-80 tabular-nums"
                         data-testid="text-active-call-timer"
                       >
                         {headerSessionElapsed}
@@ -2149,16 +1967,17 @@ export const SupervisorAgents = (): JSX.Element => {
                   aria-pressed={headerSessionMuted}
                   className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-none cursor-pointer transition-colors ${
                     headerSessionMuted
-                      ? "bg-[#e6413c] hover:bg-[#d93a35]"
-                      : "bg-white hover:bg-[#f0f0f0]"
+                      ? "bg-[var(--sui-colors-danger-f)] hover:opacity-80"
+                      : "bg-[var(--sui-colors-neutral-base)] hover:bg-[var(--sui-colors-neutral-b5)]"
                   }`}
+                  style={{ color: headerSessionMuted ? "var(--sui-colors-neutral-static-w0)" : "var(--sui-colors-neutral-b1)" }}
                 >
                   <svg
                     width="14"
                     height="14"
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke={headerSessionMuted ? "#ffffff" : "#121212"}
+                    stroke="currentColor"
                     strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -2183,13 +2002,14 @@ export const SupervisorAgents = (): JSX.Element => {
                   aria-label={
                     activePreviewCall ? "Hang up" : "End monitoring"
                   }
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-none bg-[#e6413c] cursor-pointer hover:bg-[#d93a35]"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-none bg-[var(--sui-colors-danger-f)] cursor-pointer hover:opacity-80"
+                  style={{ color: "var(--sui-colors-neutral-static-w0)" }}
                 >
                   <svg
                     width="14"
                     height="14"
                     viewBox="0 0 24 24"
-                    fill="#ffffff"
+                    fill="currentColor"
                     aria-hidden
                   >
                     <path d="M12 9c-3.4 0-6.6 1.1-9.2 3.2a1.5 1.5 0 0 0-.2 2.2l1.6 1.8c.5.5 1.3.6 1.9.2l2.2-1.5c.4-.3.7-.8.7-1.3v-1.2c2-.6 4-.6 6 0v1.2c0 .5.3 1 .7 1.3l2.2 1.5c.6.4 1.4.3 1.9-.2l1.6-1.8a1.5 1.5 0 0 0-.2-2.2A14.4 14.4 0 0 0 12 9z" />
@@ -2199,130 +2019,45 @@ export const SupervisorAgents = (): JSX.Element => {
             ) : null}
                         <button
               type="button"
-              className="flex h-8 w-[164px] items-center gap-1 rounded-2xl bg-white px-3"
+              className="flex h-8 w-[164px] items-center gap-1 rounded-2xl bg-[var(--sui-colors-neutral-base)] px-3"
               data-testid="button-presence-status"
             >
               {isEngaged ? (
                 <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#e6413c]"
+                  className="h-2.5 w-2.5 shrink-0 rounded-full bg-[var(--sui-colors-danger-f)]"
                   aria-hidden
                 />
               ) : (
-                <img
-                  className="h-3.5 w-3.5"
-                  alt="Presence"
-                  src="/figmaAssets/presence.svg"
-                />
+                <ShellIcon src="/figmaAssets/presence.svg" className="h-3.5 w-3.5" />
               )}
-              <img
-                className="h-4 w-4"
-                alt="Icon engage border"
-                src="/figmaAssets/icon-engage-border.svg"
-              />
-              <div className="flex flex-1 items-center justify-between gap-1">
-                <span className="font-caption-1 text-[length:var(--caption-1-font-size)] font-[number:var(--caption-1-font-weight)] leading-[var(--caption-1-line-height)] tracking-[var(--caption-1-letter-spacing)] text-[#121212] [font-style:var(--caption-1-font-style)]">
+              <ShellIcon src="/figmaAssets/icon-engage-border.svg" />
+              <div className="flex flex-1 items-center justify-between gap-1" style={{ color: "var(--sui-colors-neutral-b1)" }}>
+                <span className="font-caption-1 text-[length:var(--caption-1-font-size)] font-[number:var(--caption-1-font-weight)] leading-[var(--caption-1-line-height)] tracking-[var(--caption-1-letter-spacing)] [font-style:var(--caption-1-font-style)]">
                   {isEngaged ? "Engaged" : "Available"}
                 </span>
-                <span className="whitespace-nowrap font-caption-1 text-[length:var(--caption-1-font-size)] font-[number:var(--caption-1-font-weight)] leading-[var(--caption-1-line-height)] tracking-[var(--caption-1-letter-spacing)] text-[#121212] [font-style:var(--caption-1-font-style)]">
+                <span className="whitespace-nowrap font-caption-1 text-[length:var(--caption-1-font-size)] font-[number:var(--caption-1-font-weight)] leading-[var(--caption-1-line-height)] tracking-[var(--caption-1-letter-spacing)] [font-style:var(--caption-1-font-style)]">
                   {headerSession ? headerSessionElapsed : availableElapsed}
                 </span>
               </div>
-              <img
-                className="h-4 w-4"
-                alt="Icon arrow down"
-                src="/figmaAssets/icon-arrow-down.svg"
-              />
+              <ShellIcon src="/figmaAssets/icon-arrow-down.svg" />
             </button>
             <Button
               variant="secondary"
-              className="h-8 w-8 rounded-full bg-white p-0 shadow-none hover:bg-white"
+              className="h-8 w-8 rounded-full bg-[var(--sui-colors-neutral-base)] p-0 shadow-none hover:bg-[var(--sui-colors-neutral-b5)]"
             >
-              <img
-                className="h-4 w-4"
-                alt="Icon dialer s"
-                src="/figmaAssets/icon-dialer-s.svg"
-              />
+              <ShellIcon src="/figmaAssets/icon-dialer-s.svg" />
             </Button>
             <Button
               variant="secondary"
-              className="h-8 w-8 rounded-full bg-white p-0 shadow-none hover:bg-white"
+              className="h-8 w-8 rounded-full bg-[var(--sui-colors-neutral-base)] p-0 shadow-none hover:bg-[var(--sui-colors-neutral-b5)]"
             >
-              <img
-                className="h-4 w-4"
-                alt="Icon call add"
-                src="/figmaAssets/icon-call-add.svg"
-              />
+              <ShellIcon src="/figmaAssets/icon-call-add.svg" />
             </Button>
           </div>
         </div>
-      </header>
-      <div className="flex min-h-0 flex-1">
-        <aside
-          data-name="Side nav"
-          className="flex w-20 shrink-0 flex-col justify-between border-r border-neutral-200 bg-navb-02 py-4"
-        >
-          <nav className="flex flex-col">
-            {sidePrimaryNav.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => {
-                  if (item.label === "Analytics") navigate("/analytics");
-                  if (item.label === "Agent") navigate("/");
-                }}
-                className={`relative flex min-h-10 w-20 flex-col items-center justify-center px-0 py-[5px] ${
-                  (item.label === "Analytics" ? analyticsRoute : item.active && !analyticsRoute) ? "bg-[#066fac1f]" : ""
-                }`}
-              >
-                <img className="relative" alt={item.label} src={item.icon} />
-                <span
-                  className={`mt-0.5 flex h-4 items-center justify-center self-stretch text-center font-caption-2 text-[length:var(--caption-2-font-size)] font-[number:var(--caption-2-font-weight)] leading-[var(--caption-2-line-height)] tracking-[var(--caption-2-letter-spacing)] [font-style:var(--caption-2-font-style)] ${
-                    (item.label === "Analytics" ? analyticsRoute : item.active && !analyticsRoute) ? "text-[#066fac]" : "text-[#121212]"
-                  }`}
-                >
-                  {item.label}
-                </span>
-                {item.badge ? (
-                  <span className="absolute right-[22px] top-0.5 flex h-[18px] w-[18px] items-center justify-center rounded-full border border-white bg-[#ff8800] font-caption-1 text-[length:var(--caption-1-font-size)] font-[number:var(--caption-1-font-weight)] leading-[var(--caption-1-line-height)] tracking-[var(--caption-1-letter-spacing)] text-white [font-style:var(--caption-1-font-style)]">
-                    {item.badge}
-                  </span>
-                ) : null}
-              </button>
-            ))}
-          </nav>
-          <nav className="flex flex-col">
-            {sideSecondaryNav.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                className="flex min-h-10 w-20 flex-col items-center justify-center px-0 py-[5px]"
-              >
-                <img className="relative" alt={item.label} src={item.icon} />
-                <span
-                  className={`mt-0.5 flex h-4 items-center justify-center self-stretch text-center ${
-                    item.label === "Help"
-                      ? "[font-family:'Lato',Helvetica] text-xs font-bold leading-4 tracking-[0]"
-                      : "font-caption-2 text-[length:var(--caption-2-font-size)] font-[number:var(--caption-2-font-weight)] leading-[var(--caption-2-line-height)] tracking-[var(--caption-2-letter-spacing)] [font-style:var(--caption-2-font-style)]"
-                  } text-[#121212]`}
-                >
-                  {item.label}
-                </span>
-              </button>
-            ))}
-          </nav>
-        </aside>
-        <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          {analyticsRoute ? (
-            <iframe
-              ref={analyticsFrameRef}
-              src="/analytics/index.html"
-              title="Analytics"
-              className="h-full w-full border-0"
-              allow="clipboard-write"
-              onLoad={sendAnalyticsState}
-            />
-          ) : (
-            <>
+      }
+    >
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <div className="shrink-0 border-b border-neutral-200 bg-white">
             <div className="flex h-[60px] items-center px-3 py-0.5">
               <div className="flex flex-1 items-center gap-2 pr-3">
@@ -2822,7 +2557,6 @@ export const SupervisorAgents = (): JSX.Element => {
           ) : null}
           </>
           )}
-
           <Dialog open={settingsOpen} onOpenChange={openSettings}>
             <DialogContent
               className="max-w-3xl gap-0 p-0"
@@ -2955,10 +2689,7 @@ export const SupervisorAgents = (): JSX.Element => {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-            </>
-          )}
-        </section>
-      </div>
-    </main>
+      </section>
+    </SupervisorShell>
   );
 };

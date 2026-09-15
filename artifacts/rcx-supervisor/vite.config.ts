@@ -109,10 +109,10 @@ export default defineConfig({
     process.env.REPL_ID !== undefined
       ? [
           await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer(),
+            m.cartographer() as any,
           ),
           await import("@replit/vite-plugin-dev-banner").then((m) =>
-            m.devBanner(),
+            m.devBanner() as any,
           ),
         ]
       : []),
@@ -130,13 +130,28 @@ export default defineConfig({
         "stubs/pii-interceptor/index.ts",
       ),
     },
-    dedupe: ["react", "react-dom", "styled-components"],
+    // Analytics source is compiled by this host Vite build. Dedupe these
+    // packages at the boundary so importing its former standalone source
+    // cannot introduce a React/Spring runtime beside Supervisor's React 18.
+    dedupe: [
+      "react",
+      "react-dom",
+      "react-router-dom",
+      "styled-components",
+      "@ringcentral/spring-base",
+      "@ringcentral/spring-icon",
+      "@ringcentral/spring-theme",
+      "@ringcentral/spring-ui",
+    ],
   },
   define: {
     "process.env": {},
     "process.env.NODE_ENV": JSON.stringify(
       process.env.NODE_ENV || "development",
     ),
+    // Source Analytics normally targets its standalone /api/analytics proxy.
+    // The native Supervisor build owns the same-origin /analytics-api gateway.
+    "import.meta.env.VITE_ANALYTICS_API_BASE": JSON.stringify("/analytics-api"),
   },
   optimizeDeps: {
     include: [
@@ -163,6 +178,9 @@ export default defineConfig({
   server: {
     fs: {
       strict: true,
+      // Native Analytics is intentionally source-imported from the adjacent
+      // workspace package; no standalone Analytics Vite server is required.
+      allow: [path.resolve(import.meta.dirname, "analytics")],
     },
   },
 });

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Alert, Button, Dialog, DialogActions, DialogContent, DialogTitle, Icon, Radio, RadioGroup, Text, TextField } from '@ringcentral/spring-ui'
 import { FolderMd, PlusMd } from '@ringcentral/spring-icon'
 import { ProgressButton } from './ProgressButton'
@@ -26,13 +26,17 @@ export function DashboardPicker({ artifact, workspace, initialProjectId, onClose
   const [creatingDashboard, setCreatingDashboard] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null)
+  const setRoot = useCallback((node: HTMLSpanElement | null) => {
+    setPortalContainer(node?.closest<HTMLElement>('.analytics-app') ?? node)
+  }, [])
   const projects = useMemo(() => workspace?.projects.filter(project => project.name.toLowerCase().includes(projectSearch.toLowerCase())) ?? [], [workspace, projectSearch])
   const dashboards = useMemo(() => workspace?.dashboards.filter(dashboard => dashboard.projectId === projectId && dashboard.title.toLowerCase().includes(dashboardSearch.toLowerCase())) ?? [], [workspace, projectId, dashboardSearch])
   const chooseProject = (id: string) => { setProjectId(id); setDashboardId(null); setDashboardSearch(''); setError('') }
   const createProject = async () => { if (!projectName.trim()) return; setSaving(true); setError(''); try { const project = await onCreateProject(projectName.trim()); setProjectName(''); setCreatingProject(false); chooseProject(project.id) } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to create this project.') } finally { setSaving(false) } }
   const createDashboard = async () => { if (!projectId || !dashboardName.trim()) return; setSaving(true); setError(''); try { const dashboard = await onCreateDashboard(dashboardName.trim(), projectId); setDashboardName(''); setCreatingDashboard(false); setDashboardId(dashboard.id) } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to create this dashboard.') } finally { setSaving(false) } }
   const add = async () => { if (!dashboardId || saving) return; setSaving(true); setError(''); try { await onAdd(dashboardId); onSuccess(dashboardId) } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to add this chart. Please retry.') } finally { setSaving(false) } }
-  return <Dialog open={!!artifact} onClose={() => !saving && onClose()} closeButton size="medium" aria-labelledby="add-to-dashboard-title">
+  return <span ref={setRoot} className="dashboard-picker-host"><Dialog open={!!artifact} onClose={() => !saving && onClose()} closeButton size="medium" container={portalContainer ?? undefined} aria-labelledby="add-to-dashboard-title" bodyProps={{ 'aria-labelledby': 'add-to-dashboard-title' }}>
     <DialogTitle id="add-to-dashboard-title">Add to dashboard</DialogTitle>
     <DialogContent>
       <div className="project-picker-heading"><Text>{artifact?.title}</Text><Text>Choose the project and dashboard that should contain this chart.</Text></div>
@@ -47,5 +51,5 @@ export function DashboardPicker({ artifact, workspace, initialProjectId, onClose
       {error && <Alert severity="error">{error}</Alert>}
     </DialogContent>
     <DialogActions><Button color="neutral" variant="outlined" disabled={saving} onClick={onClose}>Cancel</Button><ProgressButton busy={saving} color="primary" label="Add to dashboard" busyLabel="Adding…" disabled={!dashboardId} onClick={() => void add()} /></DialogActions>
-  </Dialog>
+  </Dialog></span>
 }

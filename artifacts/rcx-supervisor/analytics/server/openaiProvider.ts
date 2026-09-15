@@ -51,7 +51,7 @@ export function openAIModel(options: OpenAIModelOptions = {}): Model {
 
  return async context => {
   if (!apiKey) throw Error('OpenAI API key is not configured. Set OPENAI_API_KEY in the server environment.')
-  const controller = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+   const controller = context.signal ? AbortSignal.any([context.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]) : AbortSignal.timeout(REQUEST_TIMEOUT_MS)
   let response: Response
   try {
    response = await fetchImplementation(RESPONSE_URL, {
