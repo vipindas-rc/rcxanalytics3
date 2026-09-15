@@ -12,6 +12,7 @@ function Router() {
     <Switch>
       {/* Add pages below */}
       <Route path="/" component={SupervisorAgents} />
+      <Route path="/analytics" component={SupervisorAgents} />
       {/* Digital monitoring: Interaction preview popup / full-page take-over.
           mode is one of preview | expanded | takeover. */}
       <Route

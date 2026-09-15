@@ -23,6 +23,68 @@ import { trackEvent } from "@/lib/analytics";
 // (Declared locally so this page doesn't pull the excluded proto tree into tsc.)
 type InteractionPreviewMode = "preview" | "expanded" | "takeover";
 
+// The Analytics bundle is intentionally isolated in an iframe. Keep its URL
+// state in a namespaced query-string namespace so Supervisor's own `view` (and
+// other URL-driven table state) can never be consumed or overwritten by the
+// bridge.
+const ANALYTICS_BRIDGE_VERSION = 1 as const;
+const ANALYTICS_BRIDGE_READY = "rcx.analytics.ready";
+const ANALYTICS_BRIDGE_NAVIGATE = "rcx.analytics.navigate";
+const ANALYTICS_VIEW_VALUES = [
+  "chats",
+  "briefing",
+  "projects",
+  "saved",
+  "dashboards",
+] as const;
+type AnalyticsView = (typeof ANALYTICS_VIEW_VALUES)[number];
+type AnalyticsNavigationState = {
+  view: AnalyticsView;
+  sessionId: string | null;
+  projectId: string | null;
+  dashboardId: string | null;
+};
+
+function isAnalyticsView(value: unknown): value is AnalyticsView {
+  return (
+    typeof value === "string" &&
+    (ANALYTICS_VIEW_VALUES as readonly string[]).includes(value)
+  );
+}
+
+function analyticsId(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 && value.length <= 256
+    ? value
+    : null;
+}
+
+function readAnalyticsNavigation(search: string): AnalyticsNavigationState {
+  const params = new URLSearchParams(search);
+  const view = params.get("analyticsView");
+  return {
+    view: isAnalyticsView(view) ? view : "chats",
+    sessionId: analyticsId(params.get("analyticsSession")),
+    projectId: analyticsId(params.get("analyticsProject")),
+    dashboardId: analyticsId(params.get("analyticsDashboard")),
+  };
+}
+
+function isAnalyticsBridgeMessage(
+  value: unknown,
+): value is {
+  type: typeof ANALYTICS_BRIDGE_READY | typeof ANALYTICS_BRIDGE_NAVIGATE;
+  version: typeof ANALYTICS_BRIDGE_VERSION;
+  state?: Partial<AnalyticsNavigationState>;
+} {
+  if (typeof value !== "object" || value === null) return false;
+  const message = value as Record<string, unknown>;
+  return (
+    message.version === ANALYTICS_BRIDGE_VERSION &&
+    (message.type === ANALYTICS_BRIDGE_READY ||
+      message.type === ANALYTICS_BRIDGE_NAVIGATE)
+  );
+}
+
 import AgentTablePanel, {
   ActiveCallView,
   agentColumnMeta,
@@ -953,6 +1015,70 @@ export const SupervisorAgents = (): JSX.Element => {
   // tab (clean URL, no param); the Agents tab is addressable via ?tab=agents.
   const search = useSearch();
   const [pathname, navigate] = useLocation();
+  // Analytics owns only this content area. Its isolated React 19 bundle runs in
+  // an iframe, so its provider, global CSS, and dependencies cannot alter the
+  // React 18 Supervisor shell.
+  const analyticsRoute = pathname === "/analytics";
+  const analyticsFrameRef = useRef<HTMLIFrameElement>(null);
+  const sendAnalyticsState = useCallback(() => {
+    const frame = analyticsFrameRef.current;
+    if (!analyticsRoute || !frame?.contentWindow) return;
+    frame.contentWindow.postMessage(
+      {
+        type: "rcx.analytics.init",
+        version: ANALYTICS_BRIDGE_VERSION,
+        state: readAnalyticsNavigation(search),
+      },
+      window.location.origin,
+    );
+  }, [analyticsRoute, search]);
+
+  // The parent owns the shareable URL. Messages are accepted only from this
+  // route's exact iframe window and same-origin document; unrelated frames or
+  // Supervisor routes cannot rewrite Supervisor URL state.
+  useEffect(() => {
+    if (!analyticsRoute) return;
+    const onAnalyticsMessage = (event: MessageEvent<unknown>) => {
+      const frame = analyticsFrameRef.current;
+      if (
+        event.origin !== window.location.origin ||
+        !frame?.contentWindow ||
+        event.source !== frame.contentWindow ||
+        !isAnalyticsBridgeMessage(event.data)
+      ) {
+        return;
+      }
+      if (event.data.type === ANALYTICS_BRIDGE_READY) {
+        sendAnalyticsState();
+        return;
+      }
+      const rawState = event.data.state;
+      if (typeof rawState !== "object" || rawState === null) return;
+      const state = rawState as Partial<AnalyticsNavigationState>;
+      const view = state.view;
+      if (!isAnalyticsView(view)) return;
+      updateSearch((params) => {
+        if (view === "chats") params.delete("analyticsView");
+        else params.set("analyticsView", view);
+        const writeId = (key: string, value: unknown) => {
+          const id = analyticsId(value);
+          if (id) params.set(key, id);
+          else params.delete(key);
+        };
+        writeId("analyticsSession", state.sessionId);
+        writeId("analyticsProject", state.projectId);
+        writeId("analyticsDashboard", state.dashboardId);
+      });
+    };
+    window.addEventListener("message", onAnalyticsMessage);
+    return () => window.removeEventListener("message", onAnalyticsMessage);
+  }, [analyticsRoute, sendAnalyticsState, updateSearch]);
+
+  // Covers browser back/forward and direct links while the iframe remains
+  // mounted. The iframe URL itself stays static, avoiding reload loops.
+  useEffect(() => {
+    if (analyticsRoute) sendAnalyticsState();
+  }, [analyticsRoute, sendAnalyticsState]);
 
   // URL-addressable digital "Interaction preview" (deep-linkable / refresh-safe):
   // /interactions/:engagementId/:mode with mode preview | expanded | takeover.
@@ -2140,14 +2266,18 @@ export const SupervisorAgents = (): JSX.Element => {
               <button
                 key={item.label}
                 type="button"
+                onClick={() => {
+                  if (item.label === "Analytics") navigate("/analytics");
+                  if (item.label === "Agent") navigate("/");
+                }}
                 className={`relative flex min-h-10 w-20 flex-col items-center justify-center px-0 py-[5px] ${
-                  item.active ? "bg-[#066fac1f]" : ""
+                  (item.label === "Analytics" ? analyticsRoute : item.active && !analyticsRoute) ? "bg-[#066fac1f]" : ""
                 }`}
               >
                 <img className="relative" alt={item.label} src={item.icon} />
                 <span
                   className={`mt-0.5 flex h-4 items-center justify-center self-stretch text-center font-caption-2 text-[length:var(--caption-2-font-size)] font-[number:var(--caption-2-font-weight)] leading-[var(--caption-2-line-height)] tracking-[var(--caption-2-letter-spacing)] [font-style:var(--caption-2-font-style)] ${
-                    item.active ? "text-[#066fac]" : "text-[#121212]"
+                    (item.label === "Analytics" ? analyticsRoute : item.active && !analyticsRoute) ? "text-[#066fac]" : "text-[#121212]"
                   }`}
                 >
                   {item.label}
@@ -2182,6 +2312,17 @@ export const SupervisorAgents = (): JSX.Element => {
           </nav>
         </aside>
         <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          {analyticsRoute ? (
+            <iframe
+              ref={analyticsFrameRef}
+              src="/analytics/index.html"
+              title="Analytics"
+              className="h-full w-full border-0"
+              allow="clipboard-write"
+              onLoad={sendAnalyticsState}
+            />
+          ) : (
+            <>
           <div className="shrink-0 border-b border-neutral-200 bg-white">
             <div className="flex h-[60px] items-center px-3 py-0.5">
               <div className="flex flex-1 items-center gap-2 pr-3">
@@ -2814,7 +2955,8 @@ export const SupervisorAgents = (): JSX.Element => {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-
+            </>
+          )}
         </section>
       </div>
     </main>

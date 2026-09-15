@@ -1,0 +1,4 @@
+/* Loading is communicated by Square 11 and text, never a fabricated progress fill. */
+.progress-action { position:relative; }
+.progress-action.is-working { opacity:1; }
+.progress-action .progress-label { display:flex; align-items:center; justify-content:center; gap:8px; }
