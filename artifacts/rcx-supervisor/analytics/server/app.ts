@@ -1,7 +1,7 @@
 import express from 'express'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
-import type { AnalysisEvidence, AnalysisReference, AnalyticsRunTrace, ChartView, Dashboard, Dataset, Field, Filter, Renderer, ReportContext, Workspace } from '../src/lib/model.ts'
+import type { AnalysisEvidence, AnalysisReference, AnalyticsRunTrace, ChartView, Dashboard, Dataset, EvaluationBundle, Field, Filter, Renderer, ReportContext, Workspace } from '../src/lib/model.ts'
 import { applyView, generateDataset, createArtifact, compilePresentation, compileResolvedPresentation } from '../src/lib/analytics.ts'
 import { Store, id, now } from './store.ts'
 import { normalizeSource, effectiveFilters, datasetVersion } from './context.ts'
@@ -240,6 +240,64 @@ function publicRequestError(error: unknown) {
 function traceArguments(value: unknown) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16)
 }
+function createEvaluationBundle(input: {
+ request: { id: string; question: string; userMessageId: string; status: 'completed' | 'failed' | 'cancelled' | 'pending'; error?: string; asOf?: string; timezone?: string; contextOrigin?: EvaluationBundle['inheritedContext']['origin']; sourceContext?: EvaluationBundle['inheritedContext']['sourceContext']; reportContext?: EvaluationBundle['inheritedContext']['reportContext'] }
+ session: { messages: Array<{ role: string; text: string; id: string }> }
+ trace: AnalyticsRunTrace
+ answer?: unknown
+ evidence?: unknown
+ reference?: AnalysisReference
+ workspaceRevision?: number
+ error?: string
+}): EvaluationBundle {
+ const report = input.request.reportContext
+ const source = input.request.sourceContext
+ const mode = input.trace.executionMode ?? report?.sourceMode ?? (source ? 'synthetic' : 'unknown')
+ const sourceName = report?.reportId ?? source?.sourceLabel ?? source?.datasetId ?? 'none'
+ const answer = input.answer as { kind?: string; charts?: Array<{ view?: { chartType?: string } }> } | undefined
+ const answerValid = answerSchema.safeParse(input.answer).success
+ const renderer = answer?.kind === 'chart' ? answer.charts?.[0]?.view?.chartType ?? 'text' : answer?.kind === 'report' ? 'table' : answer?.kind ?? 'text'
+ const grader = input.error
+  ? { version: 'analytics-grader-v1', passed: false, checks: [{ name: 'request-completed', passed: false, detail: input.error }] }
+  : { version: 'analytics-grader-v1', passed: answerValid, checks: [{ name: 'answer-schema', passed: answerValid, ...(answerValid ? {} : { detail: 'The persisted final answer does not satisfy the answer schema.' }) }, { name: 'trace-captured', passed: true }] }
+ return {
+  version: 1,
+  origin: 'server',
+  id: input.trace.runId ?? input.request.id,
+  caseId: input.request.id,
+  case: { id: input.request.id, question: input.request.question, kind: answer?.kind ?? 'text', source: mode === 'unknown' ? 'unsupported' : sourceName, renderer },
+ terminal: { status: input.request.status === 'pending' ? 'failed' : input.request.status, ...(input.error ? { error: input.error } : {}) },
+  capturedAt: now(),
+  promptContract: { version: input.trace.promptVersion ?? 'analytics-prompt-v1', answerSchema: 'analytics-answer-v1', evidenceSchema: 'analytics-evidence-v1', contextInheritance: true, sourceCapability: true },
+  inheritedContext: {
+   origin: input.request.contextOrigin ?? 'derived',
+   priorQuestions: input.session.messages.filter(message => message.role === 'user' && message.id !== input.request.userMessageId).map(message => message.text),
+   ...(input.request.asOf ? { asOf: input.request.asOf } : {}),
+   timezone: input.request.timezone ?? 'UTC',
+   ...(source ? { sourceContext: structuredClone(source) } : {}),
+   ...(report ? { reportContext: structuredClone(report) } : {}),
+  },
+  sourceCapability: {
+   source: sourceName,
+   mode,
+   available: !['unsupported', 'untrusted-context', 'unknown'].includes(mode),
+   ...(report?.reportId ? { reportId: report.reportId } : {}),
+   ...(report?.reportVersion === undefined ? {} : { reportVersion: report.reportVersion }),
+   ...(input.reference?.datasetId ?? source?.datasetId ? { datasetId: input.reference?.datasetId ?? source?.datasetId } : {}),
+   ...(input.reference?.datasetRevision ?? source?.analysisReference?.datasetRevision ? { datasetRevision: input.reference?.datasetRevision ?? source?.analysisReference?.datasetRevision } : {}),
+  },
+  toolTrace: { redacted: true, trace: structuredClone(input.trace) },
+  databaseRevision: {
+   ...(input.workspaceRevision === undefined ? {} : { workspaceRevision: input.workspaceRevision }),
+   ...(input.reference?.datasetId ? { datasetId: input.reference.datasetId } : {}),
+   ...(input.reference?.datasetRevision ? { datasetRevision: input.reference.datasetRevision } : {}),
+   toolRevisions: input.trace.toolCalls.flatMap(call => call.revisionId ? [call.revisionId] : []),
+  },
+  ...(input.evidence === undefined ? {} : { evidence: structuredClone(input.evidence) }),
+  ...(input.answer === undefined ? {} : { finalAnswer: structuredClone(input.answer) }),
+  grader,
+ }
+}
 function classifyRequestError(error: unknown): AnalyticsRunTrace['errorClass'] {
   const message = error instanceof Error ? error.message : ''
   if (/cancel/i.test(message)) return 'cancelled'
@@ -270,7 +328,7 @@ export type AnalyticsRuntimeStatus = {
 }
 
 export function createApp(store: Store, model: Model, operational?: OperationalService, operationalAgents?: PlannerReviewer, examples?: SyntheticExamplesService, runtimeStatus?: Partial<AnalyticsRuntimeStatus>) {
- const app = express(); app.use(express.json({ limit: '64kb' })); const cache = new Map<string, Answer>(); const activeRequests = new Map<string, AbortController>(); let epoch = 0
+ const app = express(); app.use(express.json({ limit: '64kb' })); const cache = new Map<string, Answer>(); const activeRequests = new Map<string, AbortController>(); const activeTraces = new Map<string, AnalyticsRunTrace>(); let epoch = 0
  const status: AnalyticsRuntimeStatus = {
   operationalPostgres: runtimeStatus?.operationalPostgres ?? { ready: !!operational, detail: operational ? 'Operational PostgreSQL is available.' : 'Operational PostgreSQL is unavailable.' },
   syntheticExamplesPostgres: runtimeStatus?.syntheticExamplesPostgres ?? { ready: !!examples, detail: examples ? 'Synthetic examples PostgreSQL is available.' : 'Synthetic examples PostgreSQL is unavailable.' },
@@ -317,13 +375,20 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
  app.delete('/api/dashboards/:id',async(q,r)=>{await store.mutate(w=>{find(w.dashboards,q.params.id,'Dashboard');w.dashboards=w.dashboards.filter(d=>d.id!==q.params.id)});r.status(204).end()})
  app.post('/api/dashboards/:id/widgets',async(q,r)=>{ let created = false; const dashboard = await store.mutate(w=>{const d=find(w.dashboards,q.params.id,'Dashboard');const a=find(w.artifacts,q.body.artifactId,'Artifact');if(d.widgets.some(widget=>widget.artifactId===a.id))return d;snapshot(d);d.widgets.push({id:id('widget'),artifactId:a.id,title:q.body.title?title(q.body.title):a.title});created=true;return d}); r.status(created?201:200).json(dashboard) })
   app.get('/api/requests/:id',async(q,r)=>r.json(find((await store.read()).requests,q.params.id,'Request')))
-  app.post('/api/requests/:id/cancel', async (q, r) => {
+  app.get('/api/requests/:id/evaluation-bundle',async(q,r)=>{const request=find((await store.read()).requests,q.params.id,'Request');if(!request.evaluationBundle)throw new HttpError(409,'The evaluation bundle is not available until this request reaches a terminal state.');r.json(request.evaluationBundle)})
+ app.post('/api/requests/:id/cancel', async (q, r) => {
    const request = await store.mutate(w => {
     const current = find(w.requests, q.params.id, 'Request')
     if (current.status === 'pending') {
      current.status = 'cancelled'
      current.phase = 'Cancelled'
      current.phaseHistory = [...(current.phaseHistory ?? []), { phase: 'cancelled', at: now() }].slice(-8)
+     const trace = activeTraces.get(current.id) ?? current.trace ?? { requestId: current.id, runId: id('run'), provider: status.provider.provider, model: status.provider.model, promptVersion: 'analytics-prompt-v1', stages: [], toolCalls: [], orchestration: [], retries: 0, repairs: 0 }
+     trace.errorClass = 'cancelled'
+     trace.stages = [...trace.stages, { name: 'cancelled', at: now() }]
+     current.trace = structuredClone(trace)
+     const session = w.sessions.find(item => item.id === current.sessionId)
+     if (session) current.evaluationBundle = createEvaluationBundle({ request: current, session, trace, error: 'Request cancelled before completion.', workspaceRevision: w.revision + 1 })
     }
     return current
    })
@@ -378,12 +443,13 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    if(session.advisor&&!session.renamed&&session.title==='Advisor')session.title=question.slice(0,56)
    const captured = capturedRequestTime(q.body, prior)
    const createdAt = now()
-   const t={id:requestId,sessionId:session.id,question,status:'pending' as const,phase:'initializing',phaseHistory:[{phase:'initializing',at:createdAt}],userMessageId,createdAt,asOf:captured.asOf,timezone:captured.timezone,sourceContext,reportContext,contextArtifactId:sourceContext?.artifactId,contextFilters:sourceContext?.filters??[],contextDashboardId,sourceLabel:sourceContext?.sourceLabel}
+  const contextOrigin: EvaluationBundle['inheritedContext']['origin'] = prior ? 'retry' : inheritedReport || inheritedSource ? 'inherited' : (q.body.reportId || explicitSource ? 'explicit' : 'derived')
+  const t={id:requestId,sessionId:session.id,question,status:'pending' as const,phase:'initializing',phaseHistory:[{phase:'initializing',at:createdAt}],userMessageId,createdAt,asOf:captured.asOf,timezone:captured.timezone,sourceContext,reportContext,contextOrigin,contextArtifactId:sourceContext?.artifactId,contextFilters:sourceContext?.filters??[],contextDashboardId,sourceLabel:sourceContext?.sourceLabel}
    w.requests.push(t);session.updatedAt=now();fresh=true;return t
   })
   r.status(202).json(attempt);if(fresh){const controller=new AbortController();activeRequests.set(attempt.id,controller);void run(attempt.id,selected,controller.signal).finally(()=>{if(activeRequests.get(attempt.id)===controller)activeRequests.delete(attempt.id)})}
  })
-  async function run(requestId:string, selected:Renderer, signal?:AbortSignal){const runEpoch=epoch;const trace: AnalyticsRunTrace={requestId,runId:id('run'),provider:status.provider.provider,model:status.provider.model,promptVersion:'analytics-prompt-v1',stages:[],toolCalls:[],retries:0,repairs:0};const markStage=(name:string)=>{trace.stages.push({name,at:now()})};const recordTool=async<T>(name:string,args:unknown,operation:()=>Promise<T>):Promise<T>=>{const entry:{name:string;argumentsHash:string;status:'completed'|'failed'|'cancelled';revisionId?:string}={name,argumentsHash:traceArguments(args),status:'completed'};trace.toolCalls.push(entry);try{const result=await operation();if(result&&typeof result==='object'&&'revisionId' in result)entry.revisionId=String((result as {revisionId:unknown}).revisionId);return result}catch(error){entry.status=signal?.aborted?'cancelled':'failed';throw error}};const isPending=async()=>runEpoch===epoch&&(await store.read()).requests.find(item=>item.id===requestId)?.status==='pending';try{
+ async function run(requestId:string, selected:Renderer, signal?:AbortSignal){const runEpoch=epoch;const trace: AnalyticsRunTrace={requestId,runId:id('run'),provider:status.provider.provider,model:status.provider.model,promptVersion:'analytics-prompt-v1',stages:[],toolCalls:[],orchestration:[],retries:0,repairs:0};activeTraces.set(requestId,trace);const markStage=(name:string)=>{trace.stages.push({name,at:now()})};const recordTool=async<T>(name:string,args:unknown,operation:()=>Promise<T>):Promise<T>=>{const entry:{name:string;argumentsHash:string;status:'completed'|'failed'|'cancelled';revisionId?:string}={name,argumentsHash:traceArguments(args),status:'completed'};trace.toolCalls.push(entry);try{const result=await operation();if(result&&typeof result==='object'&&'revisionId' in result)entry.revisionId=String((result as {revisionId:unknown}).revisionId);return result}catch(error){entry.status=signal?.aborted?'cancelled':'failed';throw error}};const isPending=async()=>runEpoch===epoch&&(await store.read()).requests.find(item=>item.id===requestId)?.status==='pending';try{
    markStage('received')
    if(!await isPending())return
   await updateRequestPhase(requestId, 'planning', runEpoch)
@@ -406,11 +472,13 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    const operationalScope = { period: { from: scope.start, to: scope.end }, timezone: request.timezone ?? 'UTC', filters: [] }
    const orchestrationInput = () => ({ question: request.question, report: { id: reportContext!.reportId, title: reportContext!.title, version: reportContext!.reportVersion }, result: operationalResult!, scope: operationalScope, priorQuestions: s.messages.filter(message => message.role === 'user' && message.id !== request.userMessageId).map(message => message.text), asOf: onlineNow ? request.asOf : undefined })
    let turn = await orchestrateOperationalTurn(orchestrationInput(), operationalAgents)
+   trace.orchestration!.push({ phase: 'initial', decision: 'operational-orchestration', details: { modelCalls: turn.modelCalls, repairCycles: turn.trace.repairCycles, validation: turn.trace.validation }, intent: turn.intent, scope: turn.scope, presentation: turn.presentation, ...(turn.queryRequired ? { queryRequired: turn.queryRequired } : {}), trace: structuredClone(turn.trace) })
    trace.repairs = turn.trace.repairCycles
    if (turn.queryRequired) {
     await updateRequestPhase(requestId, 'computing', runEpoch)
     operationalResult = await recordTool('operational.query', turn.queryRequired, () => operational.query(turn.queryRequired!))
     turn = await orchestrateOperationalTurn(orchestrationInput(), operationalAgents)
+    trace.orchestration!.push({ phase: 'requery', decision: 'operational-requery', details: { modelCalls: turn.modelCalls, repairCycles: turn.trace.repairCycles, validation: turn.trace.validation }, intent: turn.intent, scope: turn.scope, presentation: turn.presentation, ...(turn.queryRequired ? { queryRequired: turn.queryRequired } : {}), trace: structuredClone(turn.trace) })
     trace.repairs = turn.trace.repairCycles
    }
    if (!turn.answer) throw new HttpError(400, 'This request needs a supported Agent Activity query before it can be answered.')
@@ -427,6 +495,7 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    await updateRequestPhase(requestId, 'computing', runEpoch)
    workflowResult = await recordTool('examples.queryWorkflowVolume', { revisionId: coverage.revisionId, ...scope }, () => examples.queryWorkflowVolume({ revisionId: coverage.revisionId, ...scope }))
    trace.executionMode = 'synthetic'
+   trace.orchestration!.push({ phase: 'routing', decision: 'workflow-volume-source', details: { source: 'workflow-volume', revisionId: workflowResult.revisionId }, trace: { executionMode: trace.executionMode } })
    dataset = toWorkflowDataset(workflowResult)
    analysis = toWorkflowAnalysis(workflowResult, scope, request.timezone)
    operationalAnswer = workflowAnswer(request.question)
@@ -451,6 +520,7 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    const entityCount = Math.max(4, generic.plan.grouping.values.length, generic.plan.cohorts.length, generic.plan.presentation === 'table' ? 8 : 0)
    const prepareInput = { domain: definition.domain, ...scope, ...(queue ? {} : { definition: definition.definition, recipe: { entityCount } }) }
    const coverage = await recordTool('examples.prepareExample', prepareInput, () => examples.prepareExample!(prepareInput))
+   trace.orchestration!.push({ phase: 'planning', decision: 'synthetic-definition', details: { domain: definition.domain, plan: generic.plan, queueDefinition: queue }, trace: { executionMode: 'synthetic' } })
    await updateRequestPhase(requestId, 'computing', runEpoch)
    const queryInput = { domain: definition.domain, revisionId: coverage.revisionId, ...scope }
    const syntheticResult = await recordTool('examples.queryExample', queryInput, () => examples.queryExample!(queryInput))
@@ -461,14 +531,17 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    reportContext = reportContext ? { ...reportContext, availability: 'supported', datasetId: dataset.id, datasetVersion: analysis.reference.datasetRevision, analysisReference: analysis.reference } : undefined
    operationalAnswer = syntheticAnswer(generic.plan, dataset, definition.title)
   }
-  const key=createHash('sha256').update(JSON.stringify({version:8,datasetVersion:dataset?datasetVersion(dataset):undefined,sourceContext:request.sourceContext,reportContext,sessionId:s.id,question:request.question.toLowerCase().trim(),artifact,datasetId:dataset?.id,dashboard,messages:s.messages.filter(m=>m.role==='assistant').slice(-4)})).digest('hex');const bypass=!reportContext&&/regenerat|new (?:data|values)|fresh data/i.test(request.question);let answer=operationalAnswer ?? (reportContext?reportAnswer(reportContext,dataset,request.question):bypass?undefined:cache.get(key) ?? w.responseCache?.[key] as Answer | undefined);const cached=!!answer && !reportContext
+  const key=createHash('sha256').update(JSON.stringify({version:8,datasetVersion:dataset?datasetVersion(dataset):undefined,sourceContext:request.sourceContext,reportContext,sessionId:s.id,question:request.question.toLowerCase().trim(),artifact,datasetId:dataset?.id,dashboard,messages:s.messages.filter(m=>m.role==='assistant').slice(-4)})).digest('hex');const bypass=!reportContext&&/regenerat|new (?:data|values)|fresh data/i.test(request.question);const cachedAnswer=!reportContext&&!bypass?(cache.get(key) ?? w.responseCache?.[key] as Answer | undefined):undefined;let answer=operationalAnswer ?? (reportContext?reportAnswer(reportContext,dataset,request.question):bypass?undefined:cachedAnswer);const cached=!!answer && !reportContext
+  trace.orchestration!.push({ phase: cached ? 'cache' : 'model', decision: operationalAnswer ? 'server-authoritative-answer' : reportContext ? 'report-context-answer' : cached ? 'response-cache-hit' : bypass ? 'regenerate-with-model' : 'model-answer', details: { cached, bypass, reportContext: Boolean(reportContext), datasetId: dataset?.id }, trace: { executionMode: trace.executionMode } })
   if (reportContext && !trace.executionMode) trace.executionMode = reportContext.sourceMode ?? reportContextCapability(reportContext)
+  if (reportContext) trace.orchestration!.push({ phase: 'routing', decision: 'report-capability', details: { reportId: reportContext.reportId, sourceMode: trace.executionMode, reportVersion: reportContext.reportVersion }, trace: { executionMode: trace.executionMode } })
   if(!answer){if(!await isPending())return;await updateRequestPhase(requestId, 'planning', runEpoch);markStage('model');answer=answerSchema.parse(await model({question:request.question,session:s,artifact,dataset,dashboard,sourceContext:request.sourceContext,reportContext,signal}))}else{await updateRequestPhase(requestId, 'preparing-output', runEpoch);answer=answerSchema.parse(structuredClone(answer))}
   if(reportContext && answer.charts.some(chart=>!chart.reuseDataset))throw new HttpError(400,'That question cannot be answered from the selected report fixture. Choose a supported field or start a new synthetic example.')
    if(!await isPending())return
   await updateRequestPhase(requestId, 'preparing-output', runEpoch)
   const result=answer
   if (generalPlan && dataset) validatePlanBeforePublication(generalPlan, dataset, result)
+  trace.orchestration!.push({ phase: 'publication', decision: 'publish-validated-answer', details: { kind: result.kind, chartCount: result.charts.length, hasEvidence: Boolean(analysis?.evidence), datasetId: dataset?.id }, trace: { executionMode: trace.executionMode } })
   await updateRequestPhase(requestId, 'reviewing', runEpoch)
   markStage('reviewing')
    let published=false
@@ -481,9 +554,10 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    if(result.kind==='dashboard'){if(!dashboard)throw new HttpError(400,'Select a dashboard before requesting changes.');const d=find(current.dashboards,dashboard.id,'Dashboard');if(d.revision!==dashboard.revision)throw new HttpError(409,'Dashboard changed while interpreting. Retry against its latest revision.');const beforeDashboard=structuredClone(d);for(const op of result.operations){if(op.action==='add'){const a=find(current.artifacts,op.artifactId??ids[0]??'','Artifact');if(!d.widgets.some(widget=>widget.artifactId===a.id))d.widgets.push({id:id('widget'),artifactId:a.id,title:op.title??a.title})}else if(op.action==='filter'){d.filters=parseFilters(op.filters??[])}else if(op.action==='rename'&&!op.widgetId){d.title=title(op.title)}else if(op.action==='reorder'){if(!op.widgetIds||op.widgetIds.length!==d.widgets.length||new Set(op.widgetIds).size!==d.widgets.length)throw new HttpError(400,'Reorder must include every widget once.');d.widgets=op.widgetIds.map(i=>find(d.widgets,i,'Widget'))}else{const widget=find(d.widgets,op.widgetId??'','Widget');if(op.action==='remove')d.widgets=d.widgets.filter(v=>v.id!==widget.id);if(op.action==='rename')widget.title=title(op.title);if(op.action==='reconfigure'){if(!op.view)throw new HttpError(400,'A new view is required.');const a=find(current.artifacts,widget.artifactId,'Artifact');const replacement=createArtifact(find(current.datasets,a.datasetId,'Dataset'),parseChartView(op.view),op.title??widget.title,selected);current.artifacts.push(replacement);widget.artifactId=replacement.id}}}if(JSON.stringify({title:d.title,widgets:d.widgets,filters:d.filters})!==JSON.stringify({title:beforeDashboard.title,widgets:beforeDashboard.widgets,filters:beforeDashboard.filters})){d.history.push({revision:beforeDashboard.revision,title:beforeDashboard.title,widgets:beforeDashboard.widgets,filters:beforeDashboard.filters,createdAt:now()});d.revision++}changedDashboard=d}
    session.messages.push({id:id('message'),role:'assistant',text:result.text,createdAt:now(),artifactIds:ids,suggestions:result.suggestions,choices:result.choices,requestId,reportContext:t.reportContext,analysisReference:analysis?.reference,evidence:analysis?.evidence,dashboardId:changedDashboard?.id,dashboardRevision:changedDashboard?.revision});if(!session.renamed&&(session.title==='New analytics chat'||session.title==='Advisor'))session.title=t.question.slice(0,56);session.updatedAt=now();t.status='completed';t.phase='Complete';t.artifactIds=ids;t.cached=cached; if (!bypass && !reportContext) { current.responseCache ??= {}; current.responseCache[key] = structuredClone(result); const keys = Object.keys(current.responseCache); if (keys.length > 100) for (const stale of keys.slice(0, keys.length - 100)) delete current.responseCache[stale] }
    t.trace=structuredClone(trace)
+   t.evaluationBundle=createEvaluationBundle({request:t,session,trace,answer:result,evidence:analysis?.evidence,reference:analysis?.reference,workspaceRevision:current.revision+1})
    published=true
    });if(published&&runEpoch===epoch&&!bypass)cache.set(key,result)
-  }catch(error){trace.errorClass=signal?.aborted?'cancelled':classifyRequestError(error);if(runEpoch!==epoch)return;await store.mutate(w=>{const t=w.requests.find(item=>item.id===requestId);if(!t||t.status!=='pending'||runEpoch!==epoch)return;t.status='failed';t.phase='Could not complete';t.error=publicRequestError(error);t.trace=structuredClone(trace)})}}
+  }catch(error){trace.errorClass=signal?.aborted?'cancelled':classifyRequestError(error);if(runEpoch!==epoch)return;await store.mutate(w=>{const t=w.requests.find(item=>item.id===requestId);if(!t||t.status!=='pending'||runEpoch!==epoch)return;t.status='failed';t.phase='Could not complete';t.error=publicRequestError(error);t.trace=structuredClone(trace);const session=w.sessions.find(item=>item.id===t.sessionId);if(session)t.evaluationBundle=createEvaluationBundle({request:t,session,trace,error:t.error,workspaceRevision:w.revision+1})})}finally{activeTraces.delete(requestId)}}
  app.use((error:any,_q:express.Request,r:express.Response,_next:express.NextFunction)=>r.status(error.status??500).json({error:error.message??'Request failed.'}))
  return app
 }

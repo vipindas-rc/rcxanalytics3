@@ -8,6 +8,7 @@ import { createApp } from './app.ts'
 import type { Model } from './inference.ts'
 import { providerCapabilities } from './providerSelection.ts'
 import { createArtifact, generateDataset } from '../src/lib/analytics.ts'
+import { replayEvaluationBundle } from '../evaluation/runner.ts'
 const servers:Server[]=[]
 it('discards late inference after a workspace reset',async()=>{
  let release!:()=>void;let entered!:()=>void
@@ -25,7 +26,7 @@ it('persists cancellation and suppresses a late model result', async () => {
   let aborted = false
   const started = new Promise<void>(resolve => { entered = resolve })
   const blocked = new Promise<void>(resolve => { release = resolve })
-  const { api, store } = await setup(async context => {
+  const { api, store, dir } = await setup(async context => {
     context.signal?.addEventListener('abort', () => { aborted = true }, { once: true })
     entered()
     await blocked
@@ -45,6 +46,13 @@ it('persists cancellation and suppresses a late model result', async () => {
   await new Promise(resolve => setTimeout(resolve, 30))
   const workspace = await store.read()
   expect(workspace.requests.find(request => request.id === 'cancel-pending')).toMatchObject({ status: 'cancelled', phase: 'Cancelled' })
+  const bundle = await api('/requests/cancel-pending/evaluation-bundle')
+  expect(bundle.status).toBe(200)
+  expect(bundle.data).toMatchObject({ version: 1, terminal: { status: 'cancelled' }, grader: { passed: false }, toolTrace: { redacted: true } })
+  expect(bundle.data.toolTrace.trace.orchestration.length).toBeGreaterThan(0)
+  const cancelledBundleFile = path.join(dir, 'cancelled-bundle.json')
+  await writeFile(cancelledBundleFile, JSON.stringify(bundle.data))
+  expect((await replayEvaluationBundle(cancelledBundleFile)).grader).toEqual(bundle.data.grader)
   expect(workspace.sessions.find(item => item.id === session.id)?.messages.map(item => item.role)).toEqual(['user'])
   expect(workspace.responseCache).toEqual({})
 })
@@ -99,6 +107,28 @@ it('switches context modes without reviving the previous report or source', asyn
 it('reports provider capabilities only when the selected adapter can run them', () => {
   expect(providerCapabilities({ provider: 'codex', connected: true, operationalReview: false })).toMatchObject({ connected: true, planner: false, reviewer: false, repair: false })
   expect(providerCapabilities({ provider: 'openai', connected: true, operationalReview: true })).toMatchObject({ planner: true, reviewer: true, repair: true })
+})
+it('persists and serves a replayable evaluation bundle for a completed turn', async () => {
+ const { api, dir } = await setup(async () => ({ kind: 'text', text: 'A deterministic answer.', choices: [], suggestions: [], charts: [], operations: [] }))
+ const session = (await api('/sessions', {})).data
+ const attempt = await api('/conversation', { sessionId: session.id, requestId: 'bundle-turn', question: 'Explain the current workspace.' })
+ const terminal = await completed(api, attempt.data.id)
+ expect(terminal.status, terminal.error).toBe('completed')
+ const bundleResponse = await api(`/requests/${attempt.data.id}/evaluation-bundle`)
+ expect(bundleResponse.status).toBe(200)
+ expect(bundleResponse.data).toMatchObject({
+  version: 1,
+  origin: 'server',
+  promptContract: { version: 'analytics-prompt-v1', contextInheritance: true, sourceCapability: true },
+  sourceCapability: { mode: 'unknown', available: false },
+  toolTrace: { redacted: true },
+  finalAnswer: { kind: 'text', text: 'A deterministic answer.' },
+ })
+ expect(bundleResponse.data.databaseRevision.toolRevisions).toEqual([])
+ const bundleFile = path.join(dir, 'server-bundle.json')
+ await writeFile(bundleFile, JSON.stringify(bundleResponse.data))
+ const replayed = await replayEvaluationBundle(bundleFile)
+ expect(replayed.grader).toEqual(bundleResponse.data.grader)
 })
 async function setup(model:Model, operational?: any, examples?: any){const dir=await mkdtemp(path.join(os.tmpdir(),'analytics-test-'));const store=new Store(path.join(dir,'workspace.json'));await store.initialize();const server=(createApp as (...args:any[])=>ReturnType<typeof createApp>)(store,model,operational,undefined,examples).listen(0,'127.0.0.1');servers.push(server);await new Promise<void>((r,reject)=>server.on('listening',r).on('error',reject));const address=server.address() as {port:number};const api=async(route:string,body?:unknown,method=body?'POST':'GET')=>{const response=await fetch(`http://127.0.0.1:${address.port}/api${route}`,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:response.status,data:response.status===204?null:response.headers.get('content-type')?.includes('application/json')?await response.json() as any:{error:await response.text()}}};return {store,api,dir}}
 async function completed(api:any,id:string){for(let i=0;i<100;i++){const result=await api(`/requests/${id}`);if(result.data.status!=='pending')return result.data;await new Promise(r=>setTimeout(r,10))}throw Error('Request timed out')}
@@ -463,6 +493,10 @@ describe('operational report API adapter', () => {
   const artifact = workspace.artifacts.find((item:any) => item.id === message.artifactIds[0])
   expect(artifact.view.chartType).toBe('table')
   expect(workspace.datasets.find((item:any) => item.id === artifact.datasetId).rows).toEqual(fixture.result.rows)
+  expect(terminal.trace.orchestration.length).toBeGreaterThanOrEqual(1)
+  expect(terminal.trace.orchestration[0]).toMatchObject({ phase: 'initial', trace: { state: 'resolving-data' }, queryRequired: { revisionId: 'qa-revision-1' } })
+  expect(terminal.trace.orchestration[1]).toMatchObject({ phase: 'requery', trace: { state: 'completed' } })
+  expect(terminal.evaluationBundle.databaseRevision).toMatchObject({ datasetRevision: 'qa-revision-1' })
   expect(modelCalls).toBe(0)
  })
 

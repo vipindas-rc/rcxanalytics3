@@ -28,9 +28,70 @@ export type AnalyticsRunTrace = {
  executionMode?: 'operational' | 'fixture' | 'synthetic'
  stages: Array<{ name: string; at: string; durationMs?: number }>
  toolCalls: Array<{ name: string; argumentsHash: string; status: 'completed' | 'failed' | 'cancelled'; durationMs?: number; revisionId?: string }>
+  orchestration?: Array<{
+    phase: 'initial' | 'requery' | 'routing' | 'planning' | 'cache' | 'model' | 'publication'
+    decision: string
+    details: Record<string, unknown>
+    intent?: unknown
+    scope?: unknown
+    presentation?: unknown
+    queryRequired?: unknown
+    trace: unknown
+  }>
  retries: number
  repairs: number
  errorClass?: 'dependency' | 'validation' | 'unsupported' | 'cancelled' | 'provider' | 'unknown'
+}
+export type EvaluationBundle = {
+  version: 1
+  id: string
+  origin?: 'runner' | 'server'
+  caseId?: string
+  case?: { id: string; question: string; kind: string; source: string; renderer: string }
+  terminal?: { status: 'completed' | 'failed' | 'cancelled'; error?: string }
+  repetition?: number
+  capturedAt: string
+  promptContract: {
+    version: string
+    answerSchema: string
+    evidenceSchema: string
+    contextInheritance: boolean
+    sourceCapability: boolean
+  }
+  inheritedContext: {
+    origin: 'explicit' | 'inherited' | 'derived' | 'retry' | 'manifest'
+    priorQuestions: string[]
+    asOf?: string
+    timezone?: string
+    sourceContext?: SourceContext
+    reportContext?: ReportContext
+  }
+  sourceCapability: {
+    source: string
+    mode: 'operational' | 'fixture' | 'synthetic' | 'unsupported' | 'untrusted-context' | 'unknown'
+    available: boolean
+    reportId?: string
+    reportVersion?: number
+    datasetId?: string
+    datasetRevision?: string
+  }
+  toolTrace: {
+    redacted: true
+    trace: AnalyticsRunTrace
+  }
+  databaseRevision: {
+    workspaceRevision?: number
+    datasetId?: string
+    datasetRevision?: string
+    toolRevisions: string[]
+  }
+  evidence?: unknown
+  finalAnswer?: unknown
+  grader?: {
+    version: string
+    passed: boolean
+    checks: Array<{ name: string; passed: boolean; detail?: string }>
+  }
 }
 export type Message = { id: string; role: 'user' | 'assistant'; text: string; createdAt: string; artifactIds?: string[]; suggestions?: string[]; choices?: string[]; requestId?: string; dashboardId?: string; dashboardRevision?: number; sourceContext?: SourceContext; reportContext?: ReportContext; selectedFollowUpFrom?: string; analysisReference?: AnalysisReference; evidence?: AnalysisEvidence }
 export type Session = { id: string; title: string; renamed?: boolean; advisor?: boolean; advisorContext?: SourceContext; reportContext?: ReportContext; projectId: string | null; createdAt: string; updatedAt: string; messages: Message[] }
@@ -42,6 +103,6 @@ export type Dashboard = { id: string; projectId: string; title: string; revision
 export type BriefingScenario = 'morning' | 'midday'
 export type BriefingWidget = { id: string; section: 'Needs attention' | 'Team & capacity' | 'AI & customer outcomes' | 'Chart examples'; artifactId: string; metricTitle?: string; entity?: string; finding: string; value: string; comparison: string; severity: 'critical' | 'warning' | 'watch' | 'healthy'; explanation: string; definition: string; source: 'Catalog' | 'Synthetic extension'; sourceUrl?: string; priority?: boolean; investigatePrompt: string }
 export type BriefingSnapshot = { id: string; scenario: BriefingScenario; title: string; reportingWindow: string; comparisonWindow: string; summary: string[]; createdAt: string; widgets: BriefingWidget[] }
-export type TurnRequest = { id: string; sessionId: string; question: string; status: 'pending' | 'completed' | 'failed' | 'cancelled'; phase: string; /** Actual controller stages, retained so a reconnecting client can resume the live status. */ phaseHistory?: Array<{ phase: string; at: string }>; error?: string; artifactIds?: string[]; userMessageId: string; createdAt: string; /** Captured once at intake; retries retain the original analytical instant. */ asOf?: string; timezone?: string; analysisPlan?: Record<string, unknown>; contextArtifactId?: string; contextFilters?: Filter[]; contextDashboardId?: string; sourceLabel?: string; sourceContext?: SourceContext; reportContext?: ReportContext; trace?: AnalyticsRunTrace; cached?: boolean }
+export type TurnRequest = { id: string; sessionId: string; question: string; status: 'pending' | 'completed' | 'failed' | 'cancelled'; phase: string; /** Actual controller stages, retained so a reconnecting client can resume the live status. */ phaseHistory?: Array<{ phase: string; at: string }>; error?: string; artifactIds?: string[]; userMessageId: string; createdAt: string; /** Captured once at intake; retries retain the original analytical instant. */ asOf?: string; timezone?: string; analysisPlan?: Record<string, unknown>; contextArtifactId?: string; contextFilters?: Filter[]; contextDashboardId?: string; sourceLabel?: string; sourceContext?: SourceContext; reportContext?: ReportContext; contextOrigin?: EvaluationBundle['inheritedContext']['origin']; trace?: AnalyticsRunTrace; evaluationBundle?: EvaluationBundle; cached?: boolean }
 export type Workspace = { version: 4; revision: number; sessions: Session[]; projects: Project[]; datasets: Dataset[]; artifacts: Artifact[]; savedCharts: SavedChart[]; dashboards: Dashboard[]; requests: TurnRequest[]; preferences: Record<string, Renderer>; briefings: BriefingSnapshot[]; responseCache?: Record<string, unknown> }
 export type ConversationInput = { sessionId: string; requestId: string; question: string; timezone?: string; contextArtifactId?: string; contextFilters?: Filter[]; contextDashboardId?: string; sourceLabel?: string; sourceContext?: SourceContext; reportId?: string; reportVersion?: string | number; selectedContentIds?: string[]; presentationPreference?: 'auto' | 'chart' | 'table'; renderer?: Renderer; retryOf?: string; selectedFollowUpFrom?: string }
