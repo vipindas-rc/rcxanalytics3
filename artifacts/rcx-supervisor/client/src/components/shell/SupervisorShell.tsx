@@ -44,15 +44,10 @@ const utilityNavigation: NavItem[] = [
   { label: "Help", icon: "/figmaAssets/icon-help-border.svg" },
 ];
 
-function iconStyle(
-  icon: string,
-  active = false,
-  tone: "neutral" | "static" = "neutral",
-): CSSProperties {
+function iconStyle(icon: string, tone: "neutral" | "static" = "neutral"): CSSProperties {
   return {
-    backgroundColor: active
-      ? "var(--sui-colors-primary-f)"
-      : tone === "static"
+    backgroundColor:
+      tone === "static"
         ? "var(--sui-colors-neutral-static-w0)"
         : "var(--sui-colors-neutral-b1)",
     maskImage: `url(${icon})`,
@@ -66,23 +61,21 @@ function iconStyle(
   };
 }
 
-/** Applies the shell's semantic foreground to the supplied SVG asset. */
+/** Applies Jupiter's existing foreground tone to the supplied SVG asset. */
 export function ShellIcon({
   src,
   className = "h-4 w-4",
-  active = false,
   tone = "neutral",
 }: {
   src: string;
   className?: string;
-  active?: boolean;
   tone?: "neutral" | "static";
 }) {
   return (
     <span
       aria-hidden="true"
       className={`inline-block shrink-0 ${className}`}
-      style={iconStyle(src, active, tone)}
+      style={iconStyle(src, tone)}
     />
   );
 }
@@ -111,15 +104,11 @@ function NavigationItem({
         padding: "5px 0",
         gap: 0,
         borderRadius: 0,
-        backgroundColor: isActive
-          ? "var(--sui-colors-primary-f-t20)"
-          : "transparent",
-        color: isActive
-          ? "var(--sui-colors-primary-f)"
-          : "var(--sui-colors-neutral-b1)",
+        backgroundColor: "transparent",
+        color: "var(--sui-colors-neutral-b1)",
       }}
     >
-      <ShellIcon src={item.icon} className="relative h-6 w-6" active={isActive} />
+      <ShellIcon src={item.icon} className="relative h-6 w-6" />
       <span className="mt-0.5 flex h-4 items-center justify-center self-stretch text-center font-caption-2 text-[length:var(--caption-2-font-size)] font-[number:var(--caption-2-font-weight)] leading-[var(--caption-2-line-height)] tracking-[var(--caption-2-letter-spacing)] [font-style:var(--caption-2-font-style)]">
         {item.label}
       </span>
