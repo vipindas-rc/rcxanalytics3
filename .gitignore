@@ -47,3 +47,6 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Playwright runtime artifacts
+/artifacts/rcx-supervisor/analytics/test-results/
