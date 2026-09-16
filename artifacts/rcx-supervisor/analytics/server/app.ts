@@ -1,7 +1,7 @@
 import express from 'express'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
-import type { AnalysisEvidence, AnalysisReference, ChartView, Dashboard, Dataset, Field, Filter, Renderer, ReportContext, Workspace } from '../src/lib/model.ts'
+import type { AnalysisEvidence, AnalysisReference, AnalyticsRunTrace, ChartView, Dashboard, Dataset, Field, Filter, Renderer, ReportContext, Workspace } from '../src/lib/model.ts'
 import { applyView, generateDataset, createArtifact, compilePresentation, compileResolvedPresentation } from '../src/lib/analytics.ts'
 import { Store, id, now } from './store.ts'
 import { normalizeSource, effectiveFilters, datasetVersion } from './context.ts'
@@ -11,7 +11,8 @@ import { findReport, findReportContent, REPORT_CATALOG, type PresentationPrefere
 import { defaultReportView, distinctActiveAgentsByType } from '../src/lib/agentReportFixture.ts'
 import { orchestrateOperationalTurn, type PlannerReviewer } from './orchestration.ts'
 import { definitionForPlan, planGeneralAnalysis, type GeneralAnalysisPlan } from './generalPlan.ts'
-import { FIXTURE_REPORT_IDS, OPERATIONAL_REPORT_IDS, definitionForCatalogContent, planForCatalogContent, reportContextCapability } from './reportCapabilities.ts'
+import { FIXTURE_REPORT_IDS, OPERATIONAL_REPORT_IDS, definitionForCatalogContent, planForCatalogContent, reportContextCapability, resolveReportCapability } from './reportCapabilities.ts'
+import type { ProviderCapabilities } from './providerSelection.ts'
 type OperationalService = {
  ensureCoverage(input: { datasetId?: string; start: string; end: string; seed?: number }): Promise<{ datasetId: string; revisionId: string; start: string; end: string; generated: boolean }>
  query(input: { revisionId: string; start: string; end: string; asOf?: string; agentType?: 'ai' | 'human'; intent?: 'activity' | 'count' | 'comparison' | 'presence'; offset?: number; limit?: number }): Promise<{ datasetId: string; revisionId: string; rows: Record<string, string | number>[]; fields: Field[]; evidence: any; pagination: { offset: number; limit: number; total: number } }>
@@ -74,7 +75,7 @@ function implicitAgentActivityContext(question: string): ReportContext | undefin
  if (!isAgentTypeComparisonRequest(question)) return undefined
  const report = findReport('agent-activity-report')
  if (!report) throw new HttpError(500, 'The Agent Activity definition is missing from the report catalog.')
- return { reportId: report.id, reportVersion: report.version, title: report.title, type: report.type, availability: 'supported', sourceUrl: report.sourceUrl }
+ return { reportId: report.id, reportVersion: report.version, title: report.title, type: report.type, availability: 'supported', sourceMode: 'operational', sourceUrl: report.sourceUrl }
 }
 function resolveReportContext(w: Workspace, body: any, prior?: ReportContext, operational?: OperationalService): ReportContext | undefined {
  const requested = prior?.reportId ?? body.reportId
@@ -87,16 +88,17 @@ function resolveReportContext(w: Workspace, body: any, prior?: ReportContext, op
  if (selectedContentIds?.length && (new Set(selectedContentIds).size !== selectedContentIds.length || findReportContent(report, selectedContentIds).length !== selectedContentIds.length)) throw new HttpError(400, 'Choose contents that belong to the selected report.')
  const presentationPreference: PresentationPreference | undefined = ['auto', 'chart', 'table'].includes(body.presentationPreference) ? body.presentationPreference : prior?.presentationPreference
  const selection = selectedContentIds?.length ? { selectedContentIds, presentationPreference: presentationPreference ?? 'auto' } : {}
- if (report.availability !== 'supported') return { reportId: report.id, reportVersion: report.version, title: report.title, type: report.type, availability: 'preview', sourceUrl: report.sourceUrl, ...selection }
-  const capability = reportContextCapability({ reportId: report.id, reportVersion: report.version, title: report.title, type: report.type, availability: report.availability, sourceUrl: report.sourceUrl })
-  if (capability === 'operational') {
+  const capability = resolveReportCapability(report)
+  if (report.availability !== 'supported') return { reportId: report.id, reportVersion: report.version, title: report.title, type: report.type, availability: 'preview', sourceMode: capability.mode, sourceUrl: report.sourceUrl, ...selection }
+   const executionMode = reportContextCapability({ reportId: report.id, reportVersion: report.version, title: report.title, type: report.type, availability: report.availability, sourceUrl: report.sourceUrl })
+   if (executionMode === 'operational') {
   if (!operational) throw new HttpError(503, 'Persistent PostgreSQL storage is unavailable. Start the local database and retry.')
-  return { reportId: report.id, reportVersion: report.version, title: report.title, type: report.type, availability: 'supported', sourceUrl: report.sourceUrl, ...selection }
+   return { reportId: report.id, reportVersion: report.version, title: report.title, type: report.type, availability: 'supported', sourceMode: executionMode, sourceUrl: report.sourceUrl, ...selection }
  }
-  if (!FIXTURE_REPORT_IDS.has(report.id)) throw new HttpError(400,'This report is available through the persisted synthetic content builder.')
+   if (!FIXTURE_REPORT_IDS.has(report.id)) throw new HttpError(400,'This report is available through the persisted synthetic content builder.')
  const dataset = reportDataset(report.id, report.version)
  if (!w.datasets.some(item => item.id === dataset.id)) w.datasets.push(dataset)
- return { reportId: report.id, reportVersion: report.version, title: report.title, type: report.type, availability: 'supported', datasetId: dataset.id, datasetVersion: datasetVersion(dataset), sourceUrl: report.sourceUrl, ...selection }
+  return { reportId: report.id, reportVersion: report.version, title: report.title, type: report.type, availability: 'supported', sourceMode: executionMode, datasetId: dataset.id, datasetVersion: datasetVersion(dataset), sourceUrl: report.sourceUrl, ...selection }
 }
 const defaultOperationalScope = { start: '2026-08-31T00:00:00.000Z', end: '2026-09-14T00:00:00.000Z' }
 function validTimezone(value: unknown) {
@@ -235,6 +237,17 @@ function publicRequestError(error: unknown) {
   }
   return message
 }
+function traceArguments(value: unknown) {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16)
+}
+function classifyRequestError(error: unknown): AnalyticsRunTrace['errorClass'] {
+  const message = error instanceof Error ? error.message : ''
+  if (/cancel/i.test(message)) return 'cancelled'
+  if (/unavailable|database|postgres|storage|provider|openai|codex|network/i.test(message)) return 'dependency'
+  if (/unsupported|not available|not in the verified catalog|needs a supported/i.test(message)) return 'unsupported'
+  if (/invalid|does not match|definition|validation|fields|metric|grouping/i.test(message)) return 'validation'
+  return 'unknown'
+}
 function isAnalyticalQuestion(question: string, report?: ReportContext) {
  return !!report || /\b(chart|graph|table|kpi|report|dashboard|compare|trend|rate|count|volume|interactions?|agents?|queue|workflow|campaign|customer|time|minutes?|records?|data|metric|analytics?)\b/i.test(question)
 }
@@ -249,8 +262,20 @@ function reportAnswer(report: ReportContext, dataset: Dataset | undefined, quest
  }
  return { kind: 'report', text: `Showing ${report.title}. This is a fixed fourteen-day synthetic report fixture; its table is available below for inspection.`, choices: [], suggestions: ['How many agents are AI agents?', 'Show the report as a table.'], charts: [{ title: report.title, reuseDataset: true, fields: [], seed: 20260914, view: { chartType: 'table', aggregation: 'count', filters: [] } }], operations: [] }
 }
-export function createApp(store: Store, model: Model, operational?: OperationalService, operationalAgents?: PlannerReviewer, examples?: SyntheticExamplesService) {
+export type AnalyticsDependencyStatus = { ready: boolean; detail: string }
+export type AnalyticsRuntimeStatus = {
+ operationalPostgres: AnalyticsDependencyStatus
+ syntheticExamplesPostgres: AnalyticsDependencyStatus
+ provider: ProviderCapabilities
+}
+
+export function createApp(store: Store, model: Model, operational?: OperationalService, operationalAgents?: PlannerReviewer, examples?: SyntheticExamplesService, runtimeStatus?: Partial<AnalyticsRuntimeStatus>) {
  const app = express(); app.use(express.json({ limit: '64kb' })); const cache = new Map<string, Answer>(); const activeRequests = new Map<string, AbortController>(); let epoch = 0
+ const status: AnalyticsRuntimeStatus = {
+  operationalPostgres: runtimeStatus?.operationalPostgres ?? { ready: !!operational, detail: operational ? 'Operational PostgreSQL is available.' : 'Operational PostgreSQL is unavailable.' },
+  syntheticExamplesPostgres: runtimeStatus?.syntheticExamplesPostgres ?? { ready: !!examples, detail: examples ? 'Synthetic examples PostgreSQL is available.' : 'Synthetic examples PostgreSQL is unavailable.' },
+  provider: runtimeStatus?.provider ?? { provider: 'deterministic', model: 'test-double', connected: true, planner: false, reviewer: false, repair: false, deterministic: true, detail: 'No external provider was configured for this app.' },
+ }
  const updateRequestPhase = async (requestId: string, phase: string, runEpoch = epoch) => {
   if (runEpoch !== epoch) return
   await store.mutate(w => {
@@ -263,6 +288,7 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    }
   })
  }
+  app.get('/api/status', (_q, r) => r.json({ ready: status.operationalPostgres.ready || status.syntheticExamplesPostgres.ready || status.provider.connected, dependencies: status, routes: { operationalReports: status.operationalPostgres.ready, syntheticReports: status.syntheticExamplesPostgres.ready, fixtureReports: true } }))
   app.get('/api/workspace', async (_q,r) => r.json(await store.read()))
  app.get('/api/reports', (_q,r) => r.json(REPORT_CATALOG))
  app.post('/api/reports/:id/query', async (q,r) => {
@@ -311,7 +337,10 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
  const attempt=await store.mutate(w=>{
    const session=find(w.sessions,q.body.sessionId,'Conversation')
    const prior=q.body.retryOf?find(w.requests,q.body.retryOf,'Prior request'):undefined
-   let reportContext=resolveReportContext(w,q.body,prior?.reportContext,operational)
+  const latestContextMessage = session.messages.slice().reverse().find(message => message.role === 'user' && (message.reportContext || message.sourceContext))
+  const explicitSource = q.body.sourceContext !== undefined || q.body.contextArtifactId !== undefined
+  const inheritedReport = !prior && q.body.reportId === undefined && !explicitSource ? session.reportContext ?? latestContextMessage?.reportContext : undefined
+  let reportContext=resolveReportContext(w,q.body,prior ? prior.reportContext : inheritedReport,operational)
    if (!question && reportContext) question = `Open ${reportContext.title}`
    if (!question) throw new HttpError(400,'Enter a question or select a report.')
    const existing=w.requests.find(t=>t.id===requestId)
@@ -320,17 +349,32 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    if(q.body.contextDashboardId)find(w.dashboards,q.body.contextDashboardId,'Dashboard')
    let userMessageId=id('message')
     if(prior && (prior.sessionId!==session.id||!['failed','cancelled'].includes(prior.status)||prior.question!==question))throw new HttpError(409,'Only the same failed or cancelled turn can be retried.')
-   const sourceContext=prior ? prior.sourceContext ?? normalizeSource(w,{contextArtifactId:prior.contextArtifactId,contextFilters:prior.contextFilters,sourceLabel:prior.sourceLabel},session) : normalizeSource(w,q.body,session)
+  const inheritedSource = !prior && q.body.reportId === undefined && !explicitSource && !session.reportContext
+    ? session.advisorContext ?? latestContextMessage?.sourceContext
+    : undefined
+  const sourceContext=prior
+    ? prior.sourceContext ?? normalizeSource(w,{contextArtifactId:prior.contextArtifactId,contextFilters:prior.contextFilters,sourceLabel:prior.sourceLabel},session)
+    : inheritedSource
+      ? normalizeSource(w,{sourceContext: inheritedSource},session)
+      : normalizeSource(w,q.body,session)
    // An explicit source always wins. With no selected report or source, agent
    // cohort comparisons have a registered operational meaning and must not
    // fall through to a generic per-agent synthetic dataset.
    if (!reportContext && !sourceContext) reportContext = implicitAgentActivityContext(question)
    if(reportContext && sourceContext) throw new HttpError(400,'Choose either a report or a chart source for this question.')
-   const contextDashboardId=prior ? prior.contextDashboardId : sourceContext?.dashboardId??q.body.contextDashboardId
+  const contextDashboardId=prior ? prior.contextDashboardId : sourceContext?.dashboardId??q.body.contextDashboardId
    if(prior)userMessageId=prior.userMessageId
    else { const source=session.messages.slice().reverse().find(message=>message.role==='assistant'&&[...(message.choices??[]),...(message.suggestions??[])].includes(question)); if(source){delete source.choices;delete source.suggestions} session.messages.push({id:userMessageId,role:'user',text:question,createdAt:now(),requestId,sourceContext,reportContext,selectedFollowUpFrom:typeof q.body.selectedFollowUpFrom==='string'?q.body.selectedFollowUpFrom:source?.id}) }
-   if(session.advisor&&sourceContext)session.advisorContext=structuredClone(sourceContext)
-   if(reportContext) session.reportContext=structuredClone(reportContext)
+   // Keep exactly one active analytical context. A source selection replaces a
+   // report selection and vice versa, so later turns cannot revive stale state.
+   if (sourceContext) {
+    delete session.reportContext
+    session.advisorContext = structuredClone(sourceContext)
+   }
+   if (reportContext) {
+    delete session.advisorContext
+    session.reportContext = structuredClone(reportContext)
+   }
    if(session.advisor&&!session.renamed&&session.title==='Advisor')session.title=question.slice(0,56)
    const captured = capturedRequestTime(q.body, prior)
    const createdAt = now()
@@ -339,9 +383,11 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
   })
   r.status(202).json(attempt);if(fresh){const controller=new AbortController();activeRequests.set(attempt.id,controller);void run(attempt.id,selected,controller.signal).finally(()=>{if(activeRequests.get(attempt.id)===controller)activeRequests.delete(attempt.id)})}
  })
-  async function run(requestId:string, selected:Renderer, signal?:AbortSignal){const runEpoch=epoch;const isPending=async()=>runEpoch===epoch&&(await store.read()).requests.find(item=>item.id===requestId)?.status==='pending';try{
+  async function run(requestId:string, selected:Renderer, signal?:AbortSignal){const runEpoch=epoch;const trace: AnalyticsRunTrace={requestId,runId:id('run'),provider:status.provider.provider,model:status.provider.model,promptVersion:'analytics-prompt-v1',stages:[],toolCalls:[],retries:0,repairs:0};const markStage=(name:string)=>{trace.stages.push({name,at:now()})};const recordTool=async<T>(name:string,args:unknown,operation:()=>Promise<T>):Promise<T>=>{const entry:{name:string;argumentsHash:string;status:'completed'|'failed'|'cancelled';revisionId?:string}={name,argumentsHash:traceArguments(args),status:'completed'};trace.toolCalls.push(entry);try{const result=await operation();if(result&&typeof result==='object'&&'revisionId' in result)entry.revisionId=String((result as {revisionId:unknown}).revisionId);return result}catch(error){entry.status=signal?.aborted?'cancelled':'failed';throw error}};const isPending=async()=>runEpoch===epoch&&(await store.read()).requests.find(item=>item.id===requestId)?.status==='pending';try{
+   markStage('received')
    if(!await isPending())return
   await updateRequestPhase(requestId, 'planning', runEpoch)
+  markStage('planning')
   const w=await store.read();const request=find(w.requests,requestId,'Request');const s=find(w.sessions,request.sessionId,'Conversation');let reportContext=request.reportContext;const userMessage=s.messages.find(message=>message.id===request.userMessageId);const selectedSource=userMessage?.selectedFollowUpFrom?s.messages.find(message=>message.id===userMessage.selectedFollowUpFrom):undefined;const artifactId=reportContext ? undefined : request.contextArtifactId??selectedSource?.artifactIds?.at(-1)??s.messages.slice().reverse().find(m=>m.role==='assistant'&&m.artifactIds?.length)?.artifactIds?.at(-1);const sourceArtifact=w.artifacts.find(a=>a.id===artifactId);const artifact=sourceArtifact && request.contextFilters?.length ? {...sourceArtifact,view:{...sourceArtifact.view,filters:request.contextFilters}} : sourceArtifact;const reportDatasetId=reportContext?.datasetId;let dataset=reportDatasetId ? w.datasets.find(d=>d.id===reportDatasetId) : w.datasets.find(d=>d.id===artifact?.datasetId);const dashboard=w.dashboards.find(d=>d.id===request.contextDashboardId)
   let operationalResult: Awaited<ReturnType<OperationalService['query']>> | undefined
   let workflowResult: Awaited<ReturnType<SyntheticExamplesService['queryWorkflowVolume']>> | undefined
@@ -352,17 +398,20 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    if (!operational) throw new HttpError(503, 'Persistent PostgreSQL storage is unavailable. Start the local database and retry.')
    const scope = scopeForRequest(request)
    await updateRequestPhase(requestId, 'resolving-data', runEpoch)
-   const coverage = await operational.ensureCoverage(scope)
+   const coverage = await recordTool('operational.prepare', scope, () => operational.ensureCoverage(scope))
+   trace.executionMode = 'operational'
    await updateRequestPhase(requestId, 'computing', runEpoch)
    const onlineNow = /\b(?:now|right now|currently|online)\b/i.test(request.question)
-   operationalResult = await operational.query({ revisionId: coverage.revisionId, ...scope, ...(onlineNow ? { asOf: request.asOf } : {}), intent: onlineNow ? 'presence' : 'count' })
+   operationalResult = await recordTool('operational.query', { revisionId: coverage.revisionId, ...scope, intent: onlineNow ? 'presence' : 'count' }, () => operational.query({ revisionId: coverage.revisionId, ...scope, ...(onlineNow ? { asOf: request.asOf } : {}), intent: onlineNow ? 'presence' : 'count' }))
    const operationalScope = { period: { from: scope.start, to: scope.end }, timezone: request.timezone ?? 'UTC', filters: [] }
    const orchestrationInput = () => ({ question: request.question, report: { id: reportContext!.reportId, title: reportContext!.title, version: reportContext!.reportVersion }, result: operationalResult!, scope: operationalScope, priorQuestions: s.messages.filter(message => message.role === 'user' && message.id !== request.userMessageId).map(message => message.text), asOf: onlineNow ? request.asOf : undefined })
    let turn = await orchestrateOperationalTurn(orchestrationInput(), operationalAgents)
+   trace.repairs = turn.trace.repairCycles
    if (turn.queryRequired) {
     await updateRequestPhase(requestId, 'computing', runEpoch)
-    operationalResult = await operational.query(turn.queryRequired)
+    operationalResult = await recordTool('operational.query', turn.queryRequired, () => operational.query(turn.queryRequired!))
     turn = await orchestrateOperationalTurn(orchestrationInput(), operationalAgents)
+    trace.repairs = turn.trace.repairCycles
    }
    if (!turn.answer) throw new HttpError(400, 'This request needs a supported Agent Activity query before it can be answered.')
    operationalAnswer = turn.answer
@@ -374,9 +423,10 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    if (!examples) throw new HttpError(503, 'Persistent synthetic examples storage is unavailable. Configure the separate examples database and retry.')
    const scope = scopeForRequest(request)
    await updateRequestPhase(requestId, 'resolving-data', runEpoch)
-   const coverage = await examples.prepareWorkflowVolume(scope)
+   const coverage = await recordTool('examples.prepareWorkflowVolume', scope, () => examples.prepareWorkflowVolume(scope))
    await updateRequestPhase(requestId, 'computing', runEpoch)
-   workflowResult = await examples.queryWorkflowVolume({ revisionId: coverage.revisionId, ...scope })
+   workflowResult = await recordTool('examples.queryWorkflowVolume', { revisionId: coverage.revisionId, ...scope }, () => examples.queryWorkflowVolume({ revisionId: coverage.revisionId, ...scope }))
+   trace.executionMode = 'synthetic'
    dataset = toWorkflowDataset(workflowResult)
    analysis = toWorkflowAnalysis(workflowResult, scope, request.timezone)
    operationalAnswer = workflowAnswer(request.question)
@@ -398,9 +448,13 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
     : generic
    if (!examples.prepareExample || !examples.queryExample) throw new HttpError(503, 'The configured synthetic examples service does not support general data preparation.')
    await updateRequestPhase(requestId, 'resolving-data', runEpoch)
-   const coverage = await examples.prepareExample({ domain: definition.domain, ...scope, ...(queue ? {} : { definition: definition.definition, recipe: { entityCount: 5 } }) })
+   const entityCount = Math.max(4, generic.plan.grouping.values.length, generic.plan.cohorts.length, generic.plan.presentation === 'table' ? 8 : 0)
+   const prepareInput = { domain: definition.domain, ...scope, ...(queue ? {} : { definition: definition.definition, recipe: { entityCount } }) }
+   const coverage = await recordTool('examples.prepareExample', prepareInput, () => examples.prepareExample!(prepareInput))
    await updateRequestPhase(requestId, 'computing', runEpoch)
-   const syntheticResult = await examples.queryExample({ domain: definition.domain, revisionId: coverage.revisionId, ...scope })
+   const queryInput = { domain: definition.domain, revisionId: coverage.revisionId, ...scope }
+   const syntheticResult = await recordTool('examples.queryExample', queryInput, () => examples.queryExample!(queryInput))
+   trace.executionMode = 'synthetic'
     validateSyntheticResult(generic.plan, syntheticResult)
    dataset = syntheticDataset(syntheticResult, definition.title)
    analysis = syntheticAnalysis(syntheticResult, scope, reportContext, request.timezone)
@@ -408,13 +462,15 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    operationalAnswer = syntheticAnswer(generic.plan, dataset, definition.title)
   }
   const key=createHash('sha256').update(JSON.stringify({version:8,datasetVersion:dataset?datasetVersion(dataset):undefined,sourceContext:request.sourceContext,reportContext,sessionId:s.id,question:request.question.toLowerCase().trim(),artifact,datasetId:dataset?.id,dashboard,messages:s.messages.filter(m=>m.role==='assistant').slice(-4)})).digest('hex');const bypass=!reportContext&&/regenerat|new (?:data|values)|fresh data/i.test(request.question);let answer=operationalAnswer ?? (reportContext?reportAnswer(reportContext,dataset,request.question):bypass?undefined:cache.get(key) ?? w.responseCache?.[key] as Answer | undefined);const cached=!!answer && !reportContext
-  if(!answer){if(!await isPending())return;await updateRequestPhase(requestId, 'planning', runEpoch);answer=answerSchema.parse(await model({question:request.question,session:s,artifact,dataset,dashboard,sourceContext:request.sourceContext,reportContext,signal}))}else{await updateRequestPhase(requestId, 'preparing-output', runEpoch);answer=answerSchema.parse(structuredClone(answer))}
+  if (reportContext && !trace.executionMode) trace.executionMode = reportContext.sourceMode ?? reportContextCapability(reportContext)
+  if(!answer){if(!await isPending())return;await updateRequestPhase(requestId, 'planning', runEpoch);markStage('model');answer=answerSchema.parse(await model({question:request.question,session:s,artifact,dataset,dashboard,sourceContext:request.sourceContext,reportContext,signal}))}else{await updateRequestPhase(requestId, 'preparing-output', runEpoch);answer=answerSchema.parse(structuredClone(answer))}
   if(reportContext && answer.charts.some(chart=>!chart.reuseDataset))throw new HttpError(400,'That question cannot be answered from the selected report fixture. Choose a supported field or start a new synthetic example.')
    if(!await isPending())return
   await updateRequestPhase(requestId, 'preparing-output', runEpoch)
   const result=answer
   if (generalPlan && dataset) validatePlanBeforePublication(generalPlan, dataset, result)
   await updateRequestPhase(requestId, 'reviewing', runEpoch)
+  markStage('reviewing')
    let published=false
    await store.mutate(current=>{if(runEpoch!==epoch)return;const t=find(current.requests,requestId,'Request');if(t.status!=='pending')return;const session=find(current.sessions,t.sessionId,'Conversation');const ids:string[]=[]
    if (dataset && !current.datasets.some(item => item.id === dataset!.id)) current.datasets.push(dataset)
@@ -424,9 +480,10 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    let changedDashboard:Dashboard|undefined
    if(result.kind==='dashboard'){if(!dashboard)throw new HttpError(400,'Select a dashboard before requesting changes.');const d=find(current.dashboards,dashboard.id,'Dashboard');if(d.revision!==dashboard.revision)throw new HttpError(409,'Dashboard changed while interpreting. Retry against its latest revision.');const beforeDashboard=structuredClone(d);for(const op of result.operations){if(op.action==='add'){const a=find(current.artifacts,op.artifactId??ids[0]??'','Artifact');if(!d.widgets.some(widget=>widget.artifactId===a.id))d.widgets.push({id:id('widget'),artifactId:a.id,title:op.title??a.title})}else if(op.action==='filter'){d.filters=parseFilters(op.filters??[])}else if(op.action==='rename'&&!op.widgetId){d.title=title(op.title)}else if(op.action==='reorder'){if(!op.widgetIds||op.widgetIds.length!==d.widgets.length||new Set(op.widgetIds).size!==d.widgets.length)throw new HttpError(400,'Reorder must include every widget once.');d.widgets=op.widgetIds.map(i=>find(d.widgets,i,'Widget'))}else{const widget=find(d.widgets,op.widgetId??'','Widget');if(op.action==='remove')d.widgets=d.widgets.filter(v=>v.id!==widget.id);if(op.action==='rename')widget.title=title(op.title);if(op.action==='reconfigure'){if(!op.view)throw new HttpError(400,'A new view is required.');const a=find(current.artifacts,widget.artifactId,'Artifact');const replacement=createArtifact(find(current.datasets,a.datasetId,'Dataset'),parseChartView(op.view),op.title??widget.title,selected);current.artifacts.push(replacement);widget.artifactId=replacement.id}}}if(JSON.stringify({title:d.title,widgets:d.widgets,filters:d.filters})!==JSON.stringify({title:beforeDashboard.title,widgets:beforeDashboard.widgets,filters:beforeDashboard.filters})){d.history.push({revision:beforeDashboard.revision,title:beforeDashboard.title,widgets:beforeDashboard.widgets,filters:beforeDashboard.filters,createdAt:now()});d.revision++}changedDashboard=d}
    session.messages.push({id:id('message'),role:'assistant',text:result.text,createdAt:now(),artifactIds:ids,suggestions:result.suggestions,choices:result.choices,requestId,reportContext:t.reportContext,analysisReference:analysis?.reference,evidence:analysis?.evidence,dashboardId:changedDashboard?.id,dashboardRevision:changedDashboard?.revision});if(!session.renamed&&(session.title==='New analytics chat'||session.title==='Advisor'))session.title=t.question.slice(0,56);session.updatedAt=now();t.status='completed';t.phase='Complete';t.artifactIds=ids;t.cached=cached; if (!bypass && !reportContext) { current.responseCache ??= {}; current.responseCache[key] = structuredClone(result); const keys = Object.keys(current.responseCache); if (keys.length > 100) for (const stale of keys.slice(0, keys.length - 100)) delete current.responseCache[stale] }
+   t.trace=structuredClone(trace)
    published=true
    });if(published&&runEpoch===epoch&&!bypass)cache.set(key,result)
-  }catch(error){if(runEpoch!==epoch)return;await store.mutate(w=>{const t=w.requests.find(item=>item.id===requestId);if(!t||t.status!=='pending'||runEpoch!==epoch)return;t.status='failed';t.phase='Could not complete';t.error=publicRequestError(error)})}}
+  }catch(error){trace.errorClass=signal?.aborted?'cancelled':classifyRequestError(error);if(runEpoch!==epoch)return;await store.mutate(w=>{const t=w.requests.find(item=>item.id===requestId);if(!t||t.status!=='pending'||runEpoch!==epoch)return;t.status='failed';t.phase='Could not complete';t.error=publicRequestError(error);t.trace=structuredClone(trace)})}}
  app.use((error:any,_q:express.Request,r:express.Response,_next:express.NextFunction)=>r.status(error.status??500).json({error:error.message??'Request failed.'}))
  return app
 }

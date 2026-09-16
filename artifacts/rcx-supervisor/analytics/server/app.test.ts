@@ -6,6 +6,7 @@ import type { Server } from 'node:http'
 import { Store } from './store.ts'
 import { createApp } from './app.ts'
 import type { Model } from './inference.ts'
+import { providerCapabilities } from './providerSelection.ts'
 import { createArtifact, generateDataset } from '../src/lib/analytics.ts'
 const servers:Server[]=[]
 it('discards late inference after a workspace reset',async()=>{
@@ -48,6 +49,57 @@ it('persists cancellation and suppresses a late model result', async () => {
   expect(workspace.responseCache).toEqual({})
 })
 afterEach(async()=>{await Promise.all(servers.splice(0).map(s=>new Promise<void>(r=>s.close(()=>r()))))})
+it('reports independent dependency readiness and keeps fixture routes available', async () => {
+  const { api } = await setup(async () => ({ kind: 'text', text: 'Unexpected model' }))
+  const response = await api('/status')
+  expect(response.status).toBe(200)
+  expect(response.data.routes).toMatchObject({ operationalReports: false, syntheticReports: false, fixtureReports: true })
+  expect(response.data.dependencies.provider.deterministic).toBe(true)
+})
+it('inherits the active report context for a follow-up without client replay', async () => {
+  const { api } = await setup(async () => ({ kind: 'text', text: 'The fixture route should answer this.' }))
+  const session = (await api('/sessions', {})).data
+  const first = await api('/conversation', { sessionId: session.id, requestId: 'fixture-first', reportId: 'agent-conduct', reportVersion: 1, question: 'Open the report' })
+  expect((await completed(api, first.data.id)).status).toBe('completed')
+  const second = await api('/conversation', { sessionId: session.id, requestId: 'fixture-follow-up', question: 'Show this as a table.' })
+  const result = await completed(api, second.data.id)
+  expect(result.status).toBe('completed')
+  const workspace = (await api('/workspace')).data
+  const request = workspace.requests.find((item: any) => item.id === 'fixture-follow-up')
+  expect(request.reportContext).toMatchObject({ reportId: 'agent-conduct', sourceMode: 'fixture' })
+  expect(request.trace).toMatchObject({ executionMode: 'fixture', promptVersion: 'analytics-prompt-v1' })
+})
+it('switches context modes without reviving the previous report or source', async () => {
+  const { api } = await setup(async () => ({ kind: 'text', text: 'Unexpected model' }))
+  const session = (await api('/sessions', {})).data
+  const report = await api('/conversation', { sessionId: session.id, requestId: 'switch-report', reportId: 'agent-conduct', reportVersion: 1, question: 'Open the report' })
+  await completed(api, report.data.id)
+  const workspace = (await api('/workspace')).data
+  const artifact = workspace.artifacts[0]
+  const source = await api('/conversation', { sessionId: session.id, requestId: 'switch-source', contextArtifactId: artifact.id, question: 'Use this source' })
+  await completed(api, source.data.id)
+  const sourceFollowUp = await api('/conversation', { sessionId: session.id, requestId: 'switch-source-follow-up', question: 'Keep using this source.' })
+  await completed(api, sourceFollowUp.data.id)
+  const afterSource = (await api('/workspace')).data
+  const sourceRequest = afterSource.requests.find((item: any) => item.id === 'switch-source-follow-up')
+  expect(sourceRequest.reportContext).toBeUndefined()
+  expect(sourceRequest.sourceContext.artifactId).toBe(artifact.id)
+  const switchedBack = await api('/conversation', { sessionId: session.id, requestId: 'switch-report-again', reportId: 'agent-conduct', reportVersion: 1, question: 'Use the report again' })
+  await completed(api, switchedBack.data.id)
+  const reportFollowUp = await api('/conversation', { sessionId: session.id, requestId: 'switch-report-follow-up', question: 'Keep using the report.' })
+  await completed(api, reportFollowUp.data.id)
+  const finalWorkspace = (await api('/workspace')).data
+  const reportRequest = finalWorkspace.requests.find((item: any) => item.id === 'switch-report-follow-up')
+  expect(reportRequest.reportContext).toMatchObject({ reportId: 'agent-conduct' })
+  expect(reportRequest.sourceContext).toBeUndefined()
+  const storedSession = finalWorkspace.sessions.find((item: any) => item.id === session.id)
+  expect(storedSession.reportContext).toMatchObject({ reportId: 'agent-conduct' })
+  expect(storedSession.advisorContext).toBeUndefined()
+})
+it('reports provider capabilities only when the selected adapter can run them', () => {
+  expect(providerCapabilities({ provider: 'codex', connected: true, operationalReview: false })).toMatchObject({ connected: true, planner: false, reviewer: false, repair: false })
+  expect(providerCapabilities({ provider: 'openai', connected: true, operationalReview: true })).toMatchObject({ planner: true, reviewer: true, repair: true })
+})
 async function setup(model:Model, operational?: any, examples?: any){const dir=await mkdtemp(path.join(os.tmpdir(),'analytics-test-'));const store=new Store(path.join(dir,'workspace.json'));await store.initialize();const server=(createApp as (...args:any[])=>ReturnType<typeof createApp>)(store,model,operational,undefined,examples).listen(0,'127.0.0.1');servers.push(server);await new Promise<void>((r,reject)=>server.on('listening',r).on('error',reject));const address=server.address() as {port:number};const api=async(route:string,body?:unknown,method=body?'POST':'GET')=>{const response=await fetch(`http://127.0.0.1:${address.port}/api${route}`,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:response.status,data:response.status===204?null:response.headers.get('content-type')?.includes('application/json')?await response.json() as any:{error:await response.text()}}};return {store,api,dir}}
 async function completed(api:any,id:string){for(let i=0;i<100;i++){const result=await api(`/requests/${id}`);if(result.data.status!=='pending')return result.data;await new Promise(r=>setTimeout(r,10))}throw Error('Request timed out')}
 describe('persistent API',()=>{
@@ -194,6 +246,42 @@ describe('persistent API',()=>{
   expect(workspace.sessions.find((item: any) => item.id === session.id)?.messages.map((message: any) => message.role)).toEqual(['user', 'assistant'])
  })
  it('records failure and retries without duplicating user message',async()=>{let calls=0;const {api}=await setup(async()=>{if(!calls++)throw Error('Authentication unavailable');return {kind:'text',text:'Ready'}});const s=(await api('/sessions',{})).data;await api('/conversation',{sessionId:s.id,requestId:'failed',question:'Hello'});expect((await completed(api,'failed')).error).toContain('Authentication');await api('/conversation',{sessionId:s.id,requestId:'retry',question:'Hello',retryOf:'failed'});expect((await completed(api,'retry')).status).toBe('completed');expect((await api('/workspace')).data.sessions[0].messages.filter((m:any)=>m.role==='user')).toHaveLength(1)})
+it('keeps retries bound to their persisted context after switching modes', async () => {
+  let modelCalls = 0
+  const { api } = await setup(async () => {
+    if (modelCalls++ === 0) throw Error('Temporary source failure')
+    return { kind: 'text', text: 'Recovered.' }
+  })
+  const session = (await api('/sessions', {})).data
+  const opened = await api('/conversation', { sessionId: session.id, requestId: 'retry-context-report', reportId: 'agent-conduct', reportVersion: 1, question: 'Open the report' })
+  await completed(api, opened.data.id)
+  const initial = (await api('/workspace')).data
+  const artifact = initial.artifacts[0]
+  const failedSource = await api('/conversation', { sessionId: session.id, requestId: 'retry-context-source', contextArtifactId: artifact.id, question: 'Use this source' })
+  expect((await completed(api, failedSource.data.id)).status).toBe('failed')
+  const switchedReport = await api('/conversation', { sessionId: session.id, requestId: 'retry-context-switched-report', reportId: 'agent-conduct', reportVersion: 1, question: 'Use the report' })
+  await completed(api, switchedReport.data.id)
+  const retriedSource = await api('/conversation', { sessionId: session.id, requestId: 'retry-context-source-retry', retryOf: failedSource.data.id, question: 'Use this source' })
+  expect(retriedSource.status).toBe(202)
+  expect((await completed(api, retriedSource.data.id)).status).toBe('completed')
+  const workspace = (await api('/workspace')).data
+  const retriedRequest = workspace.requests.find((item: any) => item.id === retriedSource.data.id)
+  expect(retriedRequest.reportContext).toBeUndefined()
+  expect(retriedRequest.sourceContext.artifactId).toBe(artifact.id)
+  const sourceAgain = await api('/conversation', { sessionId: session.id, requestId: 'retry-inverse-source', contextArtifactId: artifact.id, question: 'Return to this source' })
+  await completed(api, sourceAgain.data.id)
+  const failedReport = await api('/conversation', { sessionId: session.id, requestId: 'retry-inverse-report', reportId: 'inbound-interactions-overview', reportVersion: 1, question: 'Open the synthetic report' })
+  expect((await completed(api, failedReport.data.id)).status).toBe('failed')
+  const switchedSource = await api('/conversation', { sessionId: session.id, requestId: 'retry-inverse-switch', contextArtifactId: artifact.id, question: 'Use the source again' })
+  await completed(api, switchedSource.data.id)
+  const retriedReport = await api('/conversation', { sessionId: session.id, requestId: 'retry-inverse-report-retry', retryOf: failedReport.data.id, question: 'Open the synthetic report' })
+  expect(retriedReport.status).toBe(202)
+  expect((await completed(api, retriedReport.data.id)).status).toBe('failed')
+  const inverseWorkspace = (await api('/workspace')).data
+  const inverseRequest = inverseWorkspace.requests.find((item: any) => item.id === retriedReport.data.id)
+  expect(inverseRequest.reportContext).toMatchObject({ reportId: 'inbound-interactions-overview' })
+  expect(inverseRequest.sourceContext).toBeUndefined()
+})
  it('uses the nearest earlier chart as context after a clarification turn', async () => {
   let captured: any
   const { api, store } = await setup(async context => { captured = context; return { kind: 'text', text: 'Ready' } })

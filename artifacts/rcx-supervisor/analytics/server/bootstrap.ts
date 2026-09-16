@@ -13,7 +13,7 @@ import { migrateDatabase } from './db/migrate.ts'
 import { migrateExamplesDatabase } from './examples/migrate.ts'
 import { PostgresOperationalService } from './operational/service.ts'
 import { PostgresSyntheticExamplesService } from './examples/service.ts'
-import { providerStatus, selectProvider } from './providerSelection.ts'
+import { providerCapabilities, selectProvider } from './providerSelection.ts'
 import { createOpenAIOperationalAgents } from './openaiOperationalAgents.ts'
 import { shouldBootstrapDemo } from './demo/replitBootstrap.ts'
 import { bootstrapDemoData } from './demo/replitDataBootstrap.ts'
@@ -39,17 +39,43 @@ export async function initializeAnalyticsRuntime(options: {
 } = {}): Promise<AnalyticsRuntime> {
   const log = options.log ?? (message => console.info(`[analytics] ${message}`))
   const demoBootstrap = options.demoBootstrap ?? shouldBootstrapDemo()
-  const pool = createDatabasePool()
-  const examplesPool = createExamplesDatabasePool()
+  let pool: ReturnType<typeof createDatabasePool> | undefined
+  let examplesPool: ReturnType<typeof createExamplesDatabasePool> | undefined
+  let operationalService: PostgresOperationalService | undefined
+  let examplesService: PostgresSyntheticExamplesService | undefined
+  const operationalReadiness = { ready: false, detail: 'Operational PostgreSQL is unavailable.' }
+  const examplesReadiness = { ready: false, detail: 'Synthetic examples PostgreSQL is unavailable.' }
   try {
     let startedAt = Date.now()
-    await migrateDatabase(pool)
-    log(`operational migrations completed in ${elapsed(startedAt)}`)
+    try {
+      pool = createDatabasePool()
+      await migrateDatabase(pool)
+      operationalService = new PostgresOperationalService(pool)
+      operationalReadiness.ready = true
+      operationalReadiness.detail = `Operational PostgreSQL is ready (${elapsed(startedAt)}).`
+      log(`operational migrations completed in ${elapsed(startedAt)}`)
+    } catch (error) {
+      operationalReadiness.detail = 'Operational PostgreSQL is unavailable.'
+      log(`Operational PostgreSQL is unavailable: ${error instanceof Error ? error.message : String(error)}`)
+      await pool?.end()
+      pool = undefined
+    }
     startedAt = Date.now()
-    await migrateExamplesDatabase(examplesPool)
-    log(`examples migrations completed in ${elapsed(startedAt)}`)
+    try {
+      examplesPool = createExamplesDatabasePool()
+      await migrateExamplesDatabase(examplesPool)
+      examplesService = new PostgresSyntheticExamplesService(examplesPool)
+      examplesReadiness.ready = true
+      examplesReadiness.detail = `Synthetic examples PostgreSQL is ready (${elapsed(startedAt)}).`
+      log(`examples migrations completed in ${elapsed(startedAt)}`)
+    } catch (error) {
+      examplesReadiness.detail = 'Synthetic examples PostgreSQL is unavailable.'
+      log(`Synthetic examples PostgreSQL is unavailable: ${error instanceof Error ? error.message : String(error)}`)
+      await examplesPool?.end()
+      examplesPool = undefined
+    }
 
-    const store = new Store(pool)
+    const store = new Store(pool ?? path.join(directory, 'data', 'workspace.json'))
     startedAt = Date.now()
     await store.initialize(
       path.join(directory, 'data', 'workspace.json'),
@@ -57,11 +83,13 @@ export async function initializeAnalyticsRuntime(options: {
     )
     log(`workspace initialization completed in ${elapsed(startedAt)}`)
 
-    const operationalService = new PostgresOperationalService(pool)
-    const examplesService = new PostgresSyntheticExamplesService(examplesPool)
     startedAt = Date.now()
-    await bootstrapDemoData(demoBootstrap, operationalService, examplesService)
-    log(`demo bootstrap ${demoBootstrap ? 'completed' : 'skipped'} in ${elapsed(startedAt)}`)
+    if (demoBootstrap && operationalService && examplesService) {
+      await bootstrapDemoData(true, operationalService, examplesService)
+      log(`demo bootstrap completed in ${elapsed(startedAt)}`)
+    } else {
+      log(`demo bootstrap skipped${demoBootstrap ? ' because a database dependency is unavailable' : ''} in ${elapsed(startedAt)}`)
+    }
     await mkdir(path.join(directory, 'sandbox'), { recursive: true })
 
     // The host supplies its provider explicitly. Standalone callers retain
@@ -79,28 +107,30 @@ export async function initializeAnalyticsRuntime(options: {
     const operationalAgents = provider.provider === 'openai' && !useDeterministicTestModel
       ? createOpenAIOperationalAgents()
       : undefined
+    const providerConnection = provider.provider === 'openai'
+      ? Boolean(process.env.OPENAI_API_KEY)
+      : await (async () => {
+        try {
+          const result = await promisify(execFile)('codex', ['login', 'status'], { timeout: 5000 })
+          return /logged in/i.test(`${result.stdout}\n${result.stderr}`)
+        } catch {
+          return false
+        }
+      })()
+    const configuredProvider = useDeterministicTestModel
+      ? providerCapabilities({ provider: 'deterministic', model: 'deterministic-test', connected: true, operationalReview: false })
+      : providerCapabilities({ provider: provider.provider, model: provider.provider === 'openai' ? process.env.OPENAI_MODEL : 'gpt-5.6-luna', connected: providerConnection, operationalReview: !!operationalAgents })
     const app = createApp(
       store,
       useDeterministicTestModel ? deterministicTestModel : provider.model,
       operationalService,
       operationalAgents,
       examplesService,
+      { operationalPostgres: operationalReadiness, syntheticExamplesPostgres: examplesReadiness, provider: configuredProvider },
     )
-    app.get('/api/status', async (_q, response) => {
-      if (provider.provider === 'openai') {
-        return response.json(await providerStatus({ provider: 'openai', apiKey: process.env.OPENAI_API_KEY, model: process.env.OPENAI_MODEL }))
-      }
-      try {
-        const result = await promisify(execFile)('codex', ['login', 'status'], { timeout: 5000 })
-        const detail = `${result.stdout}\n${result.stderr}`.trim()
-        return response.json({ provider: 'codex', connected: /logged in/i.test(detail), detail })
-      } catch {
-        return response.json({ provider: 'codex', connected: false, detail: 'Codex login is unavailable.' })
-      }
-    })
-    return { app, close: async () => { await Promise.all([pool.end(), examplesPool.end()]) } }
+    return { app, close: async () => { await Promise.all([pool?.end(), examplesPool?.end()]) } }
   } catch (error) {
-    await Promise.allSettled([pool.end(), examplesPool.end()])
+    await Promise.allSettled([pool?.end(), examplesPool?.end()].filter(Boolean))
     throw error
   }
 }

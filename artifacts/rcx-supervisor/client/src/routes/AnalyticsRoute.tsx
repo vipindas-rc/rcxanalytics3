@@ -1,6 +1,7 @@
-import { lazy, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
 import { BrowserRouter, useLocation, useNavigate } from "react-router-dom";
 import { ThemeProvider, suiLight } from "@ringcentral/spring-theme";
+import { lazyRoute } from "@/lib/lazyRoute";
 
 // This is a lazy route stylesheet, not a second entry point. Its selectors are
 // scoped by the Analytics CSS owner to .analytics-app/.analytics-portal.
@@ -27,7 +28,7 @@ const loadAnalyticsRouteState =
   analyticsRouteModules[
     "../../../analytics/src/ui/hooks/analyticsRouteState.ts"
   ];
-const AnalyticsApp = lazy(async () => {
+const AnalyticsApp = lazyRoute("analytics-app", async () => {
   if (!loadAnalyticsApp || !loadAnalyticsRouteState) {
     throw new Error("Native Analytics route modules are unavailable from the host build.");
   }

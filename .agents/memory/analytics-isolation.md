@@ -16,3 +16,9 @@ Keep runtime and style boundaries even without an iframe; avoid upgrading the le
 **Why:** The native integration was chosen to remove iframe friction, not to force a broader Supervisor rewrite or load unrelated feature engines on every visit.
 
 **How to apply:** Preserve compatible shared infrastructure while isolating feature-specific loading and styling. Test actual valid output in both contexts, not merely before/after equality.
+
+Keep operational PostgreSQL, synthetic-examples PostgreSQL, and model-provider readiness independent; one unavailable dependency must only disable the routes that require it.
+
+**Why:** Native and standalone Analytics need to start reliably while individual data sources or providers are unavailable, and a shared startup failure hides which user flows can still work.
+
+**How to apply:** Initialize each dependency separately, expose sanitized readiness details, and pass only ready services into the route/orchestration layer.
