@@ -1,7 +1,6 @@
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
 import { BrowserRouter, useLocation, useNavigate } from "react-router-dom";
 import { ThemeProvider, suiLight } from "@ringcentral/spring-theme";
-import { SupervisorHeader, SupervisorShell } from "@/components/shell/SupervisorShell";
 
 // This is a lazy route stylesheet, not a second entry point. Its selectors are
 // scoped by the Analytics CSS owner to .analytics-app/.analytics-portal.
@@ -55,21 +54,14 @@ const AnalyticsApp = lazy(async () => {
 });
 
 export default function AnalyticsRoute() {
-  const navigate = (path: "/" | "/analytics") => {
-    window.history.pushState(null, "", path);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  };
-
   return (
     <BrowserRouter>
-      <ThemeProvider theme={suiLight} scope="analytics-native" className="h-full">
-        <SupervisorShell activeArea="analytics" onNavigate={navigate} header={<SupervisorHeader />}>
-          <section className="analytics-portal min-w-0 flex-1 overflow-hidden">
-            <Suspense fallback={<div className="flex h-full items-center justify-center">Loading Analytics…</div>}>
-              <AnalyticsApp />
-            </Suspense>
-          </section>
-        </SupervisorShell>
+      <ThemeProvider theme={suiLight} scope="analytics-native" className="contents">
+        <section className="analytics-portal min-w-0 flex-1 overflow-hidden">
+          <Suspense fallback={<div className="flex h-full items-center justify-center">Loading Analytics…</div>}>
+            <AnalyticsApp />
+          </Suspense>
+        </section>
       </ThemeProvider>
     </BrowserRouter>
   );

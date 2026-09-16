@@ -223,6 +223,59 @@ test('native top-level destinations preserve canonical URLs', async ({ page }) =
   }
 })
 
+test('keeps the Supervisor frame mounted across native navigation', async ({ page }) => {
+  test.skip(!nativeRuntime, 'Supervisor frame is only present in the native host.')
+  await mockWorkspace(page, emptyWorkspace())
+  await page.goto(appPath())
+
+  const frame = page.locator('[data-name="App bar"]')
+  await expect(frame).toBeVisible()
+  await frame.evaluate(element => element.setAttribute('data-frame-instance', 'stable'))
+
+  await page.getByRole('button', { name: 'Open Agent', exact: true }).click()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(frame).toHaveAttribute('data-frame-instance', 'stable')
+
+  await page.getByRole('button', { name: 'Open Analytics', exact: true }).click()
+  await expect(page).toHaveURL(/\/analytics$/)
+  await expect(frame).toHaveAttribute('data-frame-instance', 'stable')
+})
+
+test('keeps Agent engagement state in the shared header', async ({ page }) => {
+  test.skip(!nativeRuntime, 'Supervisor frame is only present in the native host.')
+  await mockWorkspace(page, emptyWorkspace())
+  await page.addInitScript(() => {
+    sessionStorage.setItem('rcx-active-preview-call', JSON.stringify({
+      number: '+1 555 010 2020',
+      queueName: 'Voice queue 2',
+      engagementId: 'engagement-header-state',
+      acceptedAtMs: Date.now() - 5_000,
+      muted: false,
+      origin: 'preview',
+      detailsPath: '/active-call/preview',
+      agentId: 'agent-header-state',
+      agentName: 'Header state agent',
+      agentType: 'Human',
+    }))
+  })
+  await page.goto('/')
+
+  const frame = page.locator('[data-name="App bar"]')
+  await expect(frame.getByRole('button', { name: /Engaged/ })).toBeVisible()
+  await expect(page.getByTestId('chip-active-call')).toBeVisible()
+  await expect(frame.getByRole('button', { name: /Engaged/ })).toHaveCSS(
+    'background-color',
+    'rgb(255, 255, 255)',
+  )
+
+  await page.getByRole('button', { name: 'Open Analytics', exact: true }).click()
+  await expect(page).toHaveURL(/\/analytics$/)
+  await page.getByRole('button', { name: 'Open Agent', exact: true }).click()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(frame.getByRole('button', { name: /Engaged/ })).toBeVisible()
+  await expect(page.getByTestId('chip-active-call')).toBeVisible()
+})
+
 test('uses Spring typography and exposes catalog questions', async ({ page }) => {
   await mockWorkspace(page, emptyWorkspace())
   await page.goto(appPath())

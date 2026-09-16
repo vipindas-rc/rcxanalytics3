@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect } from "react";
 import { Route, Switch, useLocation } from "wouter";
+import { ThemeProvider, suiLight } from "@ringcentral/spring-theme";
 import NotFound from "@/pages/not-found";
+import { SupervisorHeader, SupervisorShell } from "@/components/shell/SupervisorShell";
 
 const AnalyticsRoute = lazy(() => import("@/routes/AnalyticsRoute"));
 const SupervisorRoute = lazy(() => import("@/routes/SupervisorRoute"));
@@ -22,22 +24,19 @@ function LegacyAnalyticsRedirect() {
 }
 
 function Router() {
-  const [pathname] = useLocation();
+  const [pathname, navigate] = useLocation();
+  const isAnalytics =
+    pathname === "/analytics" || pathname.startsWith("/analytics/");
 
-  // The native branch is deliberately outside Switch: wouter continues to own
-  // legacy routes while BrowserRouter owns Analytics descendants only.
-  if (pathname === "/analytics" || pathname.startsWith("/analytics/")) {
-    if (pathname === "/analytics/index.html") {
-      return <LegacyAnalyticsRedirect />;
-    }
-    return (
+  const routeContent = isAnalytics ? (
+    pathname === "/analytics/index.html" ? (
+      <LegacyAnalyticsRedirect />
+    ) : (
       <Suspense fallback={<RouteLoading />}>
         <AnalyticsRoute />
       </Suspense>
-    );
-  }
-
-  return (
+    )
+  ) : (
     <Suspense fallback={<RouteLoading />}>
       <Switch>
         <Route path="/" component={SupervisorRoute} />
@@ -49,6 +48,18 @@ function Router() {
         <Route component={NotFound} />
       </Switch>
     </Suspense>
+  );
+
+  return (
+    <ThemeProvider theme={suiLight} scope="supervisor-shell" className="contents">
+      <SupervisorShell
+        activeArea={isAnalytics ? "analytics" : "agent"}
+        onNavigate={(path) => navigate(path)}
+        header={<SupervisorHeader />}
+      >
+        {routeContent}
+      </SupervisorShell>
+    </ThemeProvider>
   );
 }
 

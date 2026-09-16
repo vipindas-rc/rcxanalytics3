@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useRoute, useSearch } from "wouter";
 import {
   endActivePreviewCall,
@@ -18,10 +19,7 @@ import {
   type ModalId,
 } from "@/hooks/useUrlState";
 import { trackEvent } from "@/lib/analytics";
-import {
-  SupervisorHeader,
-  SupervisorShell,
-} from "@/components/shell/SupervisorShell";
+import { useSupervisorHeaderState } from "@/components/shell/SupervisorShell";
 
 // Kept in sync with the proto InteractionPreview component's mode union.
 // (Declared locally so this page doesn't pull the excluded proto tree into tsc.)
@@ -1103,6 +1101,21 @@ export const SupervisorAgents = (): JSX.Element => {
     wasEngagedRef.current = isEngaged;
   }, [isEngaged]);
   const availableElapsed = useElapsedSince(isEngaged ? null : availableSinceMs);
+  const { setState: setHeaderState } = useSupervisorHeaderState();
+
+  useEffect(() => {
+    setHeaderState({
+      engaged: isEngaged,
+      elapsed: isEngaged ? headerSessionElapsed : availableElapsed,
+    });
+    return () => setHeaderState({});
+  }, [
+    availableElapsed,
+    headerSessionElapsed,
+    isEngaged,
+    setHeaderState,
+  ]);
+
   const pendingInteractionsUrl = useCallback(() => {
     const target = new URL(withView("/"), window.location.origin);
     if (hasQueueTab) target.searchParams.set("nav", "queue");
@@ -1810,16 +1823,20 @@ export const SupervisorAgents = (): JSX.Element => {
   const visibleQueueColumnIds = queueColOrder.filter(
     (id) => id === "sourceName" || visibleQueueCols[id],
   );
+  const [headerControlsRoot, setHeaderControlsRoot] =
+    useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    setHeaderControlsRoot(
+      document.getElementById("supervisor-header-controls"),
+    );
+    return () => setHeaderControlsRoot(null);
+  }, []);
 
   return (
-    <SupervisorShell
-      activeArea="agent"
-      onNavigate={(target) => navigate(target)}
-      header={
-        <SupervisorHeader
-          engaged={isEngaged}
-          elapsed={headerSession ? headerSessionElapsed : availableElapsed}
-          activeControls={
+    <>
+      {headerControlsRoot
+        ? createPortal(
             <div className="flex items-center gap-2 self-stretch">
             {headerSession ? (
               /* Active call chip: dark bar with the caller number, live timer,
@@ -1970,11 +1987,10 @@ export const SupervisorAgents = (): JSX.Element => {
                 </button>
               </div>
             ) : null}
-            </div>
-          }
-        />
-      }
-    >
+            </div>,
+            headerControlsRoot,
+          )
+        : null}
       <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <div className="shrink-0 border-b border-neutral-200 bg-white">
             <div className="flex h-[60px] items-center px-3 py-0.5">
@@ -2608,6 +2624,6 @@ export const SupervisorAgents = (): JSX.Element => {
             </DialogContent>
           </Dialog>
       </section>
-    </SupervisorShell>
+    </>
   );
 };

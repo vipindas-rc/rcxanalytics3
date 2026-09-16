@@ -1,4 +1,12 @@
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
 import { Button } from "@ringcentral/spring-ui";
 
 type ShellArea = "agent" | "analytics";
@@ -12,6 +20,29 @@ type ShellProps = NavigationProps & {
   children: ReactNode;
   header: ReactNode;
 };
+
+export type SupervisorHeaderState = {
+  engaged?: boolean;
+  elapsed?: string;
+};
+
+type SupervisorHeaderStateContextValue = {
+  state: SupervisorHeaderState;
+  setState: Dispatch<SetStateAction<SupervisorHeaderState>>;
+};
+
+const SupervisorHeaderStateContext =
+  createContext<SupervisorHeaderStateContextValue | null>(null);
+
+export function useSupervisorHeaderState() {
+  const context = useContext(SupervisorHeaderStateContext);
+  if (!context) {
+    throw new Error(
+      "useSupervisorHeaderState must be used inside SupervisorShell",
+    );
+  }
+  return context;
+}
 
 type NavItem = {
   label: string;
@@ -189,6 +220,9 @@ export function SupervisorHeader({
   onDialer,
   onAddCall,
 }: HeaderProps) {
+  const headerContext = useContext(SupervisorHeaderStateContext);
+  const resolvedEngaged = headerContext?.state.engaged ?? engaged;
+  const resolvedElapsed = headerContext?.state.elapsed ?? elapsed;
   const [availableSeconds, setAvailableSeconds] = useState(0);
   useEffect(() => {
     const timer = window.setInterval(() => setAvailableSeconds((seconds) => seconds + 1), 1000);
@@ -230,13 +264,19 @@ export function SupervisorHeader({
         </div>
       </div>
       <div className="flex items-center gap-2 self-stretch">
-        {activeControls}
+        <div
+          id="supervisor-header-controls"
+          data-name="Supervisor header controls"
+          className="contents"
+        >
+          {activeControls}
+        </div>
         <Button type="button" variant="text" color="neutral" onClick={onPresence} className="flex h-8 w-[164px] min-w-0 items-center gap-1 rounded-2xl px-3" style={{ backgroundColor: neutralSurface }}>
-          {engaged ? <span className="h-2.5 w-2.5 shrink-0 rounded-full" aria-hidden="true" style={{ backgroundColor: "var(--sui-colors-danger-f)" }} /> : <ShellIcon src="/figmaAssets/presence.svg" className="h-3.5 w-3.5" />}
+          {resolvedEngaged ? <span className="h-2.5 w-2.5 shrink-0 rounded-full" aria-hidden="true" style={{ backgroundColor: "var(--sui-colors-danger-f)" }} /> : <ShellIcon src="/figmaAssets/presence.svg" className="h-3.5 w-3.5" />}
           <ShellIcon src="/figmaAssets/icon-engage-border.svg" />
           <div className="flex flex-1 items-center justify-between gap-1" style={{ color: foreground }}>
-            <span className="font-caption-1">{engaged ? "Engaged" : "Available"}</span>
-            <span className="whitespace-nowrap font-caption-1">{elapsed ?? liveElapsed}</span>
+            <span className="font-caption-1">{resolvedEngaged ? "Engaged" : "Available"}</span>
+            <span className="whitespace-nowrap font-caption-1">{resolvedElapsed ?? liveElapsed}</span>
           </div>
           <ShellIcon src="/figmaAssets/icon-arrow-down.svg" />
         </Button>
@@ -257,22 +297,26 @@ export function SupervisorHeader({
  * proto stores and their eager imports.
  */
 export function SupervisorShell({ children, header, ...navigation }: ShellProps) {
+  const [headerState, setHeaderState] = useState<SupervisorHeaderState>({});
+
   return (
-    <main className="flex h-screen w-full flex-col overflow-clip bg-white">
-      <header
-        data-name="App bar"
-        className="flex h-14 w-full shrink-0 items-center border-b"
-        style={{
-          backgroundColor: "var(--sui-colors-neutral-w0)",
-          borderColor: "var(--sui-colors-neutral-b2)",
-        }}
-      >
-        {header}
-      </header>
-      <div className="flex min-h-0 flex-1">
-        <SupervisorNavigation {...navigation} />
-        {children}
-      </div>
-    </main>
+    <SupervisorHeaderStateContext.Provider value={{ state: headerState, setState: setHeaderState }}>
+      <main className="flex h-screen w-full flex-col overflow-clip bg-white">
+        <header
+          data-name="App bar"
+          className="flex h-14 w-full shrink-0 items-center border-b"
+          style={{
+            backgroundColor: "var(--sui-colors-neutral-w0)",
+            borderColor: "var(--sui-colors-neutral-b2)",
+          }}
+        >
+          {header}
+        </header>
+        <div className="flex min-h-0 flex-1">
+          <SupervisorNavigation {...navigation} />
+          {children}
+        </div>
+      </main>
+    </SupervisorHeaderStateContext.Provider>
   );
 }
