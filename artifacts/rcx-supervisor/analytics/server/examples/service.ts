@@ -145,11 +145,11 @@ export class PostgresSyntheticExamplesService implements SyntheticExampleService
   private async ensureGenericCoverage(input: GenericExampleInput): Promise<WorkflowCoverageResult> {
     const period = normalizePeriod(input.start, input.end)
     const definition = validateGenericDefinition(input.domain, input.definition)
-    const recipe = validateGenericRecipe(input.recipe)
+    const recipe = validateGenericRecipe(input.recipe, definition.version)
     if (period.days.length * recipe.entityCount > 10_000) throw new Error('This synthetic example would generate more than 10,000 records. Narrow the period or entity count.')
     const seed = input.seed ?? 20260914
     if (!Number.isSafeInteger(seed)) throw new Error('Seed must be a safe integer.')
-    const datasetId = input.datasetId ?? `generic-${input.domain}-${GENERIC_PRIMITIVES_VERSION}-${definition.version}-${seed}`
+    const datasetId = input.datasetId ?? `generic-${input.domain}-${GENERIC_PRIMITIVES_VERSION}-${definition.version}-${recipe.version}-${seed}`
     if (!datasetId || datasetId.length > 200) throw new Error('Invalid synthetic example identity.')
     const client = await this.pool.connect()
     try {
@@ -456,11 +456,19 @@ function validateGenericDefinition(domain: string, input: GenericDefinitionInput
   return { title: input.title.trim(), version, dimensions: input.dimensions, measures: input.measures, assumptions }
 }
 
-function validateGenericRecipe(input: GenericRecipeInput | undefined): ValidGenericRecipe {
-  const version = input?.version ?? 'v1'
+function validateGenericRecipe(input: GenericRecipeInput | undefined, definitionVersion = 'v1'): ValidGenericRecipe {
   const entityCount = input?.entityCount ?? 4
+  const version = input?.version ?? derivedGenericRecipeVersion(definitionVersion, entityCount)
   if (!/^[a-z0-9][a-z0-9._-]{0,31}$/i.test(version) || !Number.isInteger(entityCount) || entityCount < 1 || entityCount > 10_000) throw new Error('Generic recipes require a version and 1–10,000 entities.')
   return { version, entityCount }
+}
+
+function derivedGenericRecipeVersion(definitionVersion: string, entityCount: number): string {
+  const fingerprint = createHash('sha256')
+    .update(canonicalJson({ generatorVersion: GENERIC_PRIMITIVES_VERSION, definitionVersion, entityCount, periodGrain: 'day', bounded: true }))
+    .digest('hex')
+    .slice(0, 12)
+  return `auto-${fingerprint}`
 }
 
 function generatedMeasure(seed: number, domain: string, ownerDay: string, entityIndex: number, field: GenericMeasure) {

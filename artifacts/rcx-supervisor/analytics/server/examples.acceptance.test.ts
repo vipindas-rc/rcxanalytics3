@@ -39,6 +39,21 @@ describe.skipIf(!testUrl)('independent examples database acceptance', () => {
     expect(await second.queryExample(query)).toEqual(original)
   })
 
+  it('derives separate immutable recipe identities when generated entity counts differ', async () => {
+    const domain = `recipe-version-${crypto.randomUUID()}`
+    const definition = {
+      title: 'Adoption by plan',
+      dimensions: [{ id: 'plan', name: 'Plan' }],
+      measures: [{ id: 'adoptedAccounts', name: 'Adopted accounts', unit: 'accounts', minimum: 10, maximum: 90 }],
+    }
+    const firstResult = await first.prepareExample({ ...period, domain, seed: 163, definition, recipe: { entityCount: 3 } })
+    const secondResult = await first.prepareExample({ ...period, domain, seed: 163, definition, recipe: { entityCount: 5 } })
+
+    expect(secondResult.datasetId).not.toBe(firstResult.datasetId)
+    expect((await first.queryExample({ ...period, domain, revisionId: firstResult.revisionId })).rows).toHaveLength(3)
+    expect((await first.queryExample({ ...period, domain, revisionId: secondResult.revisionId })).rows).toHaveLength(5)
+  })
+
   it('queue rates reconcile with independently summed persisted source numerators and denominators', async () => {
     const prepared = await first.prepareExample({ ...period, domain: 'queue-abandonment', datasetId: `acceptance-queue-${crypto.randomUUID()}`, seed: 157 })
     const result = await first.queryExample({ ...period, domain: 'queue-abandonment', revisionId: prepared.revisionId })
