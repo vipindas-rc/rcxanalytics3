@@ -16,8 +16,8 @@ run = "pnpm --filter @workspace/rcx-supervisor run dev"
 
 [services.production]
 build = [ "pnpm", "--filter", "@workspace/rcx-supervisor", "run", "build" ]
-serve = "static"
-publicDir = "artifacts/rcx-supervisor/dist/public"
+[services.production.run]
+args = ["node", "--enable-source-maps", "artifacts/rcx-supervisor/dist/index.cjs"]
 
 [[services.production.rewrites]]
 from = "/*"

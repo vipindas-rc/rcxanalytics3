@@ -1,6 +1,6 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
-import { rm, readFile } from "fs/promises";
+import { cp, rm, readFile } from "fs/promises";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -59,6 +59,12 @@ async function buildAll() {
     external: externals,
     logLevel: "info",
   });
+
+  // The bundled production server still runs Analytics migrations at startup.
+  // Ship those filesystem resources beside the bundle instead of relying on
+  // the source workspace layout that exists only during development.
+  await cp("analytics/server/migrations", "dist/analytics/server/migrations", { recursive: true });
+  await cp("analytics/server/examples/migrations", "dist/analytics/server/examples/migrations", { recursive: true });
 }
 
 buildAll().catch((err) => {
