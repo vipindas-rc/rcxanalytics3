@@ -21,6 +21,11 @@ export function selectedContentsQuestion(report: Pick<ReportDefinition, 'title' 
   return `Show ${labels.join(' and ')}${suffix}.`
 }
 
+function defaultReportContentIds(report: ReportDefinition): string[] {
+  const defaults = report.contents.filter(content => content.defaultSelected).map(content => content.id)
+  return defaults.length ? defaults : report.contents.slice(0, 1).map(content => content.id)
+}
+
 /** The picker identifies a catalog item without making a data-availability claim. */
 export function reportOptionMeta(report: Pick<ReportDefinition, 'type'>): string {
   return report.type
@@ -46,7 +51,7 @@ export function resolvePastedReportInput<T extends Pick<ReportDefinition, 'id' |
 type Props = {
   value: string
   onChange: (value: string) => void
-  onSubmit: (selection?: ReportContentsSelection) => void
+  onSubmit: (selection?: ReportContentsSelection, report?: ReportDefinition) => void
   selectedReport: ReportDefinition | null
   onSelectReport: (report: ReportDefinition) => void
   onRemoveReport: () => void
@@ -110,15 +115,36 @@ export function ReportComposer({
     if (validIds.length !== composerUrl.contentIds.length) composerUrl.setState({ contentIds: validIds }, { replace: true })
   }, [composerUrl.contentIds, composerUrl.hasContentSelection, composerUrl.setState, selectedReport])
 
+  useEffect(() => {
+    if (!selectedReport || !contentsOpen || selectedReport.contents.length !== 1) return
+    const contentIds = defaultReportContentIds(selectedReport)
+    if (!contentIds.length) return
+    composerUrl.setState({ chooser: null, contentIds, presentation: 'auto' }, { replace: true })
+  }, [composerUrl.setState, contentsOpen, selectedReport])
+
   const focusInput = () => requestAnimationFrame(() => shell.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus())
   const updateUrl = (patch: Parameters<typeof composerUrl.setState>[0]) => composerUrl.setState(patch)
   const selectReport = (report: ReportDefinition, question?: string) => {
     onSelectReport(report)
-    onChange(question ?? (command.isSlashCommand ? '' : value))
+    const contentIds = defaultReportContentIds(report)
+    const nextQuestion = question ?? (command.isSlashCommand ? '' : value)
+    if (report.contents.length === 1 && contentIds.length) {
+      const directQuestion = selectedContentsQuestion(report, contentIds, 'auto')
+      onChange(directQuestion)
+      updateUrl({
+        reportId: report.id,
+        chooser: null,
+        contentIds,
+        presentation: 'auto',
+      })
+      onSubmit({ contentIds, presentation: 'auto', question: directQuestion }, report)
+      return
+    }
+    onChange(nextQuestion)
     updateUrl({
       reportId: report.id,
       chooser: 'contents',
-      contentIds: report.contents.filter(content => content.defaultSelected).map(content => content.id),
+      contentIds,
       presentation: 'auto',
     })
     focusInput()
@@ -150,11 +176,11 @@ export function ReportComposer({
   }
   const submitContents = (overview = false) => {
     if (!selectedReport) return
-    const ids = overview ? selectedReport.contents.filter(content => content.defaultSelected).map(content => content.id) : selectedContentIds
+    const ids = overview ? defaultReportContentIds(selectedReport) : selectedContentIds
     if (!ids.length) return
     const question = selectedContentsQuestion(selectedReport, ids, presentation)
     onChange(question)
-    onSubmit({ contentIds: ids, presentation, question })
+    onSubmit({ contentIds: ids, presentation, question }, selectedReport)
     updateUrl({ chooser: null, contentIds: ids })
   }
   return <div className="report-composer" ref={shell}>
@@ -208,7 +234,7 @@ export function ReportComposer({
          </Button>)}</div> : <div className="report-composer-empty" role="status">No {typeFilter === 'all' ? 'catalog items' : typeFilter} match “{query}”.</div>}
       </div>}
       {selectedReport && !paletteOpen && contentsOpen && <section className="report-contents-chooser" aria-label={`${selectedReport.title} contents`}>
-         <header><div><Text component="h3">{selectedReport.title}</Text><Text component="p">{selectedReport.description}</Text></div><Button type="button" className="report-contents-back" variant="text" color="neutral" onClick={removeReport} disabled={disabled}>Back</Button></header>
+         <header><div><Text component="h3">{selectedReport.title}</Text><Text component="p">{selectedReport.description}</Text></div><Button type="button" className="report-contents-back" variant="text" color="neutral" onClick={removeReport} disabled={disabled}>Close</Button></header>
          <div className="report-contents-list" role="group" aria-label="Available report contents">{selectedReport.contents.map(content => <label key={content.id} className="report-content-option"><Checkbox checked={selectedContentIds.includes(content.id)} disabled={disabled} inputProps={{ 'aria-label': content.label }} onChange={() => updateUrl({ contentIds: selectedContentIds.includes(content.id) ? selectedContentIds.filter(id => id !== content.id) : [...selectedContentIds, content.id] })}/><span><strong>{content.label}</strong><small>{content.description}</small></span></label>)}</div>
          <fieldset className="report-presentation"><legend>Presentation</legend>{(['auto', 'chart', 'table'] as const).map(option => <label key={option}><Radio name={`${selectedReport.id}-presentation`} value={option} checked={presentation === option} disabled={disabled} inputProps={{ 'aria-label': option }} onChange={() => updateUrl({ presentation: option })}/>{option[0].toUpperCase() + option.slice(1)}</label>)}</fieldset>
          <footer><Button type="button" className="report-contents-back" variant="text" color="neutral" onClick={() => submitContents(true)} disabled={disabled}>Show overview</Button><Button type="button" className="report-contents-submit" variant="contained" color="primary" onClick={() => submitContents()} disabled={disabled || !selectedContents.length}>Show selected</Button></footer>

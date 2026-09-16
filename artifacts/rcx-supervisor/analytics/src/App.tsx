@@ -755,8 +755,14 @@ export default function App() {
       projectId: null,
       dashboardId: null,
     });
+    updateSearch((params) => {
+      for (const key of Array.from(params.keys())) {
+        if (key.startsWith("analytics.composer.")) params.delete(key);
+      }
+    }, { replace: true });
     setContext(null);
     setSelectedReport(null);
+    setQuestion("");
     setError("");
   };
   const resetWorkspace = async () => {
@@ -1446,13 +1452,13 @@ export default function App() {
           urlState={{ searchParams, setSearchParams }}
           value={question}
           onChange={setQuestion}
-          onSubmit={(selection) =>
+           onSubmit={(selection, reportOverride) =>
             void ask(
               selection?.question ?? question,
               undefined,
               undefined,
               undefined,
-              undefined,
+               reportOverride,
               selection,
             )
           }
