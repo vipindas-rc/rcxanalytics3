@@ -9,7 +9,7 @@ export type WorkflowVolumeQuery = { revisionId: string; start: string; end: stri
 export type QueueAbandonmentCoverageInput = WorkflowCoverageInput
 export type QueueAbandonmentQuery = WorkflowVolumeQuery
 export type GenericDimension = { id: string; name: string; values?: string[] }
-export type GenericMeasure = { id: string; name: string; unit: string; minimum?: number; maximum?: number }
+export type GenericMeasure = { id: string; name: string; unit: string; minimum?: number; maximum?: number; formula?: string }
 export type GenericDefinitionInput = { title: string; version?: string; dimensions: GenericDimension[]; measures: GenericMeasure[]; assumptions?: string[] }
 export type GenericRecipeInput = { version?: string; entityCount?: number }
 export type GenericExampleInput = WorkflowCoverageInput & { domain: string; definition?: GenericDefinitionInput; recipe?: GenericRecipeInput }
@@ -149,7 +149,7 @@ export class PostgresSyntheticExamplesService implements SyntheticExampleService
     if (period.days.length * recipe.entityCount > 10_000) throw new Error('This synthetic example would generate more than 10,000 records. Narrow the period or entity count.')
     const seed = input.seed ?? 20260914
     if (!Number.isSafeInteger(seed)) throw new Error('Seed must be a safe integer.')
-    const datasetId = input.datasetId ?? `generic-${input.domain}-${GENERIC_PRIMITIVES_VERSION}-${seed}`
+    const datasetId = input.datasetId ?? `generic-${input.domain}-${GENERIC_PRIMITIVES_VERSION}-${definition.version}-${seed}`
     if (!datasetId || datasetId.length > 200) throw new Error('Invalid synthetic example identity.')
     const client = await this.pool.connect()
     try {
@@ -378,7 +378,7 @@ export class PostgresSyntheticExamplesService implements SyntheticExampleService
       ...definition.dimensions.map((field) => ({ ...field, type: 'category' })),
       ...definition.measures.map(({ minimum: _minimum, maximum: _maximum, ...field }) => ({ ...field, type: 'number' })),
     ]
-    const formulas = Object.fromEntries(definition.measures.map((field) => [field.id, `sum(daily synthetic ${field.unit})`]))
+    const formulas = Object.fromEntries(definition.measures.map((field) => [field.id, field.formula ?? `sum(daily synthetic ${field.unit})`]))
     await client.query(
       'INSERT INTO rcx_examples.definitions(id,version,domain,title,fields,formulas,assumptions) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb) ON CONFLICT DO NOTHING',
       [definitionId, definition.version, domain, definition.title, JSON.stringify(fields), JSON.stringify(formulas), JSON.stringify(definition.assumptions)],
@@ -447,7 +447,7 @@ function validateGenericDefinition(domain: string, input: GenericDefinitionInput
   for (const measure of input.measures) {
     const minimum = measure.minimum ?? 1
     const maximum = measure.maximum ?? 100
-    if (typeof measure.unit !== 'string' || measure.unit.trim().length < 1 || measure.unit.length > 40 || !Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || minimum < 0 || maximum < minimum || maximum > 1_000_000) {
+    if (typeof measure.unit !== 'string' || measure.unit.trim().length < 1 || measure.unit.length > 40 || (measure.formula !== undefined && (typeof measure.formula !== 'string' || measure.formula.trim().length < 1 || measure.formula.length > 300)) || !Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || minimum < 0 || maximum < minimum || maximum > 1_000_000) {
       throw new Error('Generic measures need bounded integer ranges and units.')
     }
   }

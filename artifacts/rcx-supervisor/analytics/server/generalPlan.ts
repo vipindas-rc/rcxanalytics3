@@ -9,7 +9,7 @@ import { z } from 'zod'
 export const generalAnalysisPlanSchema = z.object({
   originalQuestion: z.string().min(1),
   entity: z.object({ id: z.string().min(1), name: z.string().min(1), grain: z.string().min(1) }).strict(),
-  metric: z.object({ id: z.string().min(1), name: z.string().min(1), unit: z.enum(['items', 'percent', 'minutes', 'hours', 'score', 'currency']), aggregation: z.enum(['sum', 'mean', 'count', 'ratio']) }).strict(),
+  metric: z.object({ id: z.string().min(1), name: z.string().min(1), unit: z.enum(['items', 'percent', 'minutes', 'hours', 'score', 'currency']), aggregation: z.enum(['sum', 'mean', 'count', 'ratio']), formula: z.string().min(1).optional() }).strict(),
   grouping: z.object({ id: z.string().min(1), name: z.string().min(1), values: z.array(z.string().min(1)).min(1).max(20) }).strict(),
   cohorts: z.array(z.string().min(1)).max(10),
   time: z.object({ kind: z.enum(['instant', 'period']), requestedNow: z.boolean() }).strict(),
@@ -18,7 +18,7 @@ export const generalAnalysisPlanSchema = z.object({
 }).strict()
 
 export type GeneralAnalysisPlan = z.infer<typeof generalAnalysisPlanSchema>
-export type GenericDefinition = { title: string; dimensions: Array<{ id: string; name: string; values: string[] }>; measures: Array<{ id: string; name: string; unit: string; minimum: number; maximum: number }>; assumptions: string[] }
+export type GenericDefinition = { title: string; version?: string; dimensions: Array<{ id: string; name: string; values: string[] }>; measures: Array<{ id: string; name: string; unit: string; minimum: number; maximum: number; formula?: string }>; assumptions: string[] }
 
 const QUEUES = ['Sales', 'Billing', 'Account Services', 'Returns', 'Technical Support']
 const CHANNELS = ['Voice', 'Digital', 'Chat', 'Email']
@@ -106,7 +106,7 @@ export function definitionForPlan(plan: GeneralAnalysisPlan, title?: string): Ge
   return {
     title: title ?? `${plan.metric.name} by ${plan.grouping.name}`,
     dimensions: [{ id: plan.grouping.id, name: plan.grouping.name, values: plan.grouping.values }],
-    measures: [{ id: plan.metric.id, name: plan.metric.name, unit: plan.metric.unit === 'percent' ? '%' : plan.metric.unit, minimum: plan.metric.unit === 'percent' ? 1 : 5, maximum: plan.metric.unit === 'percent' ? 95 : plan.metric.unit === 'score' ? 100 : plan.metric.unit === 'currency' ? 10000 : 300 }],
+    measures: [{ id: plan.metric.id, name: plan.metric.name, unit: plan.metric.unit === 'percent' ? '%' : plan.metric.unit, minimum: plan.metric.unit === 'percent' ? 1 : 5, maximum: plan.metric.unit === 'percent' ? 95 : plan.metric.unit === 'score' ? 100 : plan.metric.unit === 'currency' ? 10000 : 300, ...(plan.metric.formula ? { formula: plan.metric.formula } : {}) }],
     assumptions: plan.assumptions,
   }
 }

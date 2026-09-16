@@ -7,3 +7,4 @@
 - [Interaction modal URL cleanup](interaction-modal-url-cleanup.md) — invalid targets replace the full route; malformed optional modal state removes only that optional parameter.
 - [Analytics isolation](analytics-isolation.md) — native integration must preserve source portability and isolate feature-specific loading and styling.
 - [Analytics record navigation](analytics-record-navigation.md) — refresh newly created sessions before navigating to their URL, or missing-record banners can flash.
+- [Analytics capability contracts](analytics-capability-contracts.md) — selected catalog content is authoritative; persisted synthetic dataset identities must include definition versions.

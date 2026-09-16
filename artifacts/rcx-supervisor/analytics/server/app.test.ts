@@ -97,7 +97,7 @@ describe('persistent API',()=>{
    prepareWorkflowVolume: async () => ({ datasetId: 'workflow', revisionId: 'workflow-revision', generated: false }),
    queryWorkflowVolume: async () => ({ datasetId: 'workflow', revisionId: 'workflow-revision', rows: [], fields: [], evidence: {}, pagination: { offset: 0, limit: 0, total: 0 } }),
    prepareExample: async () => ({ datasetId: 'inbound-example', revisionId: 'inbound-revision', start: '2026-08-31T00:00:00.000Z', end: '2026-09-14T00:00:00.000Z', generated: true }),
-   queryExample: async () => ({ datasetId: 'inbound-example', revisionId: 'inbound-revision', rows: [{ category: 'Inbound', count: 42 }], fields: [{ id: 'category', name: 'Category', type: 'category' as const }, { id: 'count', name: 'Count', type: 'number' as const, unit: 'items' }], evidence: { definitions: { count: 'Persisted synthetic count.' }, provenance: { generatorVersion: 'test', assumptions: [] } }, pagination: { offset: 0, limit: 1, total: 1 } }),
+    queryExample: async () => ({ datasetId: 'inbound-example', revisionId: 'inbound-revision', rows: [{ channel: 'Voice', count: 42 }], fields: [{ id: 'channel', name: 'Channel', type: 'category' as const }, { id: 'count', name: 'Interactions', type: 'number' as const, unit: 'items' }], evidence: { definitions: { count: 'Persisted synthetic count.' }, provenance: { generatorVersion: 'test', assumptions: [] } }, pagination: { offset: 0, limit: 1, total: 1 } }),
   }
   const { api } = await setup(async () => { calls++; return { kind: 'text', text: 'Model response' } }, undefined, examples)
   const session = (await api('/sessions', {})).data
@@ -121,6 +121,47 @@ describe('persistent API',()=>{
   const workspace = (await api('/workspace')).data
   expect(workspace.artifacts.at(-1).view).toMatchObject({ chartType: 'bar', x: 'queue', y: 'abandonmentRate' })
  })
+  it('builds and publishes the selected acceptance-rate content instead of guessing from the report title', async () => {
+   let prepared: any
+   const examples = {
+    prepareExample: async (input: any) => { prepared = input; return { datasetId: 'acceptance-rate', revisionId: 'acceptance-rate-revision', start: '2026-08-31T00:00:00.000Z', end: '2026-09-14T00:00:00.000Z', generated: true } },
+    queryExample: async () => {
+     const definition = prepared.definition
+     const fields = [
+      ...definition.dimensions.map((field: any) => ({ id: field.id, name: field.name, type: 'category' as const, values: field.values })),
+      ...definition.measures.map((field: any) => ({ id: field.id, name: field.name, type: 'number' as const, unit: field.unit })),
+     ]
+     return {
+      datasetId: 'acceptance-rate',
+      revisionId: 'acceptance-rate-revision',
+      rows: [{ agent: 'Jordan Lee', acceptanceRate: 82 }],
+      fields,
+      evidence: { definitions: { acceptanceRate: definition.measures[0].formula }, provenance: { generatorVersion: 'test', assumptions: [] } },
+      pagination: { offset: 0, limit: 1, total: 1 },
+     }
+    },
+   }
+   const { api } = await setup(async () => ({ kind: 'text', text: 'Unexpected model answer' }), undefined, examples)
+   const session = (await api('/sessions', {})).data
+   const request = await api('/conversation', {
+    sessionId: session.id,
+    requestId: 'acceptance-rate-content',
+    question: 'Show the selected report content.',
+    reportId: 'report-acceptance-rate-per-agent',
+    reportVersion: 1,
+    selectedContentIds: ['acceptanceRate-by-agent'],
+    presentationPreference: 'chart',
+   })
+   expect((await completed(api, request.data.id)).status).toBe('completed')
+   expect(prepared.domain).toBe('report-acceptance-rate-per-agent-acceptancerate-agent')
+   expect(prepared.definition.version).toBe('catalog-v2')
+   expect(prepared.definition.dimensions.map((field: any) => field.id)).toEqual(['agent'])
+   expect(prepared.definition.measures[0]).toMatchObject({ id: 'acceptanceRate', unit: '%', formula: 'Accepted interactions ÷ offered interactions × 100.' })
+   const workspace = (await api('/workspace')).data
+   const message = workspace.sessions.find((item: any) => item.id === session.id).messages.at(-1)
+   expect(message.text.toLowerCase()).toContain('acceptance rate')
+   expect(workspace.artifacts.at(-1).view).toMatchObject({ chartType: 'bar', x: 'agent', y: 'acceptanceRate' })
+  })
  it('does not substitute queue abandonment data for a different queue metric', async () => {
   let prepared: any
   const examples = {

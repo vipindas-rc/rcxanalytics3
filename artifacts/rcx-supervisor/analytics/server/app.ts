@@ -7,10 +7,11 @@ import { Store, id, now } from './store.ts'
 import { normalizeSource, effectiveFilters, datasetVersion } from './context.ts'
 import { ensureBriefings } from './briefing.ts'
 import { answerSchema, type Answer, type Model } from './inference.ts'
-import { findReport, findReportContent, REPORT_CATALOG, type PresentationPreference, type ReportContentDefinition } from '../src/lib/reportCatalog.ts'
+import { findReport, findReportContent, REPORT_CATALOG, type PresentationPreference } from '../src/lib/reportCatalog.ts'
 import { defaultReportView, distinctActiveAgentsByType } from '../src/lib/agentReportFixture.ts'
 import { orchestrateOperationalTurn, type PlannerReviewer } from './orchestration.ts'
-import { definitionForPlan, generalAnalysisPlanSchema, planGeneralAnalysis, type GeneralAnalysisPlan } from './generalPlan.ts'
+import { definitionForPlan, planGeneralAnalysis, type GeneralAnalysisPlan } from './generalPlan.ts'
+import { FIXTURE_REPORT_IDS, OPERATIONAL_REPORT_IDS, definitionForCatalogContent, planForCatalogContent, reportContextCapability } from './reportCapabilities.ts'
 type OperationalService = {
  ensureCoverage(input: { datasetId?: string; start: string; end: string; seed?: number }): Promise<{ datasetId: string; revisionId: string; start: string; end: string; generated: boolean }>
  query(input: { revisionId: string; start: string; end: string; asOf?: string; agentType?: 'ai' | 'human'; intent?: 'activity' | 'count' | 'comparison' | 'presence'; offset?: number; limit?: number }): Promise<{ datasetId: string; revisionId: string; rows: Record<string, string | number>[]; fields: Field[]; evidence: any; pagination: { offset: number; limit: number; total: number } }>
@@ -18,7 +19,7 @@ type OperationalService = {
 type SyntheticExamplesService = {
  prepareWorkflowVolume(input: { datasetId?: string; start: string; end: string; seed?: number }): Promise<{ datasetId: string; revisionId: string; start?: string; end?: string; generated: boolean }>
  queryWorkflowVolume(input: { revisionId: string; start: string; end: string }): Promise<{ datasetId: string; revisionId: string; rows: Record<string, string | number>[]; fields: Field[]; evidence: any; pagination: { offset: number; limit: number; total: number } }>
- prepareExample?(input: { domain: string; start: string; end: string; seed?: number; datasetId?: string; definition?: { title: string; dimensions: Array<{ id: string; name: string; values?: string[] }>; measures: Array<{ id: string; name: string; unit: string; minimum?: number; maximum?: number }>; assumptions?: string[] }; recipe?: { entityCount?: number } }): Promise<{ datasetId: string; revisionId: string; start: string; end: string; generated: boolean }>
+  prepareExample?(input: { domain: string; start: string; end: string; seed?: number; datasetId?: string; definition?: { title: string; version?: string; dimensions: Array<{ id: string; name: string; values?: string[] }>; measures: Array<{ id: string; name: string; unit: string; minimum?: number; maximum?: number; formula?: string }>; assumptions?: string[] }; recipe?: { entityCount?: number } }): Promise<{ datasetId: string; revisionId: string; start: string; end: string; generated: boolean }>
  queryExample?(input: { domain: string; revisionId: string; start: string; end: string }): Promise<{ datasetId: string; revisionId: string; rows: Record<string, string | number>[]; fields: Field[]; evidence: any; pagination: { offset: number; limit: number; total: number } }>
 }
 class HttpError extends Error { status: number; constructor(status: number, message: string) { super(message); this.status = status } }
@@ -56,7 +57,6 @@ const parseChartView = (value: unknown): ChartView => {
  return { ...parsed, filters: parseFilters(parsed.filters) }
 }
 function snapshot(d: Dashboard) { d.history.push({ revision: d.revision, title: d.title, widgets: structuredClone(d.widgets), filters: structuredClone(d.filters), createdAt: now() }); d.revision++ }
-const supportedReportIds = new Set(['agent-activity-overview','agent-activity','agent-activity-report','agent-conduct','agent-dispositions','agent-scorecard','agent-state','agent-disposition-report'])
 type SupportedReportId = 'agent-activity-overview' | 'agent-activity' | 'agent-activity-report' | 'agent-conduct' | 'agent-dispositions' | 'agent-scorecard' | 'agent-state' | 'agent-disposition-report'
 function reportDataset(reportId: string, version: number): Dataset {
  const view = defaultReportView(reportId as SupportedReportId)
@@ -64,7 +64,7 @@ function reportDataset(reportId: string, version: number): Dataset {
  const fields: Field[] = view.columns.map(id => ({ id, name: id.replace(/([A-Z])/g, ' $1').replace(/^./, letter => letter.toUpperCase()), type: typeof sample[id] === 'number' ? 'number' : id.toLowerCase().includes('at') ? 'date' : 'category' }))
  return { id: `report-${reportId}-v${version}`, title: view.title, seed: 20260914, fields, rows: structuredClone(view.rows) as Record<string, string | number>[], colors: {}, createdAt: '2026-09-14T00:00:00.000Z' }
 }
-const operationalAgentActivity = new Set(['agent-activity-overview','agent-activity','agent-activity-report'])
+const operationalAgentActivity = OPERATIONAL_REPORT_IDS
 function isAgentTypeComparisonRequest(question: string) {
  const text = question.toLowerCase()
  const namesBothCohorts = /\b(?:ai|artificial intelligence)\b[\s\S]{0,80}\bhumans?\b|\bhumans?\b[\s\S]{0,80}\b(?:ai|artificial intelligence)\b/.test(text)
@@ -88,11 +88,12 @@ function resolveReportContext(w: Workspace, body: any, prior?: ReportContext, op
  const presentationPreference: PresentationPreference | undefined = ['auto', 'chart', 'table'].includes(body.presentationPreference) ? body.presentationPreference : prior?.presentationPreference
  const selection = selectedContentIds?.length ? { selectedContentIds, presentationPreference: presentationPreference ?? 'auto' } : {}
  if (report.availability !== 'supported') return { reportId: report.id, reportVersion: report.version, title: report.title, type: report.type, availability: 'preview', sourceUrl: report.sourceUrl, ...selection }
- if (operationalAgentActivity.has(report.id)) {
+  const capability = reportContextCapability({ reportId: report.id, reportVersion: report.version, title: report.title, type: report.type, availability: report.availability, sourceUrl: report.sourceUrl })
+  if (capability === 'operational') {
   if (!operational) throw new HttpError(503, 'Persistent PostgreSQL storage is unavailable. Start the local database and retry.')
   return { reportId: report.id, reportVersion: report.version, title: report.title, type: report.type, availability: 'supported', sourceUrl: report.sourceUrl, ...selection }
  }
- if (!supportedReportIds.has(report.id)) throw new HttpError(400,'This report does not have a synthetic fixture yet.')
+  if (!FIXTURE_REPORT_IDS.has(report.id)) throw new HttpError(400,'This report is available through the persisted synthetic content builder.')
  const dataset = reportDataset(report.id, report.version)
  if (!w.datasets.some(item => item.id === dataset.id)) w.datasets.push(dataset)
  return { reportId: report.id, reportVersion: report.version, title: report.title, type: report.type, availability: 'supported', datasetId: dataset.id, datasetVersion: datasetVersion(dataset), sourceUrl: report.sourceUrl, ...selection }
@@ -157,23 +158,22 @@ function syntheticDomain(value: string) {
  const domain = value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64)
  return domain || 'custom-analytics'
 }
-function presentationForContent(content: ReportContentDefinition, preference: PresentationPreference) {
- if (preference === 'table') return 'table' as const
- if (preference === 'chart') return content.grouping.id === 'period' ? 'line' as const : 'bar' as const
- return content.grouping.id === 'period' ? 'line' as const : 'bar' as const
-}
 function catalogContentPlan(question: string, report?: ReportContext): GeneralAnalysisPlan | undefined {
- if (!report?.selectedContentIds?.length) return undefined
+  if (!report) return undefined
  const definition = findReport(report.reportId)
  if (!definition) throw new HttpError(400, 'The selected report definition is unavailable.')
- const [content] = findReportContent(definition, report.selectedContentIds)
- if (!content) throw new HttpError(400, 'The selected report content is unavailable.')
- return generalAnalysisPlanSchema.parse({ originalQuestion: question, entity: { id: content.grouping.id, name: content.grouping.name, grain: 'daily synthetic record' }, metric: content.metric, grouping: { ...content.grouping, values: [...content.grouping.values] }, cohorts: content.grouping.id === 'agentType' ? [...content.grouping.values] : [], time: { kind: 'period', requestedNow: false }, presentation: presentationForContent(content, report.presentationPreference ?? 'auto'), assumptions: [`${content.label} is a documented ${definition.title} content represented by persisted synthetic records.`] })
+  return planForCatalogContent(question, definition, report.selectedContentIds ?? [], report.presentationPreference ?? 'auto').plan
 }
 function syntheticDefinition(question: string, report?: ReportContext) {
- const plan = catalogContentPlan(question, report) ?? planGeneralAnalysis(question)
- const title = report?.title ?? `${plan.metric.name} by ${plan.grouping.name}`
- return { plan, domain: syntheticDomain(`${report?.reportId ?? plan.entity.id}-${plan.metric.id}-${plan.grouping.id}`), title, definition: definitionForPlan(plan, title), measure: plan.metric }
+  if (report) {
+    const catalog = findReport(report.reportId)
+    if (!catalog) throw new HttpError(400, 'The selected report definition is unavailable.')
+    const selected = definitionForCatalogContent(question, catalog, report.selectedContentIds ?? [], report.presentationPreference ?? 'auto')
+    return { plan: selected.plan, domain: syntheticDomain(`${report.reportId}-${selected.plan.metric.id}-${selected.plan.grouping.id}`), title: report.title, definition: selected.definition, measure: selected.plan.metric }
+  }
+  const plan = catalogContentPlan(question, report) ?? planGeneralAnalysis(question)
+  const title = `${plan.metric.name} by ${plan.grouping.name}`
+  return { plan, domain: syntheticDomain(`${plan.entity.id}-${plan.metric.id}-${plan.grouping.id}`), title, definition: definitionForPlan(plan, title), measure: plan.metric }
 }
 function syntheticDataset(result: { datasetId: string; revisionId: string; rows: Record<string, string | number>[]; fields: Field[]; pagination: { offset: number; limit: number; total: number } }, title: string): Dataset {
  const key = createHash('sha256').update(JSON.stringify({ fields: result.fields, rows: result.rows, pagination: result.pagination })).digest('hex').slice(0, 16)
@@ -205,6 +205,18 @@ function syntheticAnswer(plan: GeneralAnalysisPlan, dataset: Dataset, title: str
   operations: [],
  }
 }
+function validateSyntheticResult(plan: GeneralAnalysisPlan, result: { rows: Record<string, string | number>[]; fields: Field[] }) {
+  const fieldIds = new Set<string>()
+  for (const field of result.fields) {
+   if (!field.id || fieldIds.has(field.id)) throw new HttpError(500, 'The prepared synthetic data returned duplicate field identities.')
+   fieldIds.add(field.id)
+   if (field.type === 'number' && !result.rows.every(row => typeof row[field.id] === 'number' || row[field.id] === undefined)) throw new HttpError(500, `The prepared synthetic metric '${field.id}' contains invalid values.`)
+  }
+  const grouping = result.fields.find(field => field.id === plan.grouping.id && field.type !== 'number')
+  const metric = result.fields.find(field => field.id === plan.metric.id && field.type === 'number')
+  if (!grouping || !metric) throw new HttpError(500, `The prepared data does not contain the requested ${plan.metric.name.toLowerCase()} by ${plan.grouping.name.toLowerCase()} fields.`)
+  if (plan.metric.unit === 'percent' && !['%', 'percent'].includes(metric.unit ?? '')) throw new HttpError(500, `The prepared ${plan.metric.name.toLowerCase()} field has incompatible units.`)
+}
 function validatePlanBeforePublication(plan: GeneralAnalysisPlan, dataset: Dataset, answer: Answer) {
  const grouping = dataset.fields.find(field => field.id === plan.grouping.id && field.type !== 'number')
  const metric = dataset.fields.find(field => field.id === plan.metric.id && field.type === 'number')
@@ -215,6 +227,13 @@ function validatePlanBeforePublication(plan: GeneralAnalysisPlan, dataset: Datas
   if (chart.view.chartType === 'table' || chart.view.chartType === 'kpi') continue
   if (chart.view.x !== grouping.id || chart.view.y !== metric.id) throw new HttpError(500, 'The compiled presentation does not preserve the accepted grouping and metric.')
  }
+}
+function publicRequestError(error: unknown) {
+  const message = error instanceof Error ? error.message : 'Inference failed. Retry this turn.'
+  if (/Generic definition|prepared synthetic|requested .* fields|synthetic metric|synthetic data returned/i.test(message)) {
+    return 'The selected report content could not be prepared because its data definition is out of sync. The request was not published.'
+  }
+  return message
 }
 function isAnalyticalQuestion(question: string, report?: ReportContext) {
  return !!report || /\b(chart|graph|table|kpi|report|dashboard|compare|trend|rate|count|volume|interactions?|agents?|queue|workflow|campaign|customer|time|minutes?|records?|data|metric|analytics?)\b/i.test(question)
@@ -329,7 +348,7 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
   let analysis: ReturnType<typeof toAnalysis> | undefined = artifact?.analysisReference && artifact.evidence ? { reference: artifact.analysisReference, evidence: artifact.evidence } : undefined
   let operationalAnswer: Answer | undefined
   let generalPlan: GeneralAnalysisPlan | undefined
-  if (reportContext && operationalAgentActivity.has(reportContext.reportId)) {
+   if (reportContext && reportContextCapability(reportContext) === 'operational') {
    if (!operational) throw new HttpError(503, 'Persistent PostgreSQL storage is unavailable. Start the local database and retry.')
    const scope = scopeForRequest(request)
    await updateRequestPhase(requestId, 'resolving-data', runEpoch)
@@ -382,6 +401,7 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    const coverage = await examples.prepareExample({ domain: definition.domain, ...scope, ...(queue ? {} : { definition: definition.definition, recipe: { entityCount: 5 } }) })
    await updateRequestPhase(requestId, 'computing', runEpoch)
    const syntheticResult = await examples.queryExample({ domain: definition.domain, revisionId: coverage.revisionId, ...scope })
+    validateSyntheticResult(generic.plan, syntheticResult)
    dataset = syntheticDataset(syntheticResult, definition.title)
    analysis = syntheticAnalysis(syntheticResult, scope, reportContext, request.timezone)
    reportContext = reportContext ? { ...reportContext, availability: 'supported', datasetId: dataset.id, datasetVersion: analysis.reference.datasetRevision, analysisReference: analysis.reference } : undefined
@@ -406,7 +426,7 @@ export function createApp(store: Store, model: Model, operational?: OperationalS
    session.messages.push({id:id('message'),role:'assistant',text:result.text,createdAt:now(),artifactIds:ids,suggestions:result.suggestions,choices:result.choices,requestId,reportContext:t.reportContext,analysisReference:analysis?.reference,evidence:analysis?.evidence,dashboardId:changedDashboard?.id,dashboardRevision:changedDashboard?.revision});if(!session.renamed&&(session.title==='New analytics chat'||session.title==='Advisor'))session.title=t.question.slice(0,56);session.updatedAt=now();t.status='completed';t.phase='Complete';t.artifactIds=ids;t.cached=cached; if (!bypass && !reportContext) { current.responseCache ??= {}; current.responseCache[key] = structuredClone(result); const keys = Object.keys(current.responseCache); if (keys.length > 100) for (const stale of keys.slice(0, keys.length - 100)) delete current.responseCache[stale] }
    published=true
    });if(published&&runEpoch===epoch&&!bypass)cache.set(key,result)
-  }catch(error){if(runEpoch!==epoch)return;await store.mutate(w=>{const t=w.requests.find(item=>item.id===requestId);if(!t||t.status!=='pending'||runEpoch!==epoch)return;t.status='failed';t.phase='Could not complete';t.error=error instanceof Error?error.message:'Inference failed. Retry this turn.'})}}
+  }catch(error){if(runEpoch!==epoch)return;await store.mutate(w=>{const t=w.requests.find(item=>item.id===requestId);if(!t||t.status!=='pending'||runEpoch!==epoch)return;t.status='failed';t.phase='Could not complete';t.error=publicRequestError(error)})}}
  app.use((error:any,_q:express.Request,r:express.Response,_next:express.NextFunction)=>r.status(error.status??500).json({error:error.message??'Request failed.'}))
  return app
 }

@@ -22,7 +22,7 @@ export type ReportContentDefinition = {
   id: string
   label: string
   description: string
-  metric: { id: string; name: string; unit: 'items' | 'percent' | 'minutes' | 'hours' | 'score' | 'currency'; aggregation: 'sum' | 'mean' | 'count' | 'ratio' }
+  metric: { id: string; name: string; unit: 'items' | 'percent' | 'minutes' | 'hours' | 'score' | 'currency'; aggregation: 'sum' | 'mean' | 'count' | 'ratio'; formula?: string }
   grouping: { id: string; name: string; values: readonly string[] }
   defaultSelected?: boolean
   presentation: readonly PresentationPreference[]
@@ -37,6 +37,7 @@ const valuesFor = (grouping: string): readonly string[] => grouping === 'queue'
   : grouping === 'channel' ? ['Voice', 'Digital', 'Chat', 'Email']
   : grouping === 'campaign' ? ['Renewal Outreach', 'Lead Follow-up', 'Billing Education', 'Customer Onboarding']
   : grouping === 'workflow' ? ['Lead Follow-up', 'Billing Inquiry', 'Account Verification', 'Returns Intake']
+  : grouping === 'agent' ? ['Atlas Assist', 'Avery Patel', 'Cedar Assist', 'Jordan Lee', 'Mika Santos']
   : grouping === 'agentType' ? ['AI', 'Human']
   : ['Week 1', 'Week 2', 'Week 3', 'Week 4']
 
@@ -56,7 +57,20 @@ const commonContents = (category: string, title: string, type: ReportDefinition[
   ]
   if (/workflow|ivr/i.test(`${category} ${title}`)) return [content('workflow-volume', 'Workflow interaction volume', { id: 'count', name: 'Interaction volume', unit: 'items', aggregation: 'sum' }, 'workflow', 'Workflow', true), content('workflow-trend', 'Workflow volume trend', { id: 'count', name: 'Interaction volume', unit: 'items', aggregation: 'sum' }, 'period', 'Period')]
   if (/outbound|dialer|campaign/i.test(`${category} ${title}`)) return [content('campaign-volume', 'Campaign interaction volume', { id: 'count', name: 'Interactions', unit: 'items', aggregation: 'sum' }, 'campaign', 'Campaign', true), content('campaign-rate', 'Campaign success rate', { id: 'rate', name: 'Success rate', unit: 'percent', aggregation: 'mean' }, 'campaign', 'Campaign')]
-  if (/agent/i.test(`${category} ${title}`)) return [content('agent-type-count', 'Active agents by type', { id: 'count', name: 'Active agents', unit: 'items', aggregation: 'count' }, 'agentType', 'Agent type', true), content('agent-handling-minutes', 'Handling minutes by agent type', { id: 'handlingMinutes', name: 'Handling minutes', unit: 'minutes', aggregation: 'sum' }, 'agentType', 'Agent type')]
+  if (/agent/i.test(`${category} ${title}`)) {
+    const text = `${category} ${title}`.toLowerCase()
+    const grouping = /\bqueue|queues\b/.test(text) ? { id: 'queue', name: 'Queue' } : /\bchannel|channels\b/.test(text) ? { id: 'channel', name: 'Channel' } : /\bcampaign|campaigns\b/.test(text) ? { id: 'campaign', name: 'Campaign' } : /\btrend|daily|weekly|monthly|by day|by hour|over time\b/.test(text) ? { id: 'period', name: 'Period' } : { id: 'agent', name: 'Agent' }
+    const rate = /\bacceptance|abandon|service level|success rate|conversion|adoption|retention|occupancy|utilization|fcr|first contact|escalation rate|rate\b/.test(text)
+    const duration = /\bhandle|handling|wait|wrap|talk|duration|minutes?|time\b/.test(text)
+    const metric = rate
+      ? { id: text.includes('acceptance') ? 'acceptanceRate' : text.includes('abandon') ? 'abandonmentRate' : text.includes('service level') ? 'serviceLevel' : text.includes('occupancy') ? 'occupancyRate' : 'rate', name: title.replace(/\b(?:per|by|trend|analysis|overview)\b/gi, '').replace(/\s+/g, ' ').trim() || 'Rate', unit: 'percent' as const, aggregation: 'mean' as const, formula: text.includes('acceptance') ? 'Accepted interactions ÷ offered interactions × 100.' : text.includes('abandon') ? 'Abandoned interactions ÷ offered interactions × 100.' : undefined }
+      : duration
+        ? { id: text.includes('wait') ? 'waitMinutes' : 'handlingMinutes', name: text.includes('wait') ? 'Wait time' : 'Handling minutes', unit: 'minutes' as const, aggregation: 'mean' as const }
+        : { id: 'count', name: /agent/i.test(text) ? 'Agent activity' : 'Interactions', unit: 'items' as const, aggregation: 'sum' as const }
+    const primary = content(`${metric.id}-by-${grouping.id}`, `${metric.name} by ${grouping.name.toLowerCase()}`, metric, grouping.id, grouping.name, true)
+    const trend = grouping.id === 'period' ? undefined : content(`${metric.id}-trend`, `${metric.name} trend`, metric, 'period', 'Period')
+    return trend ? [primary, trend] : [primary]
+  }
   if (/inbound|interactions|queue|omnichannel/i.test(`${category} ${title}`)) return [content('channel-volume', 'Interaction volume by channel', { id: 'count', name: 'Interactions', unit: 'items', aggregation: 'sum' }, 'channel', 'Channel', true), content('queue-rate', 'Rate by queue', { id: 'rate', name: 'Rate', unit: 'percent', aggregation: 'mean' }, 'queue', 'Queue'), content('period-trend', 'Interaction trend', { id: 'count', name: 'Interactions', unit: 'items', aggregation: 'sum' }, 'period', 'Period')]
   return [content('overview-count', type === 'dashboard' ? 'Overview volume' : `${title} volume`, { id: 'count', name: 'Count', unit: 'items', aggregation: 'sum' }, 'period', 'Period', true)]
 }
