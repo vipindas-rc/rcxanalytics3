@@ -18,7 +18,10 @@ import {
   type ModalId,
 } from "@/hooks/useUrlState";
 import { trackEvent } from "@/lib/analytics";
-import { ShellIcon, SupervisorShell } from "@/components/shell/SupervisorShell";
+import {
+  SupervisorHeader,
+  SupervisorShell,
+} from "@/components/shell/SupervisorShell";
 
 // Kept in sync with the proto InteractionPreview component's mode union.
 // (Declared locally so this page doesn't pull the excluded proto tree into tsc.)
@@ -1813,61 +1816,11 @@ export const SupervisorAgents = (): JSX.Element => {
       activeArea="agent"
       onNavigate={(target) => navigate(target)}
       header={
-        <div className="relative flex h-full w-full items-center bg-[url('/figmaAssets/appbar-bg.svg')] bg-cover bg-center px-4 pl-5">
-          <div className="flex items-center gap-4">
-            <button type="button" className="relative">
-              <div
-                className="relative h-10 w-10 overflow-hidden rounded-full"
-                style={{ backgroundColor: "var(--sui-colors-neutral-base)" }}
-              >
-                <img
-                  className="h-full w-full object-cover"
-                  alt="Image"
-                  src="/figmaAssets/image-1-1.png"
-                />
-              </div>
-              <ShellIcon
-                src="/figmaAssets/presence.svg"
-                className="absolute bottom-0 right-0 h-3.5 w-3.5"
-                tone="static"
-              />
-            </button>
-            <h1
-              className="font-headline-2 text-[length:var(--headline-2-font-size)] font-[number:var(--headline-2-font-weight)] leading-[var(--headline-2-line-height)] tracking-[var(--headline-2-letter-spacing)] [font-style:var(--headline-2-font-style)]"
-              style={{ color: "var(--sui-colors-neutral-static-w0)" }}
-            >
-              RingCentral, Inc.
-            </h1>
-          <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                className="h-8 w-8 rounded-full bg-[var(--sui-colors-neutral-static-w0-t20)] p-0 hover:opacity-80"
-              >
-                <ShellIcon src="/figmaAssets/icon-chevron-left.svg" tone="static" />
-              </Button>
-              <Button
-                variant="ghost"
-                className="h-8 w-8 rounded-full bg-[var(--sui-colors-neutral-static-w0-t10)] p-0 hover:opacity-80"
-              >
-                <ShellIcon src="/figmaAssets/icon-chevron-right.svg" tone="static" />
-              </Button>
-            </div>
-          </div>
-          <div className="flex flex-1 px-2 pl-3 pr-3">
-            <div className="relative w-full max-w-[468px]">
-              <div className="pointer-events-none absolute inset-0 rounded-full bg-[var(--sui-colors-neutral-static-w0-t20)]" />
-              <div className="relative flex h-8 items-center gap-2 px-3">
-                <ShellIcon src="/figmaAssets/icon-search-nav.svg" tone="static" />
-                <span
-                  className="font-button text-[length:var(--button-font-size)] font-[number:var(--button-font-weight)] leading-[var(--button-line-height)] tracking-[var(--button-letter-spacing)] opacity-60 [font-style:var(--button-font-style)]"
-                  style={{ color: "var(--sui-colors-neutral-static-w0)" }}
-                >
-                  Search
-                </span>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 self-stretch">
+        <SupervisorHeader
+          engaged={isEngaged}
+          elapsed={headerSession ? headerSessionElapsed : availableElapsed}
+          activeControls={
+            <div className="flex items-center gap-2 self-stretch">
             {headerSession ? (
               /* Active call chip: dark bar with the caller number, live timer,
                  mute toggle and hang-up (design ref: RingCX top-bar call). */
@@ -2017,44 +1970,9 @@ export const SupervisorAgents = (): JSX.Element => {
                 </button>
               </div>
             ) : null}
-                        <button
-              type="button"
-              className="flex h-8 w-[164px] items-center gap-1 rounded-2xl bg-[var(--sui-colors-neutral-base)] px-3"
-              data-testid="button-presence-status"
-            >
-              {isEngaged ? (
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full bg-[var(--sui-colors-danger-f)]"
-                  aria-hidden
-                />
-              ) : (
-                <ShellIcon src="/figmaAssets/presence.svg" className="h-3.5 w-3.5" />
-              )}
-              <ShellIcon src="/figmaAssets/icon-engage-border.svg" />
-              <div className="flex flex-1 items-center justify-between gap-1" style={{ color: "var(--sui-colors-neutral-b1)" }}>
-                <span className="font-caption-1 text-[length:var(--caption-1-font-size)] font-[number:var(--caption-1-font-weight)] leading-[var(--caption-1-line-height)] tracking-[var(--caption-1-letter-spacing)] [font-style:var(--caption-1-font-style)]">
-                  {isEngaged ? "Engaged" : "Available"}
-                </span>
-                <span className="whitespace-nowrap font-caption-1 text-[length:var(--caption-1-font-size)] font-[number:var(--caption-1-font-weight)] leading-[var(--caption-1-line-height)] tracking-[var(--caption-1-letter-spacing)] [font-style:var(--caption-1-font-style)]">
-                  {headerSession ? headerSessionElapsed : availableElapsed}
-                </span>
-              </div>
-              <ShellIcon src="/figmaAssets/icon-arrow-down.svg" />
-            </button>
-            <Button
-              variant="secondary"
-              className="h-8 w-8 rounded-full bg-[var(--sui-colors-neutral-base)] p-0 shadow-none hover:bg-[var(--sui-colors-neutral-b5)]"
-            >
-              <ShellIcon src="/figmaAssets/icon-dialer-s.svg" />
-            </Button>
-            <Button
-              variant="secondary"
-              className="h-8 w-8 rounded-full bg-[var(--sui-colors-neutral-base)] p-0 shadow-none hover:bg-[var(--sui-colors-neutral-b5)]"
-            >
-              <ShellIcon src="/figmaAssets/icon-call-add.svg" />
-            </Button>
-          </div>
-        </div>
+            </div>
+          }
+        />
       }
     >
       <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
