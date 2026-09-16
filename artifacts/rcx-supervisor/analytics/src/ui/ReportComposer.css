@@ -6,10 +6,10 @@
 .report-composer-field .sui-form-field-focus-effect { display:none; }
 .report-composer-field textarea,.report-composer-field .sui-textarea-input { box-sizing:border-box; width:100%; min-width:0; border:0!important; box-shadow:none!important; outline:none!important; resize:none; font:inherit; font-size:15px; line-height:1.6; }
 .report-composer-field.has-report textarea { padding-top:42px!important; }
-.report-composer-chip { position:absolute; z-index:2; top:8px; left:10px; display:inline-flex; width:auto; max-width:calc(100% - 20px); align-items:center; gap:7px; min-height:26px; padding:3px 5px 3px 9px; border:1px solid var(--sui-colors-neutral-b4); border-radius:999px; background:var(--sui-colors-neutral-b5); }
-.report-composer-chip-copy { display:flex; min-width:0; align-items:center; gap:8px; font-size:12px; line-height:1.35; }
+.report-composer-chip { position:absolute; z-index:2; top:8px; left:10px; display:inline-flex; width:auto; max-width:calc(100% - 20px); align-items:center; gap:7px; min-height:28px; padding:3px 5px 3px 10px; border:1px solid var(--sui-colors-neutral-b4); border-radius:9px; background:var(--sui-colors-neutral-b5); box-shadow:var(--sui-box-shadow-xs); }
+.report-composer-chip-copy { display:flex; min-width:0; align-items:center; gap:7px; font-size:12px; line-height:1.35; }
 .report-composer-chip-copy span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
-.report-composer-chip-copy span:last-child { color:var(--sui-colors-neutral-b2); white-space:nowrap; }
+.report-composer-chip-copy span:last-child { padding:2px 6px; border-radius:999px; background:var(--sui-colors-neutral-b4-t50); color:var(--sui-colors-neutral-b2); white-space:nowrap; }
 .report-composer-chip-remove { display:grid; width:22px; height:22px; place-items:center; padding:0; border:0; border-radius:999px; background:transparent; color:var(--sui-colors-neutral-b1); cursor:pointer; font:inherit; font-size:16px; line-height:1; }
 .report-composer-chip-remove:hover { background:var(--sui-colors-neutral-b4-t50); }
 .report-composer-chip-remove:focus-visible,.report-composer-option:focus-visible { outline:2px solid var(--sui-colors-primary-f); outline-offset:-2px; }

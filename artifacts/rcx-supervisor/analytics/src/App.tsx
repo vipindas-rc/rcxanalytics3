@@ -1946,7 +1946,7 @@ export default function App() {
                       <div ref={end} />
                     </div>
                   </div>
-                  <div className="anchored-composer">{composer}</div>
+                  <div className="anchored-composer border-t-[0px]">{composer}</div>
                 </>
               )
             ) : destination === "briefing" ? (

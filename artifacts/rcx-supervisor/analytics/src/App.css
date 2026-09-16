@@ -44,9 +44,9 @@
 .welcome h2 { font-size:30px; line-height:1.3; letter-spacing:-.5px; font-weight:500; text-align:center; }
 .welcome-content>p { color:var(--muted); text-align:center; margin:12px 0 28px; }
 .composer-wrap { width:100%; }
-.composer { display:flex; align-items:center; gap:8px; border:1px solid var(--sui-colors-neutral-b4); border-radius:14px; padding:8px 12px; background:var(--surface); }
+.composer { display:flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:16px; padding:7px 10px 7px 14px; background:var(--surface); box-shadow:var(--sui-box-shadow-sm); transition:border-color 160ms ease,box-shadow 160ms ease; }
 .composer>.report-composer { flex:1; min-width:0; }
-.composer:focus-within { outline:2px solid var(--sui-colors-primary-f); outline-offset:2px; }
+.composer:focus-within { border-color:var(--sui-colors-primary-f); box-shadow:0 0 0 2px var(--sui-colors-primary-f),var(--sui-box-shadow-sm); }
 .composer [class*="Textarea"] { width:100%; }
 .composer textarea { border:0!important; box-shadow:none!important; outline:none!important; resize:none; font-family:inherit; font-size:15px; line-height:1.6; }
 .composer-bottom { flex:none; padding:0; justify-content:flex-end; }
@@ -90,7 +90,7 @@
 .turn-report-context span:nth-child(2) { padding:2px 7px; border:1px solid var(--line); border-radius:999px; background:var(--soft); color:var(--ink); font-weight:500; }
 .conversation-turn.user { padding:14px 18px; margin-left:auto; max-width:78%; background:var(--soft); border:1px solid var(--line); border-radius:12px; }
 .conversation-turn.user p { margin:0; }
-.anchored-composer { position:relative; z-index:2; flex-shrink:0; width:min(100%,860px); margin:auto; padding:12px 28px 18px; background:var(--surface); box-shadow:var(--sui-box-shadow-xs); }
+.anchored-composer { position:relative; z-index:2; flex-shrink:0; width:min(100%,860px); margin:auto; padding:12px 28px 20px; background:var(--surface); border-top:1px solid var(--line); }
 .context-chip { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 12px; font-size:12px; background:var(--soft); border-radius:8px; margin-bottom:8px; }
 .report-card { position:relative; min-width:0; border:1px solid var(--line); border-radius:18px; background:var(--surface); overflow:visible; margin:30px 0 22px; box-shadow:var(--sui-box-shadow-xs); }
 .conversation-turn.assistant .report-card { background:var(--surface); }
