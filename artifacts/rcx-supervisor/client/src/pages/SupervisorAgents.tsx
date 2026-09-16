@@ -1090,27 +1090,20 @@ export const SupervisorAgents = (): JSX.Element => {
     ? activePreviewElapsed
     : monitoringElapsed;
   const isEngaged = !!headerSession;
-  const [availableSinceMs, setAvailableSinceMs] = useState(
-    () => Date.now() - (21 * 60 + 1) * 1000,
-  );
-  const wasEngagedRef = useRef(isEngaged);
-  useEffect(() => {
-    if (wasEngagedRef.current && !isEngaged) {
-      setAvailableSinceMs(Date.now());
-    }
-    wasEngagedRef.current = isEngaged;
-  }, [isEngaged]);
-  const availableElapsed = useElapsedSince(isEngaged ? null : availableSinceMs);
   const { setState: setHeaderState } = useSupervisorHeaderState();
+  const engagementStartedAtMs = activePreviewCall
+    ? activePreviewCall.acceptedAtMs
+    : monitoringSession?.startedAtMs ?? null;
 
   useEffect(() => {
-    setHeaderState({
+    setHeaderState((current) => ({
+      ...current,
       engaged: isEngaged,
-      elapsed: isEngaged ? headerSessionElapsed : availableElapsed,
-    });
-    return () => setHeaderState({});
+      engagedSinceMs: isEngaged ? engagementStartedAtMs ?? Date.now() : undefined,
+      elapsed: isEngaged ? headerSessionElapsed : undefined,
+    }));
   }, [
-    availableElapsed,
+    engagementStartedAtMs,
     headerSessionElapsed,
     isEngaged,
     setHeaderState,

@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
@@ -24,6 +25,8 @@ type ShellProps = NavigationProps & {
 export type SupervisorHeaderState = {
   engaged?: boolean;
   elapsed?: string;
+  engagedSinceMs?: number;
+  availableSinceMs?: number;
 };
 
 type SupervisorHeaderStateContextValue = {
@@ -223,15 +226,14 @@ export function SupervisorHeader({
   const headerContext = useContext(SupervisorHeaderStateContext);
   const resolvedEngaged = headerContext?.state.engaged ?? engaged;
   const resolvedElapsed = headerContext?.state.elapsed ?? elapsed;
-  const [availableSeconds, setAvailableSeconds] = useState(0);
-  useEffect(() => {
-    const timer = window.setInterval(() => setAvailableSeconds((seconds) => seconds + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
+  const elapsedSince = resolvedEngaged
+    ? headerContext?.state.engagedSinceMs ?? null
+    : headerContext?.state.availableSinceMs ?? null;
+  const liveElapsed = useShellElapsedSince(elapsedSince);
   const neutralSurface = "var(--sui-colors-neutral-w0)";
   const headerOverlay = "var(--sui-colors-neutral-static-w0-t20)";
   const foreground = "var(--sui-colors-neutral-b1)";
-  const liveElapsed = `${String(Math.floor(availableSeconds / 60)).padStart(2, "0")}:${String(availableSeconds % 60).padStart(2, "0")}`;
+  const displayElapsed = elapsedSince === null ? resolvedElapsed ?? liveElapsed : liveElapsed;
 
   return (
     <div className="relative flex h-full w-full items-center bg-[url('/figmaAssets/appbar-bg.svg')] bg-cover bg-center px-4 pl-5">
@@ -276,7 +278,7 @@ export function SupervisorHeader({
           <ShellIcon src="/figmaAssets/icon-engage-border.svg" />
           <div className="flex flex-1 items-center justify-between gap-1" style={{ color: foreground }}>
             <span className="font-caption-1">{resolvedEngaged ? "Engaged" : "Available"}</span>
-            <span className="whitespace-nowrap font-caption-1">{resolvedElapsed ?? liveElapsed}</span>
+            <span className="whitespace-nowrap font-caption-1">{displayElapsed}</span>
           </div>
           <ShellIcon src="/figmaAssets/icon-arrow-down.svg" />
         </Button>
@@ -291,13 +293,47 @@ export function SupervisorHeader({
   );
 }
 
+function formatElapsed(sinceMs: number | null) {
+  if (sinceMs === null) return "00:00";
+  const totalSeconds = Math.max(0, Math.floor((Date.now() - sinceMs) / 1000));
+  return `${String(Math.floor(totalSeconds / 60)).padStart(2, "0")}:${String(totalSeconds % 60).padStart(2, "0")}`;
+}
+
+function useShellElapsedSince(sinceMs: number | null) {
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    if (sinceMs === null) return;
+    const timer = window.setInterval(() => setTick((tick) => tick + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [sinceMs]);
+
+  return formatElapsed(sinceMs);
+}
+
 /**
  * Shared structural shell. The header is a slot because legacy Supervisor
  * augments it with call controls while Analytics deliberately avoids those
  * proto stores and their eager imports.
  */
 export function SupervisorShell({ children, header, ...navigation }: ShellProps) {
-  const [headerState, setHeaderState] = useState<SupervisorHeaderState>({});
+  const [headerState, setHeaderState] = useState<SupervisorHeaderState>(() => ({
+    engaged: false,
+    availableSinceMs: Date.now() - (21 * 60 + 1) * 1000,
+  }));
+  const wasEngagedRef = useRef(false);
+
+  useEffect(() => {
+    const isEngaged = Boolean(headerState.engaged);
+    if (wasEngagedRef.current && !isEngaged) {
+      setHeaderState((current) => ({
+        ...current,
+        availableSinceMs: Date.now(),
+        engagedSinceMs: undefined,
+      }));
+    }
+    wasEngagedRef.current = isEngaged;
+  }, [headerState.engaged]);
 
   return (
     <SupervisorHeaderStateContext.Provider value={{ state: headerState, setState: setHeaderState }}>

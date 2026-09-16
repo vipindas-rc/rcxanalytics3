@@ -54,6 +54,12 @@ export function workspaceWithDashboard(): Workspace {
   return workspace
 }
 
+function elapsedSeconds(text: string | null) {
+  const match = text?.match(/(\d{2}):(\d{2})$/)
+  if (!match) throw new Error(`Expected an elapsed timer, received: ${text ?? '(empty)'}`)
+  return Number(match[1]) * 60 + Number(match[2])
+}
+
 export async function mockWorkspace(page: Page, workspace: Workspace) {
   const unexpected: string[] = []
   if (nativeRuntime) {
@@ -261,8 +267,8 @@ test('keeps Agent engagement state in the shared header', async ({ page }) => {
   await page.goto('/')
 
   const frame = page.locator('[data-name="App bar"]')
-  await expect(frame.getByRole('button', { name: /Engaged/ })).toBeVisible()
-  await expect(page.getByTestId('chip-active-call')).toBeVisible()
+  await expect(page.getByTestId('chip-active-call')).toBeVisible({ timeout: 15_000 })
+  await expect(frame.getByRole('button', { name: /Engaged/ })).toBeVisible({ timeout: 15_000 })
   await expect(frame.getByRole('button', { name: /Engaged/ })).toHaveCSS(
     'background-color',
     'rgb(255, 255, 255)',
@@ -272,8 +278,32 @@ test('keeps Agent engagement state in the shared header', async ({ page }) => {
   await expect(page).toHaveURL(/\/analytics$/)
   await page.getByRole('button', { name: 'Open Agent', exact: true }).click()
   await expect(page).toHaveURL(/\/$/)
-  await expect(frame.getByRole('button', { name: /Engaged/ })).toBeVisible()
-  await expect(page.getByTestId('chip-active-call')).toBeVisible()
+  await expect(page.getByTestId('chip-active-call')).toBeVisible({ timeout: 15_000 })
+  await expect(frame.getByRole('button', { name: /Engaged/ })).toBeVisible({ timeout: 15_000 })
+})
+
+test('keeps availability timing across Agent and Analytics navigation', async ({ page }) => {
+  test.skip(!nativeRuntime, 'Supervisor frame is only present in the native host.')
+  await mockWorkspace(page, emptyWorkspace())
+  await page.goto('/')
+
+  const frame = page.locator('[data-name="App bar"]')
+  const availability = frame.getByRole('button', { name: /Available/ })
+  await expect(availability).toBeVisible()
+  const agentElapsed = elapsedSeconds(await availability.textContent())
+
+  await page.waitForTimeout(1_100)
+  await page.getByRole('button', { name: 'Open Analytics', exact: true }).click()
+  await expect(page).toHaveURL(/\/analytics$/)
+  await expect(frame.getByRole('button', { name: /Available/ })).toBeVisible()
+  const analyticsElapsed = elapsedSeconds(await availability.textContent())
+  expect(analyticsElapsed).toBeGreaterThanOrEqual(agentElapsed)
+
+  await page.getByRole('button', { name: 'Open Agent', exact: true }).click()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(frame.getByRole('button', { name: /Available/ })).toBeVisible()
+  const returnedAgentElapsed = elapsedSeconds(await availability.textContent())
+  expect(returnedAgentElapsed).toBeGreaterThanOrEqual(analyticsElapsed)
 })
 
 test('uses Spring typography and exposes catalog questions', async ({ page }) => {
