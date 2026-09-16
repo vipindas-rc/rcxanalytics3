@@ -1,4 +1,4 @@
-module.exports = {
+export default {
   content: ["./client/index.html", "./client/src/**/*.{js,jsx,ts,tsx}",
     "./src/**/*.{html,js,ts,jsx,tsx}",
     "app/**/*.{ts,tsx}",
@@ -100,6 +100,9 @@ module.exports = {
     },
     container: { center: true, padding: "2rem", screens: { "2xl": "1400px" } },
   },
-  plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
+  // Keep this config browser-safe. Replit's element picker imports the root
+  // Tailwind config to resolve selected classes. Build-only plugins belong in
+  // tailwind.config.build.ts so they do not become browser dependencies.
+  plugins: [],
   darkMode: ["class"],
 };

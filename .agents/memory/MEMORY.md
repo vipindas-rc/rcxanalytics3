@@ -8,3 +8,5 @@
 - [Analytics isolation](analytics-isolation.md) — native integration must preserve source portability and isolate feature-specific loading and styling.
 - [Analytics record navigation](analytics-record-navigation.md) — refresh newly created sessions before navigating to their URL, or missing-record banners can flash.
 - [Analytics capability contracts](analytics-capability-contracts.md) — selected catalog content is authoritative; persisted synthetic dataset identities must include definition versions.
+- [Analytics validation harness](analytics-validation.md) — standalone fixture E2E, native gateway browser checks, and deterministic Vitest use separate runners.
+- [Cartographer Tailwind config](cartographer-tailwind-config.md) — keep the root config browser-safe; load build-only Tailwind plugins through a separate PostCSS config.

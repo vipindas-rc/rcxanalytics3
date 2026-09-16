@@ -12,6 +12,7 @@ const protoDir = path.resolve(import.meta.dirname, "client", "src", "proto");
 // they get a catch-all proxy so named imports resolve to safe no-ops.
 const STUB_RE = /(^|\/)common\/(services|directives)\//;
 const WMC = "@ringcentral/web-modules-core";
+const isReplitPreview = process.env.REPL_ID !== undefined;
 
 // The vendored RingCX code uses generic JSX elements (e.g. `<GridList<Row, Sel>`).
 // Neither esbuild nor Replit's cartographer metadata transform can handle that
@@ -104,7 +105,12 @@ export default defineConfig({
   plugins: [
     stubEagAngular,
     react({ exclude: [/[\\/]proto[\\/]/] }),
-    runtimeErrorOverlay(),
+    // Replit's Beacon element picker runs in this same window and owns its
+    // runtime failures. The generic overlay listens globally and turns
+    // Beacon/Tailwind picker errors into an app crash. Replit's preview
+    // already reports those errors; keep the overlay for local development
+    // where it only observes application code.
+    ...(!isReplitPreview ? [runtimeErrorOverlay()] : []),
     ...(process.env.NODE_ENV !== "production" &&
     process.env.REPL_ID !== undefined
       ? [

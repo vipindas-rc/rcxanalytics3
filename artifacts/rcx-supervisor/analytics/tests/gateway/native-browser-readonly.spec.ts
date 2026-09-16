@@ -70,7 +70,6 @@ test.describe('native Analytics read-only browser parity', () => {
   test('reaches every top-level destination through its canonical native route', async ({ page }) => {
     const blocked = await installReadOnlyGuard(page)
     const destinations = [
-      ['/analytics/projects', 'Projects'],
       ['/analytics/saved', 'Saved charts'],
       ['/analytics/dashboards', 'Dashboards'],
       ['/analytics/briefing', 'AI suggestions'],

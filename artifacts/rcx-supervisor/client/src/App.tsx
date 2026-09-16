@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, startTransition, useEffect } from "react";
 import { Route, Switch, useLocation } from "wouter";
 import { ThemeProvider, suiLight } from "@ringcentral/spring-theme";
 import NotFound from "@/pages/not-found";
@@ -8,7 +8,11 @@ const AnalyticsRoute = lazy(() => import("@/routes/AnalyticsRoute"));
 const SupervisorRoute = lazy(() => import("@/routes/SupervisorRoute"));
 
 function RouteLoading() {
-  return <div className="flex h-screen items-center justify-center">Loading…</div>;
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center self-stretch">
+      Loading…
+    </div>
+  );
 }
 
 function LegacyAnalyticsRedirect() {
@@ -54,7 +58,11 @@ function Router() {
     <ThemeProvider theme={suiLight} scope="supervisor-shell" className="contents">
       <SupervisorShell
         activeArea={isAnalytics ? "analytics" : "agent"}
-        onNavigate={(path) => navigate(path)}
+        onNavigate={(path) => {
+          startTransition(() => {
+            navigate(path);
+          });
+        }}
         header={<SupervisorHeader />}
       >
         {routeContent}

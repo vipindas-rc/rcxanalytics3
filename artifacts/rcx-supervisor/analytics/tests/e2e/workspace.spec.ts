@@ -54,6 +54,23 @@ export function workspaceWithDashboard(): Workspace {
   return workspace
 }
 
+export function workspaceWithLongNavigation(): Workspace {
+  const workspace = emptyWorkspace()
+  workspace.projects = Array.from({ length: 18 }, (_, index) => ({
+    id: `project-${index + 1}`,
+    name: `Workspace project ${index + 1}`,
+  }))
+  workspace.sessions = Array.from({ length: 36 }, (_, index) => ({
+    id: `session-${index + 1}`,
+    title: `Conversation ${index + 1}`,
+    projectId: null,
+    createdAt: today,
+    updatedAt: new Date(Date.parse(today) + index * 60_000).toISOString(),
+    messages: [],
+  }))
+  return workspace
+}
+
 function elapsedSeconds(text: string | null) {
   const match = text?.match(/(\d{2}):(\d{2})$/)
   if (!match) throw new Error(`Expected an elapsed timer, received: ${text ?? '(empty)'}`)
@@ -131,7 +148,7 @@ export async function openHistoricalConversation(page: Page, width = 1440) {
 }
 
 test('welcome starter fills the composer without sending a request', async ({ page }) => {
-  const unexpected = await mockWorkspace(page, emptyWorkspace())
+  const unexpected = await mockWorkspace(page, workspaceWithLongNavigation())
   await page.goto(appPath())
   await expect(page.getByRole('heading', { name: 'What would you like to understand?' })).toBeVisible()
   await expect(page.getByText('This Analytics link no longer points to an available record.')).toHaveCount(0)
@@ -141,7 +158,7 @@ test('welcome starter fills the composer without sending a request', async ({ pa
 })
 
 test('slash report picker scopes a question without submitting it', async ({ page }) => {
-  const unexpected = await mockWorkspace(page, emptyWorkspace())
+  const unexpected = await mockWorkspace(page, workspaceWithLongNavigation())
   await page.goto(appPath())
   const composer = page.getByRole('combobox', { name: 'Ask an analytics question' })
   await composer.fill('/agent activity overview')
@@ -171,8 +188,45 @@ test('a selected dashboard exposes source-backed contents before sending a reque
   expect(submitted).toMatchObject({ question: 'Show Queue abandonment rate.', reportId: 'contact-center-activity-overview', selectedContentIds: ['queue-abandonment-rate'], presentationPreference: 'auto' })
 })
 
+test('projects expose dashboards as collapsible folder children', async ({ page }) => {
+  await mockWorkspace(page, workspaceWithDashboard())
+  await page.goto(appPath())
+
+  const dashboardGroup = page.getByRole('group', { name: 'Analytics dashboards' })
+  await expect(dashboardGroup).toBeVisible()
+  await expect(dashboardGroup.getByRole('button', { name: 'Team dashboard', exact: true })).toBeVisible()
+
+  const project = page.getByRole('button', { name: 'Analytics', exact: true })
+  await expect(project).toHaveAttribute('aria-expanded', 'true')
+  await project.click()
+  await expect(dashboardGroup).toBeHidden()
+  await expect(project).toHaveAttribute('aria-expanded', 'false')
+  await project.click()
+  await expect(dashboardGroup).toBeVisible()
+
+  await dashboardGroup.getByRole('button', { name: 'Team dashboard', exact: true }).click()
+  await expect(page).toHaveURL(new RegExp(`${appPath('/dashboards/dashboard-team')}$`))
+  await expect(page.locator('.sidebar-dashboard-item.selected')).toContainText('Team dashboard')
+
+  await project.click()
+  await expect(project).toHaveAttribute('aria-expanded', 'false')
+  await expect(dashboardGroup).toBeHidden()
+  await project.click()
+  await expect(project).toHaveAttribute('aria-expanded', 'true')
+  await expect(dashboardGroup).toBeVisible()
+})
+
+test('project deep links open a dashboard instead of a project home', async ({ page }) => {
+  await mockWorkspace(page, workspaceWithDashboard())
+  await page.goto(appPath('/projects/project-analytics'))
+
+  await expect(page).toHaveURL(new RegExp(`${appPath('/dashboards/dashboard-team')}$`))
+  await expect(page.locator('.main-header').getByRole('heading', { name: 'Team dashboard', exact: true })).toBeVisible()
+  await expect(page.locator('.project-collection')).toHaveCount(0)
+})
+
 test('a text response keeps progress inside the conversation and removes it after the reply', async ({ page }) => {
-  const workspace = emptyWorkspace()
+  const workspace = workspaceWithConversation()
   workspace.sessions.push({ id: 'session-status', title: 'Status request', projectId: null, createdAt: today, updatedAt: today, messages: [{ id: 'status-user', role: 'user', text: 'Show sales.', createdAt: today, requestId: 'request-status' }] })
   workspace.requests.push({ id: 'request-status', sessionId: 'session-status', question: 'Show sales.', status: 'pending', phase: 'Analyzing your question', userMessageId: 'status-user', createdAt: today })
   await mockWorkspace(page, workspace)
@@ -194,19 +248,6 @@ test('a text response keeps progress inside the conversation and removes it afte
   await expect(page.locator('.conversation-content').getByText('Ready.', { exact: true })).toBeVisible()
 })
 
-test('uses the compact native sidebar with projects and briefing', async ({ page }) => {
-  await mockWorkspace(page, emptyWorkspace())
-  await page.goto(appPath())
-  await expect(page.getByRole('button', { name: 'Collapse sidebar' })).toHaveCount(0)
-  await expect(page.getByText('Projects', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Saved charts', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Dashboards', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Reset workspace', exact: true })).toBeVisible()
-  await expect(page.getByText('RCX Analytics 3.0 · Local concept', { exact: true })).toHaveCount(0)
-  await page.getByRole('button', { name: 'AI suggestions' }).click()
-  await expect(page.getByRole('heading', { name: 'Morning supervisor briefing' })).toBeVisible()
-})
-
 test('native top-level destinations preserve canonical URLs', async ({ page }) => {
   const workspace = workspaceWithDashboard()
   workspace.savedCharts.push({
@@ -217,7 +258,6 @@ test('native top-level destinations preserve canonical URLs', async ({ page }) =
   })
   await mockWorkspace(page, workspace)
   const destinations = [
-    ['/projects', 'Projects'],
     ['/saved', 'Saved charts'],
     ['/dashboards', 'Dashboards'],
     ['/briefing', 'AI suggestions'],
@@ -235,35 +275,24 @@ test('keeps the Supervisor frame mounted across native navigation', async ({ pag
   await page.goto(appPath())
 
   const frame = page.locator('[data-name="App bar"]')
-  await expect(frame).toBeVisible()
-  await frame.evaluate(element => element.setAttribute('data-frame-instance', 'stable'))
-
-  await page.getByRole('button', { name: 'Open Agent', exact: true }).click()
-  await expect(page).toHaveURL(/\/$/)
-  await expect(frame).toHaveAttribute('data-frame-instance', 'stable')
+  await expect(page.getByTestId('chip-active-call')).toBeVisible({ timeout: 15_000 })
+  await expect(frame.getByRole('button', { name: /Engaged/ })).toBeVisible({ timeout: 15_000 })
+  await expect(frame.getByRole('button', { name: /Engaged/ })).toHaveCSS(
+    'background-color',
+    'rgb(255, 255, 255)',
+  )
 
   await page.getByRole('button', { name: 'Open Analytics', exact: true }).click()
   await expect(page).toHaveURL(/\/analytics$/)
-  await expect(frame).toHaveAttribute('data-frame-instance', 'stable')
+  await page.getByRole('button', { name: 'Open Agent', exact: true }).click()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByTestId('chip-active-call')).toBeVisible({ timeout: 15_000 })
+  await expect(frame.getByRole('button', { name: /Engaged/ })).toBeVisible({ timeout: 15_000 })
 })
 
-test('keeps Agent engagement state in the shared header', async ({ page }) => {
+test('keeps active call state across Agent and Analytics navigation', async ({ page }) => {
   test.skip(!nativeRuntime, 'Supervisor frame is only present in the native host.')
   await mockWorkspace(page, emptyWorkspace())
-  await page.addInitScript(() => {
-    sessionStorage.setItem('rcx-active-preview-call', JSON.stringify({
-      number: '+1 555 010 2020',
-      queueName: 'Voice queue 2',
-      engagementId: 'engagement-header-state',
-      acceptedAtMs: Date.now() - 5_000,
-      muted: false,
-      origin: 'preview',
-      detailsPath: '/active-call/preview',
-      agentId: 'agent-header-state',
-      agentName: 'Header state agent',
-      agentType: 'Human',
-    }))
-  })
   await page.goto('/')
 
   const frame = page.locator('[data-name="App bar"]')
@@ -314,7 +343,7 @@ test('uses Spring typography and exposes catalog questions', async ({ page }) =>
   await expect(page.getByRole('combobox', { name: 'Ask an analytics question' })).toHaveValue(/abandonment rates across five fictional queues/i)
   await page.getByRole('button', { name: /Browse questions/i }).click()
   await expect(page.getByRole('button', { name: /Campaign success/i })).toBeVisible()
-  const dialog = page.locator('.catalog-dialog-content')
+  const dialog = page.getByRole('dialog').filter({ hasText: 'Add chart to project' })
   const bounds = await dialog.boundingBox()
   expect(bounds?.width).toBeGreaterThan(500)
   const surface = page.locator('.sui-dialog-body').filter({ has: dialog })
@@ -339,7 +368,7 @@ test('lays dashboard widgets out as a readable grid without a nested action stri
     await route.fulfill({ json: workspace.dashboards[0] })
   })
   await page.goto(appPath('/dashboards'))
-  await page.getByRole('button', { name: 'Team dashboard' }).click()
+  await page.getByRole('button', { name: 'Team dashboard · 3 widgets', exact: true }).click()
   const widgets = page.locator('.dashboard-widget')
   await expect(widgets).toHaveCount(3)
   await expect(widgets.first().locator('.widget-tools')).toBeHidden()
@@ -491,5 +520,35 @@ for (const width of [375, 768, 1024, 1440]) {
     await expect(page.getByText('All five regions are represented in this synthetic report.')).toBeVisible()
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
     expect(overflow).toBeLessThanOrEqual(1)
+  })
+}
+
+for (const width of [375, 1440]) {
+  test(`long navigation scrolls while reset stays anchored at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 })
+    await mockWorkspace(page, workspaceWithLongNavigation())
+    await page.goto(appPath())
+    if (width <= 850) await page.getByRole('button', { name: 'Toggle sidebar' }).click()
+
+    const sidebar = page.locator('.workspace-sidebar')
+    const scroll = sidebar.locator('.sidebar-scroll')
+    const reset = sidebar.getByRole('button', { name: 'Reset workspace', exact: true })
+    await expect(sidebar).toBeVisible()
+    await expect(reset).toBeVisible()
+
+    const initialResetBox = await reset.boundingBox()
+    expect(initialResetBox).not.toBeNull()
+    expect(await scroll.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
+    expect(await scroll.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+
+    await scroll.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
+    await expect.poll(() => scroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+
+    const scrolledResetBox = await reset.boundingBox()
+    expect(scrolledResetBox).not.toBeNull()
+    expect(Math.abs(scrolledResetBox!.y - initialResetBox!.y)).toBeLessThanOrEqual(1)
+    expect(Math.abs((scrolledResetBox!.y + scrolledResetBox!.height) - (initialResetBox!.y + initialResetBox!.height))).toBeLessThanOrEqual(1)
   })
 }

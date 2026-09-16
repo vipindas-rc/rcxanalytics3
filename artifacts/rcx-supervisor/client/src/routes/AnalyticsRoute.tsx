@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { lazy, type ComponentType, type ReactNode } from "react";
 import { BrowserRouter, useLocation, useNavigate } from "react-router-dom";
 import { ThemeProvider, suiLight } from "@ringcentral/spring-theme";
 
@@ -58,9 +58,7 @@ export default function AnalyticsRoute() {
     <BrowserRouter>
       <ThemeProvider theme={suiLight} scope="analytics-native" className="contents">
         <section className="analytics-portal min-w-0 flex-1 overflow-hidden">
-          <Suspense fallback={<div className="flex h-full items-center justify-center">Loading Analytics…</div>}>
-            <AnalyticsApp />
-          </Suspense>
+          <AnalyticsApp />
         </section>
       </ThemeProvider>
     </BrowserRouter>

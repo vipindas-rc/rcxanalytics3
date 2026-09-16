@@ -24,8 +24,8 @@ import {
   PlusMd,
   SearchMd,
   FolderMd,
+  ChartMd,
   AiStarsMd,
-  EditPenMd,
   MenuMd,
   OverflowVerticalMd,
   ReplyMd,
@@ -189,11 +189,6 @@ export default function App() {
     (view: AnalyticsRouteView) => navigateAnalytics({ view }),
     [navigateAnalytics],
   );
-  const setProjectId = useCallback(
-    (nextProjectId: string | null) =>
-      navigateAnalytics({ view: "projects", projectId: nextProjectId }),
-    [navigateAnalytics],
-  );
   const setDashboardId = useCallback(
     (nextDashboardId: string | null) =>
       navigateAnalytics({ view: "dashboards", dashboardId: nextDashboardId }),
@@ -234,6 +229,9 @@ export default function App() {
   });
   const [sidebar, setSidebar] = useState(() => window.innerWidth > 850);
   const [sidebarScrolling, setSidebarScrolling] = useState(false);
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(
+    () => new Set(),
+  );
   const sidebarScrollTimeout = useRef<number | null>(null);
   const handleSidebarScroll = useCallback(() => {
     setSidebarScrolling(true);
@@ -594,6 +592,34 @@ export default function App() {
     setSelectedReport(reportId ? (findReport(reportId) ?? null) : null);
   }, [destination, activeId, projectId, dashboardId, workspace, active, searchParams]);
   const dashboard = workspace?.dashboards.find((d) => d.id === dashboardId);
+  const legacyProjectDashboard =
+    projectId && workspace
+      ? workspace.dashboards.find((item) => item.projectId === projectId)
+      : undefined;
+  useEffect(() => {
+    if (!workspace || destination !== "projects") return;
+    if (legacyProjectDashboard) {
+      navigateAnalytics(
+        {
+          view: "dashboards",
+          sessionId: null,
+          projectId: null,
+          dashboardId: legacyProjectDashboard.id,
+        },
+        true,
+      );
+      return;
+    }
+    navigateAnalytics(
+      {
+        view: "chats",
+        sessionId: null,
+        projectId: null,
+        dashboardId: null,
+      },
+      true,
+    );
+  }, [destination, legacyProjectDashboard, navigateAnalytics, projectId, workspace]);
   const advisorSession = workspace?.sessions.find((session) => session.advisor);
   const visibleAdvisorSession =
     advisorConversationId === undefined
@@ -639,9 +665,6 @@ export default function App() {
     !!workspace &&
     (route.invalidPath ||
       (destination === "chats" && !!activeId && !active) ||
-      (destination === "projects" &&
-        !!projectId &&
-        !workspace.projects.some((project) => project.id === projectId)) ||
       (destination === "dashboards" && !!dashboardId && !dashboard));
   useEffect(() => {
     if (advisorOpen && advisorArtifact && !advisorSourceContext)
@@ -1078,16 +1101,29 @@ export default function App() {
       }),
     [],
   );
+  const toggleProject = useCallback((projectIdToToggle: string) => {
+    setCollapsedProjects((current) => {
+      const next = new Set(current);
+      if (next.has(projectIdToToggle)) next.delete(projectIdToToggle);
+      else next.add(projectIdToToggle);
+      return next;
+    });
+  }, []);
+  const expandProject = useCallback((projectIdToExpand: string) => {
+    setCollapsedProjects((current) => {
+      if (!current.has(projectIdToExpand)) return current;
+      const next = new Set(current);
+      next.delete(projectIdToExpand);
+      return next;
+    });
+  }, []);
   const editName = (title: string, value: string, submit: Form["submit"]) =>
     setForm({ title, value, submit });
   const createProject = () =>
     editName("Create project", "", async (name) => {
-      const p = await api<{ id: string }>("/projects", "POST", { name });
-      navigateAnalytics({
-        view: "projects",
-        projectId: p.id,
-        dashboardId: null,
-      });
+      const project = await api<Project>("/projects", "POST", { name });
+      await refresh();
+      expandProject(project.id);
     });
   const createProjectInline = async () => {
     if (!projectCreateName.trim() || projectPickerBusy) return;
@@ -1535,42 +1571,42 @@ export default function App() {
   };
   const sidebarContent = (
     <aside className="workspace-sidebar">
-      <div className="sidebar-title">
-        <Text component="h1">RCX Analytics 3.0</Text>
-      </div>
-      <div className="sidebar-actions">
-        <Button
-          color="neutral"
-          variant="text"
-          startIcon={PlusMd}
-          onClick={newSession}
-        >
-          New session
-        </Button>
-        <Button
-          color="neutral"
-          variant="text"
-          startIcon={SearchMd}
-          onClick={() => setSearchOpen(true)}
-        >
-          Search conversations
-        </Button>
-        <Button
-          color="neutral"
-          variant="text"
-          startIcon={AiStarsMd}
-          onClick={() => {
-            setDestination("briefing");
-            if (narrow) setSidebar(false);
-          }}
-        >
-          AI suggestions
-        </Button>
-      </div>
       <div
         className={`sidebar-scroll ${sidebarScrolling ? "is-scrolling" : ""}`}
         onScroll={handleSidebarScroll}
       >
+        <div className="sidebar-title">
+          <Text component="h1">RCX Analytics 3.0</Text>
+        </div>
+        <div className="sidebar-actions">
+          <Button
+            color="neutral"
+            variant="text"
+            startIcon={PlusMd}
+            onClick={newSession}
+          >
+            New session
+          </Button>
+          <Button
+            color="neutral"
+            variant="text"
+            startIcon={SearchMd}
+            onClick={() => setSearchOpen(true)}
+          >
+            Search conversations
+          </Button>
+          <Button
+            color="neutral"
+            variant="text"
+            startIcon={AiStarsMd}
+            onClick={() => {
+              setDestination("briefing");
+              if (narrow) setSidebar(false);
+            }}
+          >
+            AI suggestions
+          </Button>
+        </div>
         <section className="sidebar-section">
           <div className="section-heading">
             <Text className="section-label">Projects</Text>
@@ -1583,37 +1619,76 @@ export default function App() {
               onClick={createProject}
             />
           </div>
-          {workspace?.projects.map((p) => (
-            <div
-              key={p.id}
-              className={`sidebar-item ${projectId === p.id && destination === "projects" ? "selected" : ""}`}
-            >
-              <Button
-                startIcon={FolderMd}
-                color="neutral"
-                variant="text"
-                className="nav-row"
-                onClick={() => {
-                  navigateAnalytics({
-                    view: "projects",
-                    projectId: p.id,
-                    sessionId: null,
-                    dashboardId: null,
-                  });
-                }}
+          {workspace?.projects.map((p) => {
+            const projectDashboards =
+              workspace.dashboards.filter((d) => d.projectId === p.id);
+            const hasActiveDashboard =
+              destination === "dashboards" &&
+              projectDashboards.some((d) => d.id === dashboardId);
+            const isExpanded = !collapsedProjects.has(p.id);
+            return (
+              <div
+                key={p.id}
+                className={`sidebar-project-group ${hasActiveDashboard ? "has-active-dashboard" : ""}`}
               >
-                {p.name}
-              </Button>
-              <IconButton
-                symbol={TrashMd}
-                title={`Delete ${p.name}`}
-                aria-label={`Delete ${p.name}`}
-                size="small"
-                color="neutral"
-                onClick={() => setProjectDelete(p)}
-              />
-            </div>
-          ))}
+                <div className="sidebar-item sidebar-project-row">
+                  <Button
+                    startIcon={FolderMd}
+                    color="neutral"
+                    variant="text"
+                    className="nav-row"
+                    title={`${isExpanded ? "Collapse" : "Expand"} ${p.name}`}
+                    aria-expanded={isExpanded}
+                    onClick={() => toggleProject(p.id)}
+                  >
+                    {p.name}
+                  </Button>
+                  <div className="sidebar-item-actions">
+                    <IconButton
+                      symbol={TrashMd}
+                      title={`Delete ${p.name}`}
+                      aria-label={`Delete ${p.name}`}
+                      size="small"
+                      color="neutral"
+                      onClick={() => setProjectDelete(p)}
+                    />
+                  </div>
+                </div>
+                {isExpanded && !!projectDashboards.length && (
+                  <div
+                    className="sidebar-project-children"
+                    role="group"
+                    aria-label={`${p.name} dashboards`}
+                  >
+                    {projectDashboards.map((d) => (
+                      <div
+                        key={d.id}
+                        className={`sidebar-item sidebar-dashboard-item ${destination === "dashboards" && dashboardId === d.id ? "selected" : ""}`}
+                      >
+                        <Button
+                          startIcon={ChartMd}
+                          color="neutral"
+                          variant="text"
+                          className="nav-row sidebar-dashboard-row"
+                          onClick={() => {
+                            expandProject(p.id);
+                            navigateAnalytics({
+                              view: "dashboards",
+                              projectId: null,
+                              sessionId: null,
+                              dashboardId: d.id,
+                            });
+                          }}
+                        >
+                          {d.title}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </section>
         <section className="sidebar-section">
           <Text className="section-label">Recent conversations</Text>
@@ -1633,14 +1708,16 @@ export default function App() {
                 >
                   {s.title}
                 </Button>
-                <IconButton
-                  symbol={TrashMd}
-                  title={`Delete ${s.title}`}
-                  aria-label={`Delete ${s.title}`}
-                  size="small"
-                  color="neutral"
-                  onClick={() => setDeleteConfirm(s)}
-                />
+                <div className="sidebar-item-actions">
+                  <IconButton
+                    symbol={TrashMd}
+                    title={`Delete ${s.title}`}
+                    aria-label={`Delete ${s.title}`}
+                    size="small"
+                    color="neutral"
+                    onClick={() => setDeleteConfirm(s)}
+                  />
+                </div>
               </div>
             ))}
           {!workspace?.sessions.length && (
@@ -2013,121 +2090,6 @@ export default function App() {
             ) : (
               <div className="collection-scroll">
                 <div className="collection-content">
-                  {destination === "projects" && (
-                    <>
-                      <div className="section-heading">
-                        <div className="project-workspace-title">
-                          <Text component="h2">
-                            {projectId
-                              ? "Project workspace"
-                              : "Keep related work together"}
-                          </Text>
-                          {projectId && (
-                            <IconButton
-                              symbol={EditPenMd}
-                              title="Rename project"
-                              aria-label="Rename project"
-                              size="small"
-                              color="neutral"
-                              onClick={() => {
-                                const p = workspace?.projects.find(
-                                  (p) => p.id === projectId,
-                                );
-                                if (p)
-                                  editName("Rename project", p.name, (name) =>
-                                    api(`/projects/${p.id}`, "PATCH", { name }),
-                                  );
-                              }}
-                            />
-                          )}
-                        </div>
-                        <Button color="neutral" onClick={createProject}>
-                          Create project
-                        </Button>
-                      </div>
-                      {projectId && (
-                        <div className="collection-actions">
-                          <Button
-                            color="neutral"
-                            onClick={() => createDashboard(projectId)}
-                          >
-                            Create dashboard
-                          </Button>
-                        </div>
-                      )}
-                      {workspace?.projects
-                        .filter((p) => !projectId || p.id === projectId)
-                        .map((p) => (
-                          <section key={p.id} className="project-collection">
-                            {!projectId && <Text component="h3">{p.name}</Text>}
-                            {workspace.sessions.some(
-                              (s) => s.projectId === p.id,
-                            ) && (
-                              <details className="project-conversations">
-                                <summary>
-                                  Conversations in this project (
-                                  {
-                                    workspace.sessions.filter(
-                                      (s) => s.projectId === p.id,
-                                    ).length
-                                  }
-                                  )
-                                </summary>
-                                {workspace.sessions
-                                  .filter((s) => s.projectId === p.id)
-                                  .map((s) => (
-                                    <Button
-                                      key={s.id}
-                                      className="collection-row"
-                                      color="neutral"
-                                      variant="text"
-                                      title={s.title}
-                                      aria-label={`Open conversation: ${s.title}`}
-                                      onClick={() => openSession(s)}
-                                    >
-                                      {s.title}
-                                    </Button>
-                                  ))}
-                              </details>
-                            )}
-                            {workspace.savedCharts
-                              .filter((s) => s.projectId === p.id)
-                              .map((s) =>
-                                chart(
-                                  s.artifactId,
-                                  false,
-                                  noFilters,
-                                  true,
-                                  undefined,
-                                  true,
-                                  undefined,
-                                  () =>
-                                    void run(() =>
-                                      api(`/saved-charts/${s.id}`, "DELETE"),
-                                    ),
-                                  "Remove from project",
-                                ),
-                              )}
-                            {workspace.dashboards
-                              .filter((d) => d.projectId === p.id)
-                              .map((d) => (
-                                <Button
-                                  key={d.id}
-                                  color="neutral"
-                                  className="collection-row"
-                                  variant="outlined"
-                                  onClick={() => {
-                                    setDashboardId(d.id);
-                                    setDestination("dashboards");
-                                  }}
-                                >
-                                  {d.title} · {d.widgets.length} widgets
-                                </Button>
-                              ))}
-                          </section>
-                        ))}
-                    </>
-                  )}
                   {destination === "saved" && (
                     <>
                       {!workspace?.savedCharts.length && (
@@ -2578,8 +2540,12 @@ export default function App() {
                     await api(`/projects/${deleted.id}`, "DELETE");
                     setProjectDelete(null);
                     if (projectId === deleted.id) {
-                      setProjectId(null);
-                      setDestination("chats");
+                      navigateAnalytics({
+                        view: "chats",
+                        sessionId: null,
+                        projectId: null,
+                        dashboardId: null,
+                      });
                     }
                   })
                 }
@@ -2900,9 +2866,7 @@ export default function App() {
             initialProjectId={
               destination === "dashboards"
                 ? dashboard?.projectId
-                : destination === "projects"
-                  ? projectId
-                  : null
+                : null
             }
             onClose={() => setDashboardArtifact(null)}
             onCreateProject={createProjectInPicker}
@@ -2924,13 +2888,12 @@ export default function App() {
                         setDashboardId(notice.dashboardId);
                         setDestination("dashboards");
                       } else if (notice.projectId) {
-                        setProjectId(notice.projectId);
-                        setDestination("projects");
+                        expandProject(notice.projectId);
                       }
                       setNotice(null);
                     }}
                   >
-                    {notice.dashboardId ? "Open dashboard" : "Open project"}
+                    {notice.dashboardId ? "Open dashboard" : "Show project"}
                   </Button>
                 }
                 onClose={() => setNotice(null)}

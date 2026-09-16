@@ -273,7 +273,7 @@ export function SupervisorHeader({
         >
           {activeControls}
         </div>
-        <Button type="button" variant="text" color="neutral" onClick={onPresence} className="flex h-8 w-[164px] min-w-0 items-center gap-1 rounded-2xl px-3" style={{ backgroundColor: neutralSurface }}>
+        <Button type="button" variant="text" color="neutral" onClick={onPresence} className="flex h-8 w-[164px] min-w-0 items-center gap-1 rounded-2xl px-3 ml-[0px] mr-[0px] pl-[8px] pr-[8px]" style={{ backgroundColor: neutralSurface }}>
           {resolvedEngaged ? <span className="h-2.5 w-2.5 shrink-0 rounded-full" aria-hidden="true" style={{ backgroundColor: "var(--sui-colors-danger-f)" }} /> : <ShellIcon src="/figmaAssets/presence.svg" className="h-3.5 w-3.5" />}
           <ShellIcon src="/figmaAssets/icon-engage-border.svg" />
           <div className="flex flex-1 items-center justify-between gap-1" style={{ color: foreground }}>
