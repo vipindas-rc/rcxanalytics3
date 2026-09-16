@@ -1813,11 +1813,11 @@ export const SupervisorAgents = (): JSX.Element => {
       activeArea="agent"
       onNavigate={(target) => navigate(target)}
       header={
-        <div className="relative flex h-full w-full items-center bg-[url('/figmaAssets/appbar-bg.svg')] bg-cover bg-center px-4 pl-5">
-          <div className="flex items-center gap-4">
+        <div className="relative flex h-full w-full items-center bg-[url('/figmaAssets/appbar-bg.svg')] bg-cover bg-center px-3">
+          <div className="flex items-center gap-2">
             <button type="button" className="relative">
               <div
-                className="relative h-10 w-10 overflow-hidden rounded-full"
+                className="relative h-8 w-8 overflow-hidden rounded-full"
                 style={{ backgroundColor: "var(--sui-colors-neutral-base)" }}
               >
                 <img
@@ -1828,35 +1828,35 @@ export const SupervisorAgents = (): JSX.Element => {
               </div>
               <ShellIcon
                 src="/figmaAssets/presence.svg"
-                className="absolute bottom-0 right-0 h-3.5 w-3.5"
+                className="absolute bottom-0 right-0 h-3 w-3"
                 tone="static"
               />
             </button>
             <h1
-              className="font-headline-2 text-[length:var(--headline-2-font-size)] font-[number:var(--headline-2-font-weight)] leading-[var(--headline-2-line-height)] tracking-[var(--headline-2-letter-spacing)] [font-style:var(--headline-2-font-style)]"
+              className="font-headline-2 text-[18px] font-semibold leading-[22px]"
               style={{ color: "var(--sui-colors-neutral-static-w0)" }}
             >
               RingCentral, Inc.
             </h1>
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
-                className="h-8 w-8 rounded-full bg-[var(--sui-colors-neutral-static-w0-t20)] p-0 hover:opacity-80"
+                className="h-6 w-6 rounded-full bg-[var(--sui-colors-neutral-static-w0-t20)] p-0 hover:opacity-80"
               >
                 <ShellIcon src="/figmaAssets/icon-chevron-left.svg" tone="static" />
               </Button>
               <Button
                 variant="ghost"
-                className="h-8 w-8 rounded-full bg-[var(--sui-colors-neutral-static-w0-t10)] p-0 hover:opacity-80"
+                className="h-6 w-6 rounded-full bg-[var(--sui-colors-neutral-static-w0-t10)] p-0 hover:opacity-80"
               >
                 <ShellIcon src="/figmaAssets/icon-chevron-right.svg" tone="static" />
               </Button>
             </div>
           </div>
-          <div className="flex flex-1 px-2 pl-3 pr-3">
-            <div className="relative w-full max-w-[468px]">
+          <div className="flex w-[332px] shrink-0 px-2">
+            <div className="relative w-full">
               <div className="pointer-events-none absolute inset-0 rounded-full bg-[var(--sui-colors-neutral-static-w0-t20)]" />
-              <div className="relative flex h-8 items-center gap-2 px-3">
+              <div className="relative flex h-7 items-center gap-2 px-3">
                 <ShellIcon src="/figmaAssets/icon-search-nav.svg" tone="static" />
                 <span
                   className="font-button text-[length:var(--button-font-size)] font-[number:var(--button-font-weight)] leading-[var(--button-line-height)] tracking-[var(--button-letter-spacing)] opacity-60 [font-style:var(--button-font-style)]"
@@ -1867,7 +1867,7 @@ export const SupervisorAgents = (): JSX.Element => {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 self-stretch">
+          <div className="flex items-center gap-1.5 self-stretch">
             {headerSession ? (
               /* Active call chip: dark bar with the caller number, live timer,
                  mute toggle and hang-up (design ref: RingCX top-bar call). */

@@ -205,10 +205,10 @@ export function SupervisorHeader({
           </div>
           <ShellIcon src="/figmaAssets/presence.svg" className="absolute bottom-0 right-0 h-3 w-3" tone="static" />
         </Button>
-        <h1 className="font-headline-2 text-[length:var(--headline-2-font-size)] font-[number:var(--headline-2-font-weight)] leading-[var(--headline-2-line-height)] tracking-[var(--headline-2-letter-spacing)] [font-style:var(--headline-2-font-style)]" style={{ color: "var(--sui-colors-neutral-static-w0)" }}>
+        <h1 className="font-headline-2 text-[18px] font-semibold leading-[22px]" style={{ color: "var(--sui-colors-neutral-static-w0)" }}>
           RingCentral, Inc.
         </h1>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <Button type="button" variant="text" color="neutral" aria-label="Back" onClick={onBack} className="flex h-6 w-6 min-w-0 items-center justify-center rounded-full p-0" style={{ backgroundColor: headerOverlay }}>
             <ShellIcon src="/figmaAssets/icon-chevron-left.svg" tone="static" />
           </Button>
@@ -217,8 +217,8 @@ export function SupervisorHeader({
           </Button>
         </div>
       </div>
-      <div className="flex flex-1 px-2">
-        <div className="relative w-full max-w-[400px]">
+      <div className="flex w-[332px] shrink-0 px-2">
+        <div className="relative w-full">
           <div className="pointer-events-none absolute inset-0 rounded-full" style={{ backgroundColor: headerOverlay }} />
           <div className="relative flex h-7 items-center gap-2 px-3">
             <ShellIcon src="/figmaAssets/icon-search-nav.svg" tone="static" />
