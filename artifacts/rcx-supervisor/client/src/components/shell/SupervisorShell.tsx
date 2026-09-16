@@ -48,12 +48,35 @@ const utilityNavigation: NavItem[] = [
 export function ShellIcon({
   src,
   className = "h-4 w-4",
+  active = false,
+  color,
 }: {
   src: string;
   className?: string;
   active?: boolean;
   tone?: "neutral" | "static";
+  color?: string;
 }) {
+  if (active || color) {
+    return (
+      <span
+        aria-hidden="true"
+        className={`inline-block shrink-0 ${className}`}
+        style={{
+          backgroundColor: active ? "#066fac" : color,
+          maskImage: `url(${src})`,
+          maskPosition: "center",
+          maskRepeat: "no-repeat",
+          maskSize: "contain",
+          WebkitMaskImage: `url(${src})`,
+          WebkitMaskPosition: "center",
+          WebkitMaskRepeat: "no-repeat",
+          WebkitMaskSize: "contain",
+        }}
+      />
+    );
+  }
+
   return (
     <img
       aria-hidden="true"
@@ -95,7 +118,12 @@ function NavigationItem({
           : "#121212",
       }}
     >
-      <ShellIcon src={item.icon} className="relative" />
+      <ShellIcon
+        src={item.icon}
+        className="relative h-6 w-6"
+        active={isActive}
+        color="#121212"
+      />
       <span className="mt-0.5 flex h-4 items-center justify-center self-stretch text-center font-caption-2 text-[length:var(--caption-2-font-size)] font-[number:var(--caption-2-font-weight)] leading-[var(--caption-2-line-height)] tracking-[var(--caption-2-letter-spacing)] [font-style:var(--caption-2-font-style)]">
         {item.label}
       </span>
