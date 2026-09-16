@@ -16,6 +16,7 @@ type ShellProps = NavigationProps & {
 type NavItem = {
   label: string;
   icon: string;
+  activeIcon?: string;
   badge?: string;
   destination?: "/" | "/analytics";
 };
@@ -32,6 +33,7 @@ const primaryNavigation: NavItem[] = [
   {
     label: "Analytics",
     icon: "/figmaAssets/icon-analytics-border.svg",
+    activeIcon: "/figmaAssets/icon-analytics-border-active.svg",
     destination: "/analytics",
   },
   { label: "Contacts", icon: "/figmaAssets/phone-inbox-border-1.svg" },
@@ -95,7 +97,10 @@ function NavigationItem({
           : "#121212",
       }}
     >
-      <ShellIcon src={item.icon} className="relative" />
+      <ShellIcon
+        src={isActive ? (item.activeIcon ?? item.icon) : item.icon}
+        className="relative"
+      />
       <span className="mt-0.5 flex h-4 items-center justify-center self-stretch text-center font-caption-2 text-[length:var(--caption-2-font-size)] font-[number:var(--caption-2-font-weight)] leading-[var(--caption-2-line-height)] tracking-[var(--caption-2-letter-spacing)] [font-style:var(--caption-2-font-style)]">
         {item.label}
       </span>
