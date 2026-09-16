@@ -2,7 +2,7 @@
  * Analytics is a native feature of Supervisor. Keep every local rule inside
  * its root (or the host-owned portal root) so it cannot restyle Supervisor.
  */
-@scope (:is(.analytics-app, .analytics-portal)) {
+@scope (:is(.analytics-app, .analytics-portal, .advisor-menu)) {
 .analytics-app { --surface:var(--sui-colors-neutral-base); --canvas:var(--sui-colors-neutral-b4-t50); --soft:var(--sui-colors-neutral-b5); --ink:var(--sui-colors-neutral-b1); --muted:var(--sui-colors-neutral-b2); --line:var(--sui-colors-neutral-b4); position:relative; display:grid; grid-template-columns:260px minmax(0,1fr); grid-template-rows:minmax(0,1fr); height:100%; min-height:0; overflow:hidden; background:var(--canvas); color:var(--ink); font-family:var(--sui-font-family); }
 .analytics-app button { font-family:inherit; }
 .workspace-sidebar { display:flex; flex-direction:column; min-width:0; border-right:1px solid var(--line); background:var(--sui-colors-neutral-b5); padding:20px 16px; }
@@ -65,10 +65,12 @@
 .project-workspace-title .sui-icon-button { flex:none; }
 .project-collection { grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr))!important; gap:24px!important; }
 .project-collection>.report-card:only-of-type { grid-column:1/-1; }
-.project-conversations { grid-column:1/-1; min-width:0; color:var(--muted); font-size:13px; }
-.project-conversations summary { cursor:pointer; width:fit-content; padding:8px 0; }
+.project-conversations { grid-column:1/-1; min-width:0; padding:12px; border:1px solid var(--line); border-radius:12px; background:var(--surface); color:var(--muted); font-size:13px; }
+.project-conversations summary { display:flex; align-items:center; min-height:32px; cursor:pointer; width:fit-content; padding:0 4px; }
+.project-conversations[open] summary { margin-bottom:8px; }
 .project-conversations summary:focus-visible { outline:2px solid var(--sui-colors-primary-f); outline-offset:4px; }
-.project-conversations .collection-row { white-space:normal; overflow-wrap:anywhere; }
+.project-conversations .collection-row { min-height:36px; margin:0; padding:8px 10px!important; border-radius:8px!important; white-space:normal; overflow-wrap:anywhere; }
+.project-conversations .collection-row:hover { background:var(--sui-colors-neutral-b5)!important; }
 .conversation-turn { margin-bottom:30px; min-width:0; animation:analytics-answer-arrival 240ms cubic-bezier(.2,.7,.2,1) both; }
 @keyframes analytics-answer-arrival { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
 .turn-author { display:block; font-size:12px; font-weight:600; margin-bottom:8px; }
@@ -92,10 +94,15 @@
 .report-heading-actions { display:flex; align-items:center; gap:4px; flex:none; }
 .advisor-card-action,.briefing-widget-advisor,.briefing-kpi-advisor { position:absolute; z-index:8; top:-18px; right:62px; display:flex; align-items:center; min-height:36px; }
 .advisor-trigger { display:inline-flex; opacity:0; pointer-events:none; transition:opacity 180ms ease; }
-.advisor-trigger button,.advisor-trigger [class*="sui-icon-button"] { width:36px!important; height:36px!important; min-width:36px!important; border:1px solid var(--line)!important; border-radius:999px!important; background:var(--surface)!important; color:var(--sui-colors-primary-f)!important; box-shadow:var(--sui-box-shadow-xs); }
-.advisor-trigger button:hover,.advisor-trigger [class*="sui-icon-button"]:hover { background:var(--sui-colors-neutral-b5)!important; }
+.advisor-trigger>button,.advisor-trigger>[class*="sui-icon-button"] { width:36px!important; height:36px!important; min-width:36px!important; border:1px solid var(--line)!important; border-radius:999px!important; background:var(--surface)!important; color:var(--sui-colors-primary-f)!important; box-shadow:var(--sui-box-shadow-xs); }
+.advisor-trigger>button:hover,.advisor-trigger>[class*="sui-icon-button"]:hover { background:var(--sui-colors-neutral-b5)!important; }
 .report-card:hover .advisor-trigger,.report-card:focus-within .advisor-trigger,.briefing-widget:hover .advisor-trigger,.briefing-widget:focus-within .advisor-trigger,.briefing-kpi:hover .advisor-trigger,.briefing-kpi:focus-within .advisor-trigger,.advisor-card-action:hover .advisor-trigger,.briefing-widget-advisor:hover .advisor-trigger,.briefing-kpi-advisor:hover .advisor-trigger,.advisor-trigger:has(.sui-menu-root) { opacity:1; pointer-events:auto; }
-.advisor-menu-input { display:flex; align-items:flex-end; gap:8px; padding:10px 12px 12px; min-width:300px; }
+.advisor-menu .sui-menu-paper { overflow:hidden; }
+.sui-menu-paper>.advisor-menu-input { box-sizing:border-box; width:min(340px,calc(100vw - 32px)); min-width:0; padding:10px 12px 12px; border-top:1px solid var(--sui-colors-neutral-b4); }
+.sui-menu-paper>.advisor-menu-input>.advisor-menu-row { display:flex!important; flex-flow:row nowrap!important; align-items:center!important; gap:8px!important; min-width:0!important; }
+.sui-menu-paper>.advisor-menu-input>.advisor-menu-row>.advisor-question-control { flex:1 1 0!important; min-width:0!important; overflow:hidden!important; }
+.sui-menu-paper>.advisor-menu-input>.advisor-menu-row>.advisor-question-control>.advisor-question-field { width:100%!important; min-width:0!important; }
+.sui-menu-paper>.advisor-menu-input>.advisor-menu-row>button { flex:0 0 36px!important; align-self:center!important; margin:0!important; }
 .advisor-menu-input .sui-icon-button { flex:none; }
 .report-heading h3 { font-size:16px; line-height:1.5; font-weight:600; margin:0; }
 .synthetic-label { display:inline-flex; align-items:center; width:max-content; max-width:100%; color:var(--muted); font-size:11px; line-height:18px; margin-top:4px; padding:0 6px; border-radius:4px; background:var(--sui-colors-neutral-b5); }
@@ -258,9 +265,9 @@
 /* Aliases belong on the Spring scope, including portal scopes outside the app. */
 [data-sui-theme-scope] { --surface:var(--sui-colors-neutral-base); --soft:var(--sui-colors-neutral-b5); --ink:var(--sui-colors-neutral-b1); --muted:var(--sui-colors-neutral-b2); --line:var(--sui-colors-neutral-b4); }
 .advisor-trigger.is-open { opacity:1; pointer-events:auto; }
-.advisor-trigger button { background:var(--sui-colors-neutral-base)!important; border-color:var(--sui-colors-neutral-b4)!important; }
-.advisor-menu-input { width:min(340px,calc(100vw - 40px)); min-width:0; align-items:center; gap:8px; padding:8px 12px 12px; }
-.advisor-question-field { flex:1; min-width:0; }
+.advisor-trigger>button { background:var(--sui-colors-neutral-base)!important; border-color:var(--sui-colors-neutral-b4)!important; }
+.sui-menu-paper>.advisor-menu-input { width:min(340px,calc(100vw - 32px)); }
+.advisor-question-field { width:auto!important; min-width:0; }
 .advisor-question-field .sui-form-field-content { min-height:40px; border:1px solid var(--sui-colors-neutral-b4); border-radius:8px; background:var(--sui-colors-neutral-b5); transition:background-color 160ms ease,border-color 160ms ease,box-shadow 160ms ease; }
 .advisor-question-field .sui-form-field-content:focus-within { background:var(--sui-colors-neutral-base); border-color:var(--sui-colors-primary-f); box-shadow:var(--sui-box-shadow-xs-primary); }
 .advisor-question-field input { box-sizing:border-box; width:100%; min-height:38px; padding:8px 10px; border:0!important; outline:0!important; background:transparent!important; color:var(--sui-colors-neutral-b1); font:14px/1.4 var(--sui-font-family); }

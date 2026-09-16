@@ -28,8 +28,12 @@ export function AskAdvisor({ artifact, onAsk }: { artifact: Artifact; onAsk: (qu
       <MenuItem onClick={() => send(`Analyze ${artifact.title} further and identify the most important supported patterns.`)}>Analyze this further</MenuItem>
       <MenuItem onClick={() => send(`Help me understand ${artifact.title}, including the metric definition and the visible values.`)}>Help me understand this</MenuItem>
       <div className="advisor-menu-input">
-        <TextField ref={input} className="advisor-question-field" fullWidth placeholder="Ask a question" value={question} onChange={event => setQuestion(event.target.value)} inputProps={{ 'aria-label': `Ask Advisor about ${artifact.title}`, onKeyDown: (event: ReactKeyboardEvent) => { if (shouldSubmitAdvisorQuestion(event)) { event.preventDefault(); send(question) } } }} />
-        <IconButton symbol={SendMd} aria-label="Send Advisor question" title="Send Advisor question" color="primary" variant="contained" size="medium" disabled={!question.trim()} onClick={() => send(question)} />
+        <div className="advisor-menu-row">
+          <div className="advisor-question-control">
+            <TextField ref={input} className="advisor-question-field" fullWidth placeholder="Ask a question" value={question} onChange={event => setQuestion(event.target.value)} inputProps={{ 'aria-label': `Ask Advisor about ${artifact.title}`, onKeyDown: (event: ReactKeyboardEvent) => { if (shouldSubmitAdvisorQuestion(event)) { event.preventDefault(); send(question) } } }} />
+          </div>
+          <IconButton symbol={SendMd} aria-label="Send Advisor question" title="Send Advisor question" color="primary" variant="contained" size="medium" disabled={!question.trim()} onClick={() => send(question)} />
+        </div>
       </div>
     </Menu>
   </span>

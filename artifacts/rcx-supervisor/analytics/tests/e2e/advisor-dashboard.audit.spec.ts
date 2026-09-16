@@ -221,6 +221,18 @@ for (const width of [375, 768, 1024, 1440]) {
     expect(menuBounds).not.toBeNull()
     expect(menuBounds!.x).toBeGreaterThanOrEqual(0)
     expect(menuBounds!.x + menuBounds!.width).toBeLessThanOrEqual(width + 1)
+    const questionField = menu.getByRole('textbox', { name: /Ask Advisor about/i })
+    const sendButton = menu.getByRole('button', { name: 'Send Advisor question' })
+    await expect(questionField).toBeVisible()
+    await expect(sendButton).toBeVisible()
+    const [questionBounds, sendBounds] = await Promise.all([
+      questionField.boundingBox(),
+      sendButton.boundingBox(),
+    ])
+    expect(questionBounds).not.toBeNull()
+    expect(sendBounds).not.toBeNull()
+    expect(Math.abs(questionBounds!.y - sendBounds!.y)).toBeLessThanOrEqual(3)
+    expect(questionBounds!.x + questionBounds!.width).toBeLessThanOrEqual(sendBounds!.x + 1)
     await page.getByRole('menuitem', { name: 'Analyze this further' }).click()
     const panel = page.getByRole('complementary', { name: 'Advisor conversation' })
     await expect(panel).toBeVisible()
