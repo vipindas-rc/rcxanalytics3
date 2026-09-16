@@ -176,7 +176,25 @@ const reports: ReportDefinition[] = [
   ...Object.entries(additionalReportNames).flatMap(([category, titles]) => titles.map(title => definition(`report-${slug(title)}`, title, 'report', category))),
 ]
 
-export const REPORT_CATALOG: readonly ReportDefinition[] = [...dashboards, ...reports]
+function withUniqueReportIds(entries: readonly ReportDefinition[]): ReportDefinition[] {
+  const usedIds = new Set<string>()
+
+  return entries.map(entry => {
+    if (!usedIds.has(entry.id)) {
+      usedIds.add(entry.id)
+      return entry
+    }
+
+    const categorySuffix = slug(entry.category)
+    let candidate = `${entry.id}-${categorySuffix}`
+    let ordinal = 2
+    while (usedIds.has(candidate)) candidate = `${entry.id}-${categorySuffix}-${ordinal++}`
+    usedIds.add(candidate)
+    return { ...entry, id: candidate }
+  })
+}
+
+export const REPORT_CATALOG: readonly ReportDefinition[] = withUniqueReportIds([...dashboards, ...reports])
 
 const normalized = (value: string): string => value.trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ')
 const deduplicateRepeatedPhrase = (value: string): string => {

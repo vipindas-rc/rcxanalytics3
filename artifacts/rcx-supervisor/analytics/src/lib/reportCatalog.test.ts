@@ -8,6 +8,11 @@ describe('report catalog', () => {
     expect(REPORT_CATALOG.find(report => report.id === 'agent-disposition-report')).toMatchObject({ title: 'Agent Disposition Overview', type: 'report', availability: 'supported' })
   })
 
+  it('keeps catalog ids unique when the same report title appears in multiple categories', () => {
+    const ids = REPORT_CATALOG.map(report => report.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
   it('returns an alphabetical catalog for an empty query', () => {
     const names = searchReports('').map(report => report.title)
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)))
