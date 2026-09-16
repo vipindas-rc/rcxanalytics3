@@ -365,6 +365,12 @@ export default function App() {
     message: string;
   } | null>(null);
   const advisorOpen = analyticsDialog === "advisor";
+  // `undefined` follows the persisted Advisor session. `null` intentionally
+  // renders an empty panel while a new source gets its own session. A concrete
+  // id pins the panel to the session created for that source.
+  const [advisorConversationId, setAdvisorConversationId] = useState<
+    string | null | undefined
+  >(undefined);
   const setAdvisorOpen = useCallback(
     (open: boolean) => {
       if (open) setDialog("advisor");
@@ -589,8 +595,15 @@ export default function App() {
   }, [destination, activeId, projectId, dashboardId, workspace, active, searchParams]);
   const dashboard = workspace?.dashboards.find((d) => d.id === dashboardId);
   const advisorSession = workspace?.sessions.find((session) => session.advisor);
-  const advisorDraftKey = advisorSession
-    ? `advisor:${advisorSession.id}`
+  const visibleAdvisorSession =
+    advisorConversationId === undefined
+      ? advisorSession
+      : workspace?.sessions.find(
+          (session) =>
+            session.advisor && session.id === advisorConversationId,
+        );
+  const advisorDraftKey = visibleAdvisorSession
+    ? `advisor:${visibleAdvisorSession.id}`
     : "advisor:new";
   const advisorQuestion = drafts[advisorDraftKey] ?? "";
   const setAdvisorQuestion = (value: string) =>
@@ -608,10 +621,10 @@ export default function App() {
   // Keeping it out of the composer lock means a slow renderer cannot strand a chat.
   const busy = submitting || job?.request.status === "pending";
   const lastAdvisorRequest = workspace?.requests
-    .filter((request) => request.sessionId === advisorSession?.id)
+    .filter((request) => request.sessionId === visibleAdvisorSession?.id)
     .at(-1);
-  const advisorJob = advisorSession
-    ? (jobs[advisorSession.id] ??
+  const advisorJob = visibleAdvisorSession
+    ? (jobs[visibleAdvisorSession.id] ??
       (lastAdvisorRequest &&
       ["failed", "cancelled"].includes(lastAdvisorRequest.status)
         ? { request: lastAdvisorRequest }
@@ -659,7 +672,7 @@ export default function App() {
     return () => cancelAnimationFrame(frame);
   }, [
     advisorOpen,
-    advisorSession?.messages.length,
+    visibleAdvisorSession?.messages.length,
     advisorJob?.request.status,
     advisorJob?.waiting?.length,
   ]);
@@ -886,8 +899,8 @@ export default function App() {
       );
       setJobs((old) => ({ ...old, [id!]: { request } }));
       setQuestion("");
-      navigateAnalytics({ view: "chats", sessionId: id!, dashboardId: null });
       await refresh();
+      navigateAnalytics({ view: "chats", sessionId: id!, dashboardId: null });
       requestAnimationFrame(() =>
         end.current?.scrollIntoView({ block: "end", behavior: "smooth" }),
       );
@@ -941,6 +954,12 @@ export default function App() {
       setAdvisorSourceContext(resolvedContext ?? null);
       return;
     }
+    const hasCompletedAdvisorTurn = advisorSession?.messages.some(
+      (message) => message.role === "assistant",
+    );
+    const startsFreshAdvisorSession =
+      !advisorOpen && !retryOf && !advisorFailedRequest && hasCompletedAdvisorTurn;
+    if (startsFreshAdvisorSession) setAdvisorConversationId(null);
     advisorTrigger.current = trigger;
     openAdvisorPanel(artifact, report ?? null);
     setAdvisorSourceContext(resolvedContext ?? null);
@@ -951,13 +970,8 @@ export default function App() {
       // A closed Advisor is a completed investigation in Recents. Start a fresh
       // session when another card opens it, while keeping the active panel's
       // follow-ups in the same conversation.
-      const hasCompletedAdvisorTurn = advisorSession?.messages.some(
-        (message) => message.role === "assistant",
-      );
       let id =
-        !advisorOpen && hasCompletedAdvisorTurn
-          ? undefined
-          : advisorSession?.id;
+        startsFreshAdvisorSession ? undefined : advisorSession?.id;
       if (!id) {
         const session = await api<Session>("/sessions", "POST", {
           advisor: true,
@@ -981,6 +995,7 @@ export default function App() {
           presentationPreference: selection?.presentation,
         }),
       );
+      setAdvisorConversationId(id);
       setJobs((old) => ({ ...old, [id!]: { request } }));
       setAdvisorQuestion("");
       await refresh();
@@ -2212,10 +2227,11 @@ export default function App() {
                 <div>
                   <Button
                     color="neutral"
-                    variant="text"
+                    variant="outlined"
                     size="small"
+                    disabled={!visibleAdvisorSession}
                     onClick={() => {
-                      if (advisorSession) openSession(advisorSession);
+                      if (visibleAdvisorSession) openSession(visibleAdvisorSession);
                       closeAdvisor();
                     }}
                   >
@@ -2233,7 +2249,7 @@ export default function App() {
                 </div>
               </header>
               <div className="advisor-messages">
-                {advisorSession?.messages.map((message, index, messages) => {
+                {visibleAdvisorSession?.messages.map((message, index, messages) => {
                   const request = message.requestId
                     ? workspace?.requests.find(
                         (item) => item.id === message.requestId,
