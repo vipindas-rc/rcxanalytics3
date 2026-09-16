@@ -233,6 +233,26 @@ export default function App() {
       renderMarkdownAnswerTables(analyticsRoot.current);
   });
   const [sidebar, setSidebar] = useState(() => window.innerWidth > 850);
+  const [sidebarScrolling, setSidebarScrolling] = useState(false);
+  const sidebarScrollTimeout = useRef<number | null>(null);
+  const handleSidebarScroll = useCallback(() => {
+    setSidebarScrolling(true);
+    if (sidebarScrollTimeout.current !== null) {
+      window.clearTimeout(sidebarScrollTimeout.current);
+    }
+    sidebarScrollTimeout.current = window.setTimeout(
+      () => setSidebarScrolling(false),
+      700,
+    );
+  }, []);
+  useEffect(
+    () => () => {
+      if (sidebarScrollTimeout.current !== null) {
+        window.clearTimeout(sidebarScrollTimeout.current);
+      }
+    },
+    [],
+  );
   const [narrow, setNarrow] = useState(() => window.innerWidth <= 850);
   useEffect(() => {
     const media = matchMedia("(max-width:850px)");
@@ -1525,65 +1545,11 @@ export default function App() {
         >
           AI suggestions
         </Button>
-        {(["projects", "saved", "dashboards"] as const).map((view) => (
-          <Button
-            key={view}
-            color="neutral"
-            variant="text"
-            aria-current={destination === view ? "page" : undefined}
-            onClick={() => {
-              navigateAnalytics({
-                view,
-                sessionId: null,
-                projectId: null,
-                dashboardId: null,
-              });
-              if (narrow) setSidebar(false);
-            }}
-          >
-            {view === "projects"
-              ? "Projects"
-              : view === "saved"
-                ? "Saved charts"
-                : "Dashboards"}
-          </Button>
-        ))}
       </div>
-      <div className="sidebar-scroll">
-        <section className="sidebar-section">
-          <Text className="section-label">Recent conversations</Text>
-          {workspace?.sessions
-            .slice()
-            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-            .map((s) => (
-              <div
-                key={s.id}
-                className={`sidebar-item ${s.id === activeId && destination === "chats" ? "selected" : ""}`}
-              >
-                <Button
-                  color="neutral"
-                  variant="text"
-                  className="nav-row"
-                  onClick={() => openSession(s)}
-                >
-                  {s.title}
-                </Button>
-                <IconButton
-                  symbol={TrashMd}
-                  title={`Delete ${s.title}`}
-                  aria-label={`Delete ${s.title}`}
-                  size="small"
-                  color="neutral"
-                  onClick={() => setDeleteConfirm(s)}
-                />
-              </div>
-            ))}
-          {!workspace?.sessions.length && (
-            <Text className="sidebar-empty">
-              Your conversations will appear here.
-            </Text>
-          )}
-        </section>
+      <div
+        className={`sidebar-scroll ${sidebarScrolling ? "is-scrolling" : ""}`}
+        onScroll={handleSidebarScroll}
+      >
         <section className="sidebar-section">
           <div className="section-heading">
             <Text className="section-label">Projects</Text>
@@ -1628,6 +1594,40 @@ export default function App() {
             </div>
           ))}
         </section>
+        <section className="sidebar-section">
+          <Text className="section-label">Recent conversations</Text>
+          {workspace?.sessions
+            .slice()
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+            .map((s) => (
+              <div
+                key={s.id}
+                className={`sidebar-item ${s.id === activeId && destination === "chats" ? "selected" : ""}`}
+              >
+                <Button
+                  color="neutral"
+                  variant="text"
+                  className="nav-row"
+                  onClick={() => openSession(s)}
+                >
+                  {s.title}
+                </Button>
+                <IconButton
+                  symbol={TrashMd}
+                  title={`Delete ${s.title}`}
+                  aria-label={`Delete ${s.title}`}
+                  size="small"
+                  color="neutral"
+                  onClick={() => setDeleteConfirm(s)}
+                />
+              </div>
+            ))}
+          {!workspace?.sessions.length && (
+            <Text className="sidebar-empty">
+              Your conversations will appear here.
+            </Text>
+          )}
+        </section>
       </div>
       <div className="sidebar-footer">
         <Button
@@ -1639,7 +1639,6 @@ export default function App() {
         >
           Reset workspace
         </Button>
-        <Text className="sidebar-foot">RCX Analytics 3.0 · Local concept</Text>
       </div>
     </aside>
   );

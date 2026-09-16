@@ -188,12 +188,15 @@ test('a text response keeps progress inside the conversation and removes it afte
   await expect(page.locator('.conversation-content').getByText('Ready.', { exact: true })).toBeVisible()
 })
 
-test('uses the native sidebar with projects, saved charts, dashboards, and briefing', async ({ page }) => {
+test('uses the compact native sidebar with projects and briefing', async ({ page }) => {
   await mockWorkspace(page, emptyWorkspace())
   await page.goto(appPath())
   await expect(page.getByRole('button', { name: 'Collapse sidebar' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Saved charts', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Dashboards', exact: true })).toBeVisible()
+  await expect(page.getByText('Projects', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Saved charts', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Dashboards', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Reset workspace', exact: true })).toBeVisible()
+  await expect(page.getByText('RCX Analytics 3.0 · Local concept', { exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: 'AI suggestions' }).click()
   await expect(page.getByRole('heading', { name: 'Morning supervisor briefing' })).toBeVisible()
 })
@@ -252,8 +255,7 @@ test('lays dashboard widgets out as a readable grid without a nested action stri
     workspace.dashboards[0].widgets = patch.widgets
     await route.fulfill({ json: workspace.dashboards[0] })
   })
-  await page.goto(appPath())
-  await page.getByRole('button', { name: 'Dashboards', exact: true }).click()
+  await page.goto(appPath('/dashboards'))
   await page.getByRole('button', { name: 'Team dashboard' }).click()
   const widgets = page.locator('.dashboard-widget')
   await expect(widgets).toHaveCount(3)

@@ -117,8 +117,7 @@ test('project and dashboard menus remove only their own chart placement', async 
     workspace.dashboards[0].widgets = body.widgets
     await route.fulfill({ json: workspace.dashboards[0] })
   })
-  await page.goto(appPath())
-  await page.getByRole('button', { name: 'Projects', exact: true }).click()
+  await page.goto(appPath('/projects'))
   await page.locator('.workspace-sidebar').getByRole('button', { name: 'Analytics', exact: true }).click()
   await expect(page.locator('.project-collection > h3')).toHaveCount(0)
   await expect(page.getByText('Conversations in this project (1)')).toBeVisible()
